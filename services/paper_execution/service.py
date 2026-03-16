@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from pydantic import Field
 
+from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     PaperTrade,
     PaperTradeStatus,
     PositionIdea,
     PositionSide,
-    ProvenanceRecord,
     StrictModel,
 )
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -53,14 +52,14 @@ class PaperExecutionService(BaseService):
     def propose_trades(self, request: PaperTradeProposalRequest) -> PaperTradeProposalResponse:
         """Create placeholder paper trade proposals from position ideas."""
 
-        now = utc_now()
+        now = self.clock.now()
         trades = [
             PaperTrade(
                 paper_trade_id=make_prefixed_id("trade"),
                 portfolio_proposal_id=request.portfolio_proposal_id,
                 position_idea_id=idea.position_idea_id,
                 symbol=idea.symbol,
-                side=PositionSide.LONG if idea.side == PositionSide.LONG else PositionSide.SHORT,
+                side=idea.side,
                 quantity=100.0,
                 notional_usd=float(abs(idea.proposed_weight_bps) * 10),
                 time_in_force="day",
@@ -69,16 +68,16 @@ class PaperExecutionService(BaseService):
                 requested_by=request.requested_by,
                 execution_notes=["Simulated only. No live routing."],
                 slippage_bps_estimate=5.0,
-                provenance=ProvenanceRecord(
-                    upstream_artifact_ids=[idea.position_idea_id, request.portfolio_proposal_id],
+                provenance=build_provenance(
+                    clock=self.clock,
                     transformation_name="paper_trade_stub",
-                    transformation_version="day1",
-                    processing_time=now,
+                    upstream_artifact_ids=[idea.position_idea_id, request.portfolio_proposal_id],
                 ),
                 created_at=now,
                 updated_at=now,
             )
             for idea in request.position_ideas
+            if idea.side != PositionSide.FLAT
         ]
         return PaperTradeProposalResponse(
             trade_batch_id=make_prefixed_id("tradebatch"),

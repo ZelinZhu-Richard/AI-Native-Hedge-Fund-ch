@@ -241,6 +241,10 @@ class DataSnapshot(TimestampedModel):
     data_snapshot_id: str = Field(description="Canonical snapshot identifier.")
     dataset_name: str = Field(description="Canonical dataset name.")
     dataset_version: str = Field(description="Dataset version or snapshot label.")
+    dataset_manifest_id: str | None = Field(
+        default=None,
+        description="Dataset manifest identifier when a manifest exists for the snapshot.",
+    )
     data_layer: DataLayer = Field(description="Data layer represented by the snapshot.")
     snapshot_time: datetime = Field(description="UTC time the snapshot is materialized for access.")
     watermark_time: datetime | None = Field(

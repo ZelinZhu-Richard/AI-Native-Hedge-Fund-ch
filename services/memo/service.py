@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pydantic import Field
 
+from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
-from libraries.schemas import Memo, MemoStatus, ProvenanceRecord, StrictModel
-from libraries.time import utc_now
+from libraries.schemas import Memo, MemoStatus, StrictModel
 from libraries.utils import make_prefixed_id
 
 
@@ -52,7 +52,7 @@ class MemoGenerationService(BaseService):
     def generate(self, request: MemoGenerationRequest) -> MemoGenerationResponse:
         """Generate a placeholder memo artifact."""
 
-        now = utc_now()
+        now = self.clock.now()
         memo = Memo(
             memo_id=make_prefixed_id("memo"),
             title=request.title,
@@ -67,11 +67,10 @@ class MemoGenerationService(BaseService):
             key_risks=["All outputs require human review."],
             open_questions=["Source-linked evidence flow is still being built in Day 2."],
             content_uri=None,
-            provenance=ProvenanceRecord(
-                upstream_artifact_ids=request.related_hypothesis_ids,
+            provenance=build_provenance(
+                clock=self.clock,
                 transformation_name="memo_generation_stub",
-                transformation_version="day1",
-                processing_time=now,
+                upstream_artifact_ids=request.related_hypothesis_ids,
             ),
             created_at=now,
             updated_at=now,

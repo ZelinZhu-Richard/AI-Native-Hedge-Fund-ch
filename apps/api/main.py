@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from fastapi import FastAPI
 from pydantic import Field
 
 from agents.registry import list_agent_descriptors
 from libraries.config import get_settings
+from libraries.core import AgentDescriptor, ServiceCapability
 from libraries.core.service_registry import build_service_registry
 from libraries.logging import configure_logging
 from libraries.schemas import Hypothesis, PaperTrade, PortfolioProposal, StrictModel
-from libraries.time import isoformat_z, utc_now
+from libraries.time import SystemClock, isoformat_z
 from services.ingestion import DocumentIngestionRequest, DocumentIngestionResponse, IngestionService
 
 
@@ -32,8 +31,8 @@ class VersionResponse(StrictModel):
 class CapabilityResponse(StrictModel):
     """Service and agent discovery response."""
 
-    services: list[dict[str, object]] = Field(description="Registered service capabilities.")
-    agents: list[dict[str, object]] = Field(description="Registered agent descriptors.")
+    services: list[ServiceCapability] = Field(description="Registered service capabilities.")
+    agents: list[AgentDescriptor] = Field(description="Registered agent descriptors.")
 
 
 class HypothesisListResponse(StrictModel):
@@ -66,8 +65,9 @@ class PaperTradeProposalListResponse(StrictModel):
 
 
 settings = get_settings()
+api_clock = SystemClock()
 configure_logging(settings.log_level)
-service_registry = build_service_registry()
+service_registry = build_service_registry(clock=api_clock)
 app = FastAPI(
     title=settings.project_name,
     version=settings.app_version,
@@ -75,17 +75,11 @@ app = FastAPI(
 )
 
 
-def _models_to_dicts(items: Sequence[StrictModel]) -> list[dict[str, object]]:
-    """Convert Pydantic models into JSON-serializable dictionaries."""
-
-    return [item.model_dump(mode="json") for item in items]
-
-
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 def health() -> HealthResponse:
     """Return a simple health response."""
 
-    return HealthResponse(status="ok", timestamp=isoformat_z(utc_now()))
+    return HealthResponse(status="ok", timestamp=isoformat_z(api_clock.now()))
 
 
 @app.get("/version", response_model=VersionResponse, tags=["system"])
@@ -105,8 +99,8 @@ def capabilities() -> CapabilityResponse:
 
     service_capabilities = [service.capability() for service in service_registry.values()]
     return CapabilityResponse(
-        services=_models_to_dicts(service_capabilities),
-        agents=_models_to_dicts(list_agent_descriptors()),
+        services=service_capabilities,
+        agents=list_agent_descriptors(),
     )
 
 

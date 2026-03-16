@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from libraries.core.service_framework import BaseService
+from libraries.time import Clock
 from services.audit import AuditLoggingService
 from services.backtesting import BacktestingService
 from services.feature_store import FeatureStoreService
@@ -14,20 +15,20 @@ from services.risk_engine import RiskEngineService
 from services.signal_generation import SignalGenerationService
 
 
-def build_service_registry() -> dict[str, BaseService]:
+def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]:
     """Instantiate the Day 1 default service registry."""
 
     services: list[BaseService] = [
-        IngestionService(),
-        ParsingService(),
-        ResearchOrchestrationService(),
-        FeatureStoreService(),
-        SignalGenerationService(),
-        BacktestingService(),
-        RiskEngineService(),
-        PortfolioConstructionService(),
-        PaperExecutionService(),
-        MemoGenerationService(),
-        AuditLoggingService(),
+        IngestionService(clock=clock),
+        ParsingService(clock=clock),
+        ResearchOrchestrationService(clock=clock),
+        FeatureStoreService(clock=clock),
+        SignalGenerationService(clock=clock),
+        BacktestingService(clock=clock),
+        RiskEngineService(clock=clock),
+        PortfolioConstructionService(clock=clock),
+        PaperExecutionService(clock=clock),
+        MemoGenerationService(clock=clock),
+        AuditLoggingService(clock=clock),
     ]
     return {service.capability_name: service for service in services}

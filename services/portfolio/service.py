@@ -4,16 +4,15 @@ from datetime import datetime
 
 from pydantic import Field
 
+from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     PortfolioConstraint,
     PortfolioProposal,
     PortfolioProposalStatus,
     PositionIdea,
-    ProvenanceRecord,
     StrictModel,
 )
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -55,10 +54,14 @@ class PortfolioConstructionService(BaseService):
     def construct(self, request: PortfolioConstructionRequest) -> PortfolioConstructionResponse:
         """Build a placeholder portfolio proposal while preserving review requirements."""
 
-        now = utc_now()
+        now = self.clock.now()
         gross_exposure_bps = sum(abs(idea.proposed_weight_bps) for idea in request.position_ideas)
         net_exposure_bps = sum(
-            idea.proposed_weight_bps if idea.side.value == "long" else -idea.proposed_weight_bps
+            0
+            if idea.side.value == "flat"
+            else (
+                idea.proposed_weight_bps if idea.side.value == "long" else -idea.proposed_weight_bps
+            )
             for idea in request.position_ideas
         )
         proposal = PortfolioProposal(
@@ -75,11 +78,10 @@ class PortfolioConstructionService(BaseService):
             review_required=True,
             status=PortfolioProposalStatus.DRAFT,
             summary="Day 1 placeholder proposal assembled from reviewed position ideas.",
-            provenance=ProvenanceRecord(
-                upstream_artifact_ids=[idea.position_idea_id for idea in request.position_ideas],
+            provenance=build_provenance(
+                clock=self.clock,
                 transformation_name="portfolio_construction_stub",
-                transformation_version="day1",
-                processing_time=now,
+                upstream_artifact_ids=[idea.position_idea_id for idea in request.position_ideas],
             ),
             created_at=now,
             updated_at=now,

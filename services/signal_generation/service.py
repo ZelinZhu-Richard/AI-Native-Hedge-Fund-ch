@@ -6,7 +6,6 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -59,5 +58,5 @@ class SignalGenerationService(BaseService):
             signal_ids=[make_prefixed_id("sig")],
             status="queued",
             review_required=True,
-            accepted_at=utc_now(),
+            accepted_at=self.clock.now(),
         )

@@ -32,5 +32,7 @@ def test_capabilities_and_document_ingestion_placeholder() -> None:
 
     assert capabilities_response.status_code == 200
     assert len(capabilities_response.json()["services"]) >= 5
+    assert "name" in capabilities_response.json()["services"][0]
+    assert "objective" in capabilities_response.json()["agents"][0]
     assert ingest_response.status_code == 200
     assert ingest_response.json()["status"] == "queued"

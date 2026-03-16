@@ -6,7 +6,6 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -55,6 +54,6 @@ class ParsingService(BaseService):
             parse_run_id=make_prefixed_id("parse"),
             document_id=request.document_id,
             status="queued",
-            accepted_at=utc_now(),
+            accepted_at=self.clock.now(),
             expected_artifacts=["EvidenceSpan", "normalized_text"],
         )

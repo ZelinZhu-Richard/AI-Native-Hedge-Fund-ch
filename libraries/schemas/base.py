@@ -274,9 +274,33 @@ class ProvenanceRecord(StrictModel):
         default=None,
         description="Version string for the producing workflow or transformation.",
     )
+    config_version: str | None = Field(
+        default=None,
+        description="Configuration or registry version that influenced generation.",
+    )
     code_version: str | None = Field(
         default=None,
         description="Git SHA or release version used for generation.",
+    )
+    workflow_run_id: str | None = Field(
+        default=None,
+        description="Workflow or orchestration run identifier when available.",
+    )
+    agent_run_id: str | None = Field(
+        default=None,
+        description="Agent run identifier when the artifact came from an agent.",
+    )
+    experiment_id: str | None = Field(
+        default=None,
+        description="Experiment identifier associated with the artifact.",
+    )
+    model_name: str | None = Field(
+        default=None,
+        description="Model used for generation when AI-assisted output is involved.",
+    )
+    prompt_version: str | None = Field(
+        default=None,
+        description="Prompt or policy version used for AI-assisted generation.",
     )
     ingestion_time: datetime | None = Field(
         default=None,

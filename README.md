@@ -4,6 +4,8 @@ Institutional-grade Day 1 foundation for an AI-native hedge fund research and pa
 
 This repository is the operating system for future research workflows, not a toy demo and not a live-trading system. The current scope is deliberately narrow: establish the architecture, typed contracts, service boundaries, safety controls, local development workflow, and documentation needed to build quickly without sacrificing rigor.
 
+Execution sequencing and phase intent are anchored in `PLAN.md`. Repository contribution behavior and architectural guardrails are anchored in `AGENTS.md`.
+
 ## Day 1 Scope
 
 Day 1 includes:
@@ -52,9 +54,12 @@ The repo is organized as a Python monorepo with explicit top-level boundaries:
 - `apps/`: thin entrypoints such as the API and future research console
 - `services/`: application services with clear responsibilities
 - `agents/`: machine-readable agent descriptors and future agent implementations
+- `configs/`: versionable non-secret configuration assets and local examples
 - `libraries/`: shared contracts, utilities, config, logging, and time primitives
 - `pipelines/`: orchestration entrypoints for scheduled or event-driven workflows
 - `data_contracts/`: future machine-readable data contract artifacts
+- `research_artifacts/`: reviewable research outputs and templates that are not raw source data
+- `storage/`: storage layout and dataset metadata conventions
 - `docs/`: architecture, safety, contract, and execution plans
 - `tests/`: unit and integration checks
 
@@ -66,6 +71,7 @@ Day 1 uses in-memory stubs and typed models so the shape of the system is real e
 /
 ├── README.md
 ├── AGENTS.md
+├── PLAN.md
 ├── pyproject.toml
 ├── Makefile
 ├── .env.example
@@ -95,6 +101,7 @@ Day 1 uses in-memory stubs and typed models so the shape of the system is real e
 │   ├── risk_reviewer_agent/
 │   ├── portfolio_agent/
 │   └── memo_writer_agent/
+├── configs/                  # Versionable local config examples and future profiles
 ├── libraries/
 │   ├── core/                 # Agent/service abstractions and registries
 │   ├── schemas/              # Core typed domain models
@@ -109,6 +116,8 @@ Day 1 uses in-memory stubs and typed models so the shape of the system is real e
 ├── data_contracts/           # Reserved for versioned machine-readable contracts
 ├── infra/                    # Reserved for future deployment/IaC assets
 ├── notebooks/                # Ad-hoc research with stricter rules documented
+├── research_artifacts/       # Reviewable research deliverables and templates
+├── storage/                  # Storage layout and dataset metadata conventions
 ├── tests/
 │   ├── unit/
 │   ├── integration/
@@ -163,6 +172,7 @@ Open `http://127.0.0.1:8000/docs` for the generated FastAPI docs.
 ## Local Development Notes
 
 - All timestamps should be timezone-aware UTC at rest.
+- Services receive an explicit clock so future replay and testing can avoid hidden time dependencies.
 - Provenance is mandatory for derived artifacts and strongly preferred for raw artifacts.
 - Service stubs are intentionally thin; replace them with real adapters without changing the typed interfaces casually.
 - Empty directories such as `infra/` and `data_contracts/` exist to reserve clean ownership boundaries early.
@@ -174,6 +184,7 @@ Open `http://127.0.0.1:8000/docs` for the generated FastAPI docs.
 - `services/audit/` exists as a separate boundary because audit concerns must remain independent from business services that emit audit events.
 - Agent descriptors are represented in code and documentation so both humans and future automation have a shared source of truth.
 - Time, IDs, config, and logging live in `libraries/` to avoid hidden coupling across services.
+- `configs/`, `research_artifacts/`, and `storage/` exist because the operating docs require explicit homes for versioned config, reviewable research outputs, and dataset/storage metadata.
 
 ## Review-Later Topics
 

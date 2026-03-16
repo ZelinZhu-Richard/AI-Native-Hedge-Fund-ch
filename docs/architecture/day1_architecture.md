@@ -182,7 +182,14 @@ Day 1 state is intentionally light:
 - service behavior is in-memory and stubbed
 - typed schemas define what persistent state will look like later
 - `DataSnapshot` models define how future reproducible datasets will be referenced
+- `DatasetManifest` and storage metadata reserve the future dataset/storage control plane
 - `AuditLog` defines the event record required for future persistence
+
+The repository also reserves explicit top-level homes for:
+
+- `configs/` for versioned non-secret configuration assets
+- `research_artifacts/` for reviewable research outputs and templates
+- `storage/` for storage layout and dataset metadata conventions
 
 Future persistent state should separate:
 

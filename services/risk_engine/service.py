@@ -6,7 +6,6 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import PortfolioProposal, PositionIdea, StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -57,12 +56,14 @@ class RiskEngineService(BaseService):
     def evaluate(self, request: RiskEvaluationRequest) -> RiskEvaluationResponse:
         """Return placeholder risk evaluation results."""
 
-        risk_check_count = len(request.position_ideas) or (
-            len(request.portfolio_proposal.position_ideas) if request.portfolio_proposal else 1
-        )
+        risk_check_count = len(request.position_ideas)
+        if risk_check_count == 0 and request.portfolio_proposal is not None:
+            risk_check_count = len(request.portfolio_proposal.position_ideas)
+        if risk_check_count == 0:
+            risk_check_count = 1
         return RiskEvaluationResponse(
             evaluation_id=make_prefixed_id("riskeval"),
             risk_check_ids=[make_prefixed_id("risk") for _ in range(risk_check_count)],
             blocking_issues=[],
-            evaluated_at=utc_now(),
+            evaluated_at=self.clock.now(),
         )

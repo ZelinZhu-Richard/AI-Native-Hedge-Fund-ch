@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pydantic import Field
 
+from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
-from libraries.schemas import AuditOutcome, ProvenanceRecord, StrictModel
+from libraries.schemas import AuditOutcome, StrictModel
 from libraries.schemas.system import AuditLog
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -48,7 +48,7 @@ class AuditLoggingService(BaseService):
     def record_event(self, request: AuditEventRequest) -> AuditEventResponse:
         """Create a placeholder audit log record."""
 
-        now = utc_now()
+        now = self.clock.now()
         event = AuditLog(
             audit_log_id=make_prefixed_id("audit"),
             event_type=request.event_type,
@@ -62,11 +62,7 @@ class AuditLoggingService(BaseService):
             reason=request.reason,
             request_id=request.request_id,
             related_artifact_ids=[request.target_id],
-            provenance=ProvenanceRecord(
-                transformation_name="audit_logging_stub",
-                transformation_version="day1",
-                processing_time=now,
-            ),
+            provenance=build_provenance(clock=self.clock, transformation_name="audit_logging_stub"),
             created_at=now,
             updated_at=now,
         )

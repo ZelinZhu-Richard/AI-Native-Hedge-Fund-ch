@@ -6,7 +6,6 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -61,7 +60,7 @@ class ResearchOrchestrationService(BaseService):
         return ResearchCycleResponse(
             research_cycle_id=make_prefixed_id("cycle"),
             status="started",
-            started_at=utc_now(),
+            started_at=self.clock.now(),
             planned_agents=[
                 "filing_ingestion_agent",
                 "transcript_agent",

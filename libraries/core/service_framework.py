@@ -5,6 +5,7 @@ from abc import ABC
 from pydantic import Field
 
 from libraries.schemas.base import StrictModel
+from libraries.time import Clock, SystemClock
 
 
 class ServiceCapability(StrictModel):
@@ -31,6 +32,11 @@ class BaseService(ABC):
 
     capability_name: str
     capability_description: str
+
+    def __init__(self, clock: Clock | None = None) -> None:
+        """Initialize a service with an explicit time source."""
+
+        self.clock = clock or SystemClock()
 
     def capability(self) -> ServiceCapability:
         """Return service metadata for discovery and operational visibility."""

@@ -6,7 +6,6 @@ from pydantic import Field, model_validator
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import DocumentKind, StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -72,7 +71,7 @@ class IngestionService(BaseService):
     def ingest_document(self, request: DocumentIngestionRequest) -> DocumentIngestionResponse:
         """Queue a document for later downstream processing."""
 
-        queued_at = utc_now()
+        queued_at = self.clock.now()
         return DocumentIngestionResponse(
             ingestion_job_id=make_prefixed_id("ingest"),
             document_id=make_prefixed_id("doc"),

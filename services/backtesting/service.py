@@ -6,7 +6,6 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -55,6 +54,6 @@ class BacktestingService(BaseService):
         return BacktestResponse(
             backtest_run_id=make_prefixed_id("btrun"),
             status="queued",
-            queued_at=utc_now(),
+            queued_at=self.clock.now(),
             notes=["No performance claims are produced by Day 1 stubs."],
         )

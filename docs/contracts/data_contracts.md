@@ -83,6 +83,7 @@ If provenance is incomplete, downstream consumers should degrade trust and may r
 - Schema evolution must be explicit and additive when possible
 - Breaking contract changes should be versioned and called out in docs
 - Dataset snapshots should carry a dataset version and schema version
+- Dataset manifests should exist once a dataset spans multiple storage locations or partitions
 - Transformation versions should change whenever logic meaningfully changes
 
 ## Reproducibility Expectations
@@ -107,6 +108,8 @@ Future partitioning should preserve point-in-time retrieval and auditability. De
 - normalized publish date
 - company ID or universe bucket
 - dataset version
+
+When future storage metadata becomes concrete, `DatasetManifest`, `DatasetPartition`, and storage location records should be the machine-readable source of truth for how datasets are materialized.
 
 Partition design should make it easy to reconstruct the exact information set visible at a historical cutoff.
 

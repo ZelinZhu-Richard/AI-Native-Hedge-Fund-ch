@@ -57,6 +57,12 @@ from libraries.schemas.research import (
     Signal,
     SignalScore,
 )
+from libraries.schemas.storage import (
+    ArtifactStorageLocation,
+    DatasetManifest,
+    DatasetPartition,
+    StorageKind,
+)
 from libraries.schemas.system import AuditLog
 
 __all__ = [
@@ -64,6 +70,7 @@ __all__ = [
     "AgentRunStatus",
     "AuditLog",
     "AuditOutcome",
+    "ArtifactStorageLocation",
     "BacktestStatus",
     "BacktestRun",
     "Company",
@@ -72,6 +79,8 @@ __all__ = [
     "CounterHypothesis",
     "DataLayer",
     "DataSnapshot",
+    "DatasetManifest",
+    "DatasetPartition",
     "Document",
     "DocumentKind",
     "DocumentStatus",
@@ -110,4 +119,5 @@ __all__ = [
     "SourceReference",
     "SourceType",
     "StrictModel",
+    "StorageKind",
 ]

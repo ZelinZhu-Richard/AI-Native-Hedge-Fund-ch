@@ -1,0 +1,13 @@
+[platform]
+project_name = "ANHF Research OS"
+baseline_version = "day1"
+default_timezone = "UTC"
+
+[risk]
+paper_trading_only = true
+allow_live_trading = false
+require_human_review = true
+
+[research]
+default_universe = "us_equities"
+default_feature_snapshot = "day1"

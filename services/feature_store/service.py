@@ -6,7 +6,6 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import Feature, StrictModel
-from libraries.time import utc_now
 from libraries.utils import make_prefixed_id
 
 
@@ -70,7 +69,7 @@ class FeatureStoreService(BaseService):
         return FeatureWriteResponse(
             write_batch_id=make_prefixed_id("featurebatch"),
             accepted_feature_ids=[feature.feature_id for feature in request.features],
-            accepted_at=utc_now(),
+            accepted_at=self.clock.now(),
         )
 
     def query_features(self, request: FeatureQueryRequest) -> FeatureQueryResponse:
