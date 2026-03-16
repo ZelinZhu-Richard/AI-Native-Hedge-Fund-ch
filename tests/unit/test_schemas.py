@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +12,10 @@ from libraries.schemas import (
     DocumentStatus,
     Feature,
     FeatureStatus,
+    PositionSide,
     ProvenanceRecord,
+    Signal,
+    SignalStatus,
 )
 from libraries.time import utc_now
 
@@ -63,6 +66,54 @@ def test_feature_requires_exactly_one_value() -> None:
             status=FeatureStatus.COMPUTED,
             numeric_value=1.0,
             text_value="invalid",
+            provenance=ProvenanceRecord(processing_time=now),
+            created_at=now,
+            updated_at=now,
+        )
+
+
+def test_document_schema_rejects_naive_datetimes() -> None:
+    naive_now = datetime(2026, 3, 16, 12, 0)
+
+    with pytest.raises(ValidationError):
+        Document(
+            document_id="doc_test",
+            kind=DocumentKind.DOCUMENT,
+            company_id="co_test",
+            title="Naive Timestamp Document",
+            source_reference_id="src_test",
+            data_layer=DataLayer.NORMALIZED,
+            language="en",
+            storage_uri="s3://bucket/doc.txt",
+            content_hash="abc123",
+            source_published_at=naive_now,
+            effective_at=naive_now,
+            ingested_at=naive_now,
+            processed_at=naive_now,
+            status=DocumentStatus.NORMALIZED,
+            provenance=ProvenanceRecord(processing_time=naive_now),
+            created_at=naive_now,
+            updated_at=naive_now,
+        )
+
+
+def test_signal_rejects_expiry_before_effective_time() -> None:
+    now = datetime(2026, 3, 16, 12, 0, tzinfo=UTC)
+
+    with pytest.raises(ValidationError):
+        Signal(
+            signal_id="sig_test",
+            company_id="co_test",
+            hypothesis_id="hyp_test",
+            signal_family="quality",
+            direction=PositionSide.LONG,
+            thesis_summary="Invalid signal window.",
+            feature_ids=["feat_test"],
+            component_scores=[],
+            primary_score=0.75,
+            effective_at=now,
+            expires_at=now.replace(hour=11),
+            status=SignalStatus.CANDIDATE,
             provenance=ProvenanceRecord(processing_time=now),
             created_at=now,
             updated_at=now,

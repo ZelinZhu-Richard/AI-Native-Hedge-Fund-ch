@@ -176,6 +176,14 @@ class Signal(TimestampedModel):
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the signal.")
 
+    @model_validator(mode="after")
+    def validate_signal_window(self) -> Signal:
+        """Ensure a signal cannot expire before it becomes effective."""
+
+        if self.expires_at is not None and self.expires_at < self.effective_at:
+            raise ValueError("expires_at must be greater than or equal to effective_at.")
+        return self
+
 
 class BacktestRun(TimestampedModel):
     """Metadata for a temporally controlled backtest execution."""
@@ -202,6 +210,20 @@ class BacktestRun(TimestampedModel):
         description="URI to serialized results, reports, or diagnostics.",
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the backtest run.")
+
+    @model_validator(mode="after")
+    def validate_backtest_windows(self) -> BacktestRun:
+        """Ensure declared training and test windows are ordered correctly."""
+
+        if self.test_end < self.test_start:
+            raise ValueError("test_end must be greater than or equal to test_start.")
+        if (
+            self.train_start is not None
+            and self.train_end is not None
+            and self.train_end < self.train_start
+        ):
+            raise ValueError("train_end must be greater than or equal to train_start.")
+        return self
 
 
 class Experiment(TimestampedModel):

@@ -11,3 +11,10 @@ Day 1 keeps storage abstract on purpose, but the architecture expects future sep
 - audit/event storage
 
 The canonical machine-readable metadata for that future layer starts in the storage-related schemas under `libraries/schemas/`.
+
+Repository-level layout conventions:
+
+- `storage/raw/` stores source payloads exactly as received
+- `storage/normalized/` stores cleaned, parser-friendly representations
+- `storage/derived/` stores machine-readable derived artifacts tied to provenance
+- `storage/audit/` stores durable event and decision logs

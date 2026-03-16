@@ -40,6 +40,8 @@ The canonical timestamp types are:
 
 When the true value is unknown, store `null` and document the uncertainty. Do not infer timestamps from convenience.
 
+Day 1 schemas reject naive datetimes at validation time so timezone assumptions are explicit rather than implicit.
+
 ## Event Time vs Ingestion Time vs Processing Time
 
 - Event time is a property of the world.
@@ -55,6 +57,13 @@ These must not be conflated. A delayed source can have an old event time and a r
 - Derived: hypotheses, features, signals, scores, proposals, and memos built from normalized inputs
 
 Every artifact should declare its `DataLayer` or be inferable from its entity type.
+
+Repository layout should respect the same split:
+
+- raw machine inputs belong under `storage/raw/`
+- normalized machine-readable documents belong under `storage/normalized/`
+- derived machine-readable artifacts belong under `storage/derived/`
+- human-facing review bundles belong under `research_artifacts/`
 
 ## Provenance Requirements
 

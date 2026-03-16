@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from libraries.schemas.base import (
     ConfidenceAssessment,
@@ -94,6 +94,18 @@ class EvidenceSpan(TimestampedModel):
     provenance: ProvenanceRecord = Field(
         description="Traceability for extraction and normalization."
     )
+
+    @model_validator(mode="after")
+    def validate_offsets(self) -> EvidenceSpan:
+        """Ensure evidence offsets are internally consistent when present."""
+
+        if (
+            self.start_char is not None
+            and self.end_char is not None
+            and self.end_char < self.start_char
+        ):
+            raise ValueError("end_char must be greater than or equal to start_char.")
+        return self
 
 
 class Document(TimestampedModel):

@@ -32,6 +32,7 @@ Human review is required before:
 - Derived artifacts must carry provenance.
 - Unknown or ambiguous metadata must be marked unknown rather than guessed.
 - Future sensitive datasets should be permissioned by source, license, and use case.
+- Repository storage should preserve raw, normalized, derived, and audit layers as separate paths and ownership boundaries.
 
 ## Audit Logging Requirements
 

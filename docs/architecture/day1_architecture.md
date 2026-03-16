@@ -175,6 +175,16 @@ flowchart TD
 
 The artifact rule is strict: derived artifacts must point back to upstream artifacts. Free-floating conclusions are not allowed.
 
+## Repository Layout Conventions
+
+The repository-level layout mirrors the artifact model so future persistence work does not collapse layers together:
+
+- `storage/raw/` for raw payloads
+- `storage/normalized/` for cleaned and parser-friendly documents
+- `storage/derived/` for machine-readable derived artifacts
+- `storage/audit/` for durable audit and event storage
+- `research_artifacts/` for human-reviewable evidence packs, memos, proposals, and paper-trade bundles
+
 ## Memory and State
 
 Day 1 state is intentionally light:

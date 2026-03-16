@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from libraries.schemas.base import (
     ConfidenceAssessment,
@@ -50,6 +50,18 @@ class PositionIdea(TimestampedModel):
         description="Confidence and uncertainty assessment for the idea.",
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the position idea.")
+
+    @model_validator(mode="after")
+    def validate_weight_limits(self) -> PositionIdea:
+        """Ensure proposed weights are consistent with side and hard caps."""
+
+        if abs(self.proposed_weight_bps) > self.max_weight_bps:
+            raise ValueError(
+                "proposed_weight_bps must not exceed max_weight_bps in absolute value."
+            )
+        if self.side == PositionSide.FLAT and self.proposed_weight_bps != 0:
+            raise ValueError("Flat position ideas must have zero proposed weight.")
+        return self
 
 
 class PortfolioConstraint(TimestampedModel):
@@ -124,6 +136,16 @@ class PortfolioProposal(TimestampedModel):
     summary: str = Field(description="Short summary of the proposal.")
     provenance: ProvenanceRecord = Field(description="Traceability for the proposal.")
 
+    @model_validator(mode="after")
+    def validate_exposures(self) -> PortfolioProposal:
+        """Ensure proposal exposure fields are internally consistent."""
+
+        if self.gross_exposure_bps < abs(self.net_exposure_bps):
+            raise ValueError("gross_exposure_bps must be at least the absolute net exposure.")
+        if self.cash_buffer_bps < 0:
+            raise ValueError("cash_buffer_bps must be greater than or equal to zero.")
+        return self
+
 
 class ReviewDecision(TimestampedModel):
     """Human review decision attached to a proposal, idea, or trade."""
@@ -176,3 +198,13 @@ class PaperTrade(TimestampedModel):
         description="Estimated slippage in basis points for the simulated fill.",
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the paper trade.")
+
+    @model_validator(mode="after")
+    def validate_trade_timestamps(self) -> PaperTrade:
+        """Ensure approval and simulated fill times are temporally valid."""
+
+        if self.approved_at is not None and self.approved_at < self.submitted_at:
+            raise ValueError("approved_at must be greater than or equal to submitted_at.")
+        if self.simulated_fill_at is not None and self.simulated_fill_at < self.submitted_at:
+            raise ValueError("simulated_fill_at must be greater than or equal to submitted_at.")
+        return self

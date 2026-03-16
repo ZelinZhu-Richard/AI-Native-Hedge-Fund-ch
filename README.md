@@ -28,6 +28,15 @@ Day 1 explicitly does **not** include:
 - real feature computation or signal ranking logic
 - persistent storage or deployment infrastructure
 
+## Immediate Goal
+
+The immediate goal is to finish Phase 1 cleanly and leave the repo ready for Phase 2 ingestion work:
+
+- preserve explicit service boundaries
+- preserve point-in-time and provenance discipline
+- make storage and artifact separation unambiguous
+- keep local development and validation friction low
+
 ## Design Intent
 
 The platform is structured so future work can separate and audit:
@@ -62,6 +71,14 @@ The repo is organized as a Python monorepo with explicit top-level boundaries:
 - `storage/`: storage layout and dataset metadata conventions
 - `docs/`: architecture, safety, contract, and execution plans
 - `tests/`: unit and integration checks
+
+At the repository level, the intended artifact split is:
+
+- `storage/raw/` for raw source payloads
+- `storage/normalized/` for normalized documents and parser-friendly text
+- `storage/derived/` for derived machine-readable artifacts
+- `storage/audit/` for durable audit/event storage
+- `research_artifacts/` for human-reviewable outputs such as evidence packs, memos, and proposal bundles
 
 Day 1 uses in-memory stubs and typed models so the shape of the system is real even where business logic is still intentionally incomplete.
 
@@ -117,7 +134,19 @@ Day 1 uses in-memory stubs and typed models so the shape of the system is real e
 ├── infra/                    # Reserved for future deployment/IaC assets
 ├── notebooks/                # Ad-hoc research with stricter rules documented
 ├── research_artifacts/       # Reviewable research deliverables and templates
+│   ├── evidence/
+│   ├── hypotheses/
+│   ├── features/
+│   ├── signals/
+│   ├── portfolio_proposals/
+│   ├── paper_trades/
+│   ├── memos/
+│   └── audit_logs/
 ├── storage/                  # Storage layout and dataset metadata conventions
+│   ├── raw/
+│   ├── normalized/
+│   ├── derived/
+│   └── audit/
 ├── tests/
 │   ├── unit/
 │   ├── integration/
@@ -176,6 +205,7 @@ Open `http://127.0.0.1:8000/docs` for the generated FastAPI docs.
 - Provenance is mandatory for derived artifacts and strongly preferred for raw artifacts.
 - Service stubs are intentionally thin; replace them with real adapters without changing the typed interfaces casually.
 - Empty directories such as `infra/` and `data_contracts/` exist to reserve clean ownership boundaries early.
+- Storage and research-artifact directories are intentionally pre-shaped so future persistence work does not blur raw, normalized, derived, and reviewable outputs.
 - The API is a coordination surface, not the core business logic layer.
 
 ## Key Day 1 Choices
