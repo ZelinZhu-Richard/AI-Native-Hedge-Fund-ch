@@ -1,0 +1,30 @@
+{
+  "fixture_type": "news_item",
+  "fixture_name": "apex_launch_news",
+  "source_type": "newswire",
+  "external_id": "news:marketwire:apex-launch-20260509",
+  "uri": "https://news.example.com/apex-launch-20260509",
+  "title": "Apex Instruments launches next-generation predictive maintenance suite",
+  "published_at": "2026-05-09T07:15:00-04:00",
+  "retrieved_at": "2026-05-09T11:20:00Z",
+  "effective_at": null,
+  "company": {
+    "legal_name": "Apex Instruments, Inc.",
+    "ticker": "APEX",
+    "exchange": "NASDAQ",
+    "cik": "0001983210",
+    "isin": "US03777A1097",
+    "lei": "549300APEXINSTRMNT01",
+    "figi": "BBG00APEX1234",
+    "sector": "Information Technology",
+    "industry": "Electronic Equipment, Instruments & Components",
+    "country_of_risk": "US"
+  },
+  "publisher": "MarketWire Financial",
+  "headline": "Apex Instruments launches next-generation predictive maintenance suite",
+  "summary": "The launch expands Apex's asset monitoring platform and is expected to be available to customers in the third quarter.",
+  "author_names": [
+    "Rina Patel"
+  ],
+  "raw_text": "Apex Instruments said its new predictive maintenance suite combines edge sensors, workflow software, and anomaly detection dashboards aimed at factory uptime improvement. The company expects pilot deployments to begin with existing industrial customers later this quarter."
+}

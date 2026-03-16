@@ -1,0 +1,24 @@
+{
+  "fixture_type": "company",
+  "fixture_name": "apex_company_reference",
+  "source_type": "reference_data_vendor",
+  "external_id": "refdata:apex",
+  "uri": "refdata://sample_vendor/company/apex-instruments",
+  "title": "Apex Instruments company reference record",
+  "published_at": null,
+  "retrieved_at": "2026-05-06T13:00:00Z",
+  "effective_at": null,
+  "company": {
+    "legal_name": "Apex Instruments, Inc.",
+    "ticker": "APEX",
+    "exchange": "NASDAQ",
+    "cik": "0001983210",
+    "isin": "US03777A1097",
+    "lei": "549300APEXINSTRMNT01",
+    "figi": "BBG00APEX1234",
+    "sector": "Information Technology",
+    "industry": "Electronic Equipment, Instruments & Components",
+    "country_of_risk": "US"
+  },
+  "as_of_time": "2026-05-06T00:00:00Z"
+}

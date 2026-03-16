@@ -1,0 +1,32 @@
+{
+  "fixture_type": "earnings_call",
+  "fixture_name": "apex_q1_2026_call",
+  "source_type": "earnings_transcript_vendor",
+  "external_id": "transcript:apex:2026q1",
+  "uri": "transcripts://sample_vendor/apex/q1-2026",
+  "title": "Apex Instruments Q1 2026 Earnings Call Transcript",
+  "published_at": "2026-05-08T18:35:00-04:00",
+  "retrieved_at": "2026-05-08T23:15:00Z",
+  "effective_at": null,
+  "company": {
+    "legal_name": "Apex Instruments, Inc.",
+    "ticker": "APEX",
+    "exchange": "NASDAQ",
+    "cik": "0001983210",
+    "isin": "US03777A1097",
+    "lei": "549300APEXINSTRMNT01",
+    "figi": "BBG00APEX1234",
+    "sector": "Information Technology",
+    "industry": "Electronic Equipment, Instruments & Components",
+    "country_of_risk": "US"
+  },
+  "call_datetime": "2026-05-08T16:30:00-04:00",
+  "fiscal_year": 2026,
+  "fiscal_quarter": 1,
+  "participants": [
+    "Maya Chen - Chief Executive Officer",
+    "David Ortiz - Chief Financial Officer",
+    "Jordan Lee - Equity Research Analyst"
+  ],
+  "raw_text": "Maya Chen, CEO: We exited the quarter with backlog above internal plan and conversion in industrial automation well ahead of our February assumptions. David Ortiz, CFO: We are maintaining our full-year operating margin outlook while continuing to fund the platform migration and channel expansion."
+}

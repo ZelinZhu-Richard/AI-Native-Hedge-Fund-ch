@@ -19,6 +19,7 @@ from libraries.schemas.base import (
     PortfolioProposalStatus,
     PositionIdeaStatus,
     PositionSide,
+    PriceSeriesStatus,
     ProvenanceRecord,
     ReviewOutcome,
     RiskCheckStatus,
@@ -36,6 +37,7 @@ from libraries.schemas.market import (
     Filing,
     MarketEvent,
     NewsItem,
+    PriceSeriesMetadata,
     SourceReference,
 )
 from libraries.schemas.portfolio import (
@@ -101,6 +103,8 @@ __all__ = [
     "NewsItem",
     "PaperTrade",
     "PaperTradeStatus",
+    "PriceSeriesMetadata",
+    "PriceSeriesStatus",
     "PortfolioConstraint",
     "PortfolioProposal",
     "PortfolioProposalStatus",

@@ -21,8 +21,17 @@ All first-class entities use explicit prefixed IDs. Examples:
 - `memo_...` for `Memo`
 - `audit_...` for `AuditLog`
 - `snap_...` for `DataSnapshot`
+- `pxmeta_...` for `PriceSeriesMetadata`
+- `store_...` for `ArtifactStorageLocation`
 
 IDs should be immutable once assigned. Upstream vendor IDs may be stored separately, but they are not substitutes for canonical IDs.
+
+Current Day 2 ID rules:
+
+- `Company.company_id` uses CIK when available, otherwise stable identity parts such as ticker, legal name, and country of risk
+- `SourceReference.source_reference_id` is deterministic from source type plus upstream identity and URI
+- `Document.document_id` is deterministic from document kind plus source reference and upstream document identity
+- `PriceSeriesMetadata.price_series_metadata_id` is deterministic from company, dataset name, and symbol
 
 ## Timestamp Semantics
 
@@ -40,7 +49,12 @@ The canonical timestamp types are:
 
 When the true value is unknown, store `null` and document the uncertainty. Do not infer timestamps from convenience.
 
-Day 1 schemas reject naive datetimes at validation time so timezone assumptions are explicit rather than implicit.
+Schemas reject naive datetimes at validation time so timezone assumptions are explicit rather than implicit.
+
+Current ingestion rule:
+
+- raw fixture files preserve the original serialized timestamp strings
+- normalized canonical objects convert timestamp fields to UTC at rest
 
 ## Event Time vs Ingestion Time vs Processing Time
 
@@ -49,6 +63,12 @@ Day 1 schemas reject naive datetimes at validation time so timezone assumptions 
 - Processing time is a property of our transformation pipeline.
 
 These must not be conflated. A delayed source can have an old event time and a recent ingestion time. Backtests and feature computation must reason about both.
+
+Current ingestion examples:
+
+- `Filing.filing_date` is not a substitute for `SourceReference.retrieved_at`
+- `EarningsCall.call_datetime` is event time, while transcript publication time is a separate source timestamp
+- company metadata may have `as_of_time` that is earlier than fixture ingestion time
 
 ## Raw vs Normalized vs Derived Data
 
@@ -65,6 +85,11 @@ Repository layout should respect the same split:
 - derived machine-readable artifacts belong under `storage/derived/`
 - human-facing review bundles belong under `research_artifacts/`
 
+Current local ingestion runs materialize under `artifacts/ingestion/` using the same layered split:
+
+- `artifacts/ingestion/raw/` for exact fixture payload copies
+- `artifacts/ingestion/normalized/` for canonical typed outputs
+
 ## Provenance Requirements
 
 Derived artifacts must include a provenance record containing, where applicable:
@@ -77,6 +102,12 @@ Derived artifacts must include a provenance record containing, where applicable:
 - data snapshot ID
 - ingestion time
 - processing time
+
+Current normalization also records:
+
+- transformation name
+- configuration version hooks
+- fixture path notes for local replay and debugging
 
 If provenance is incomplete, downstream consumers should degrade trust and may require human escalation.
 
@@ -144,6 +175,13 @@ To avoid leakage:
 - never use future universe membership or survivorship-biased company sets
 - never score signals with features that became available after the stated `as_of_time`
 - never train on labels or post-event summaries unavailable at decision time
+
+Current ingestion-specific guardrails:
+
+- do not replace source publication time with local ingestion time
+- do not use filing period end dates as if they were publication timestamps
+- do not collapse transcript event time and transcript availability time
+- do not treat company reference-data `as_of_time` as equivalent to retrieval time
 
 ## Day 1 Contract Publication Strategy
 

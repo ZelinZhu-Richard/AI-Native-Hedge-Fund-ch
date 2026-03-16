@@ -12,6 +12,7 @@ from libraries.schemas.base import (
     DocumentStatus,
     FilingForm,
     MarketEventType,
+    PriceSeriesStatus,
     ProvenanceRecord,
     SourceType,
     TimestampedModel,
@@ -67,6 +68,18 @@ class SourceReference(TimestampedModel):
     license: str | None = Field(
         default=None, description="Usage or redistribution license if applicable."
     )
+    provenance: ProvenanceRecord = Field(
+        description="Traceability for how the source reference was registered or normalized."
+    )
+
+    @model_validator(mode="after")
+    def validate_temporal_order(self) -> SourceReference:
+        """Ensure source timestamps do not imply impossible ordering."""
+
+        if self.published_at is not None and self.retrieved_at is not None:
+            if self.retrieved_at < self.published_at:
+                raise ValueError("retrieved_at must be greater than or equal to published_at.")
+        return self
 
 
 class EvidenceSpan(TimestampedModel):
@@ -145,6 +158,14 @@ class Document(TimestampedModel):
     status: DocumentStatus = Field(description="Document lifecycle status.")
     tags: list[str] = Field(default_factory=list, description="Normalized document tags.")
     provenance: ProvenanceRecord = Field(description="Traceability for the document.")
+
+    @model_validator(mode="after")
+    def validate_document_times(self) -> Document:
+        """Ensure document lifecycle timestamps remain internally coherent."""
+
+        if self.processed_at is not None and self.processed_at < self.ingested_at:
+            raise ValueError("processed_at must be greater than or equal to ingested_at.")
+        return self
 
 
 class Filing(Document):
@@ -283,3 +304,40 @@ class DataSnapshot(TimestampedModel):
     )
     created_by_process: str = Field(description="Workflow or process that generated the snapshot.")
     provenance: ProvenanceRecord = Field(description="Traceability for the snapshot.")
+
+
+class PriceSeriesMetadata(TimestampedModel):
+    """Metadata describing a canonical price series without storing the prices themselves."""
+
+    price_series_metadata_id: str = Field(description="Canonical price series metadata identifier.")
+    company_id: str | None = Field(default=None, description="Associated company identifier.")
+    symbol: str = Field(description="Primary tradable symbol for the series.")
+    exchange: str | None = Field(default=None, description="Primary exchange code for the series.")
+    currency: str = Field(description="Quoted currency for the series.")
+    frequency: str = Field(description="Series frequency, for example `daily`.")
+    timezone: str = Field(description="Timezone used by the upstream market data source.")
+    dataset_name: str = Field(description="Canonical dataset name for the series.")
+    source_reference_id: str = Field(description="Source reference backing the metadata.")
+    vendor_symbol: str | None = Field(default=None, description="Vendor-specific symbol if different.")
+    first_price_date: date | None = Field(
+        default=None,
+        description="First date known to exist in the upstream series.",
+    )
+    last_price_date: date | None = Field(
+        default=None,
+        description="Most recent date known to exist in the upstream series.",
+    )
+    status: PriceSeriesStatus = Field(description="Lifecycle status for the metadata record.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the price series metadata.")
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> PriceSeriesMetadata:
+        """Ensure the known date range is internally consistent."""
+
+        if (
+            self.first_price_date is not None
+            and self.last_price_date is not None
+            and self.last_price_date < self.first_price_date
+        ):
+            raise ValueError("last_price_date must be greater than or equal to first_price_date.")
+        return self

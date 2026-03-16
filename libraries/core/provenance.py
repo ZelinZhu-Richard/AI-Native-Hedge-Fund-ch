@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from libraries.config import get_settings
 from libraries.schemas.base import ProvenanceRecord
 from libraries.time import Clock
@@ -16,6 +18,8 @@ def build_provenance(
     experiment_id: str | None = None,
     model_name: str | None = None,
     prompt_version: str | None = None,
+    ingestion_time: datetime | None = None,
+    notes: list[str] | None = None,
 ) -> ProvenanceRecord:
     """Build a baseline provenance record with centralized version metadata."""
 
@@ -31,5 +35,7 @@ def build_provenance(
         experiment_id=experiment_id,
         model_name=model_name,
         prompt_version=prompt_version,
+        ingestion_time=ingestion_time,
         processing_time=clock.now(),
+        notes=notes or [],
     )

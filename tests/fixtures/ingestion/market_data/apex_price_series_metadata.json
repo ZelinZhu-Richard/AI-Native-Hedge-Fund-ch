@@ -1,0 +1,32 @@
+{
+  "fixture_type": "price_series_metadata",
+  "fixture_name": "apex_price_series_metadata",
+  "source_type": "market_data_feed",
+  "external_id": "pxmeta:apex:daily",
+  "uri": "marketdata://sample_feed/equities/apex/daily/metadata",
+  "title": "APEX daily price series metadata",
+  "published_at": null,
+  "retrieved_at": "2026-05-06T13:05:00Z",
+  "effective_at": null,
+  "company": {
+    "legal_name": "Apex Instruments, Inc.",
+    "ticker": "APEX",
+    "exchange": "NASDAQ",
+    "cik": "0001983210",
+    "isin": "US03777A1097",
+    "lei": "549300APEXINSTRMNT01",
+    "figi": "BBG00APEX1234",
+    "sector": "Information Technology",
+    "industry": "Electronic Equipment, Instruments & Components",
+    "country_of_risk": "US"
+  },
+  "symbol": "APEX",
+  "exchange": "NASDAQ",
+  "currency": "USD",
+  "frequency": "daily",
+  "timezone": "America/New_York",
+  "dataset_name": "sample_equities_daily",
+  "vendor_symbol": "APEX.O",
+  "first_price_date": "2023-01-03",
+  "last_price_date": "2026-05-08"
+}

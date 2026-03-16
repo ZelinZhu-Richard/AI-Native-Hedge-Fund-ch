@@ -1,40 +1,41 @@
 # ANHF Research OS
 
-Institutional-grade Day 1 foundation for an AI-native hedge fund research and paper-trading platform.
+Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended with the first local ingestion and normalization slice.
 
 This repository is the operating system for future research workflows, not a toy demo and not a live-trading system. The current scope is deliberately narrow: establish the architecture, typed contracts, service boundaries, safety controls, local development workflow, and documentation needed to build quickly without sacrificing rigor.
 
 Execution sequencing and phase intent are anchored in `PLAN.md`. Repository contribution behavior and architectural guardrails are anchored in `AGENTS.md`.
 
-## Day 1 Scope
+## Current Scope
 
-Day 1 includes:
+The repository currently includes:
 
 - a disciplined Python monorepo scaffold
 - typed Pydantic contracts for core research, portfolio, risk, memo, and audit entities
 - service interfaces and stub implementations for each major platform boundary
 - a minimal FastAPI control-plane API
 - an initial agent framework and agent registry
+- a local fixture-backed ingestion and normalization pipeline for filings, transcripts, news, company metadata, and price-series metadata
 - documentation for architecture, temporal contracts, risk controls, eval philosophy, and Day 2 execution
 - local quality tooling: `ruff`, `mypy`, `pytest`, `pre-commit`, and `Makefile`
 
-Day 1 explicitly does **not** include:
+The repository still does **not** include:
 
 - live brokerage connectivity
 - autonomous execution
 - real alpha claims
 - backtest performance claims
-- production data connectors
+- production data connectors beyond local fixture-backed loaders
 - real feature computation or signal ranking logic
 - persistent storage or deployment infrastructure
 
 ## Immediate Goal
 
-The immediate goal is to finish Phase 1 cleanly and leave the repo ready for Phase 2 ingestion work:
+The immediate goal is to turn the local ingestion backbone into parser-ready evidence flows:
 
 - preserve explicit service boundaries
 - preserve point-in-time and provenance discipline
-- make storage and artifact separation unambiguous
+- keep raw, normalized, derived, and reviewable artifacts unambiguous
 - keep local development and validation friction low
 
 ## Design Intent
@@ -80,7 +81,7 @@ At the repository level, the intended artifact split is:
 - `storage/audit/` for durable audit/event storage
 - `research_artifacts/` for human-reviewable outputs such as evidence packs, memos, and proposal bundles
 
-Day 1 uses in-memory stubs and typed models so the shape of the system is real even where business logic is still intentionally incomplete.
+The current ingestion slice writes exact raw fixture copies and canonical normalized artifacts so the system has a real local substrate even while provider integrations remain intentionally deferred.
 
 ## Project Structure
 
@@ -233,11 +234,11 @@ These are deliberate Day 1 deferrals that deserve review before Day 3:
 
 Future work should extend the platform in this order:
 
-1. real ingestion connectors and sample fixtures
-2. parsing and evidence extraction with traceable spans
-3. first research artifact flow from document to hypothesis to memo
-4. feature computation and signal generation with temporal controls
-5. backtesting and eval harnesses with strict out-of-sample discipline
-6. paper portfolio construction and simulated execution under risk review
+1. parsing and evidence extraction with traceable spans over the normalized artifacts
+2. first research artifact flow from document to hypothesis to memo
+3. feature computation and signal generation with temporal controls
+4. backtesting and eval harnesses with strict out-of-sample discipline
+5. paper portfolio construction and simulated execution under risk review
+6. real provider connectors once the local artifact flow is stable
 
 The rule for future contributions is simple: preserve the boundaries, preserve provenance, preserve temporal correctness.

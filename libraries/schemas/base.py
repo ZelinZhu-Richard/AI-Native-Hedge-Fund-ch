@@ -75,6 +75,7 @@ class SourceType(StrEnum):
     EARNINGS_TRANSCRIPT_VENDOR = "earnings_transcript_vendor"
     NEWSWIRE = "newswire"
     MARKET_DATA_FEED = "market_data_feed"
+    REFERENCE_DATA_VENDOR = "reference_data_vendor"
     INTERNAL_ANALYST = "internal_analyst"
     MANUAL_UPLOAD = "manual_upload"
 
@@ -260,6 +261,14 @@ class PaperTradeStatus(StrEnum):
     REJECTED = "rejected"
     SIMULATED = "simulated"
     CANCELLED = "cancelled"
+
+
+class PriceSeriesStatus(StrEnum):
+    """Lifecycle for a price series metadata record."""
+
+    ACTIVE = "active"
+    PLACEHOLDER = "placeholder"
+    STALE = "stale"
 
 
 class AuditOutcome(StrEnum):

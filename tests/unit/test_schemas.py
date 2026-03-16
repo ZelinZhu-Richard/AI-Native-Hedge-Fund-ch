@@ -13,9 +13,13 @@ from libraries.schemas import (
     Feature,
     FeatureStatus,
     PositionSide,
+    PriceSeriesMetadata,
+    PriceSeriesStatus,
     ProvenanceRecord,
     Signal,
     SignalStatus,
+    SourceReference,
+    SourceType,
 )
 from libraries.time import utc_now
 
@@ -114,6 +118,52 @@ def test_signal_rejects_expiry_before_effective_time() -> None:
             effective_at=now,
             expires_at=now.replace(hour=11),
             status=SignalStatus.CANDIDATE,
+            provenance=ProvenanceRecord(processing_time=now),
+            created_at=now,
+            updated_at=now,
+        )
+
+
+def test_source_reference_rejects_retrieval_before_publication() -> None:
+    now = datetime(2026, 3, 16, 12, 0, tzinfo=UTC)
+
+    with pytest.raises(ValidationError):
+        SourceReference(
+            source_reference_id="src_test",
+            source_type=SourceType.NEWSWIRE,
+            external_id="news:1",
+            uri="https://news.example.com/item",
+            title="Invalid Source Reference",
+            publisher="Example News",
+            content_hash="abc123",
+            published_at=now,
+            retrieved_at=now.replace(hour=11),
+            effective_at=now,
+            license=None,
+            provenance=ProvenanceRecord(processing_time=now),
+            created_at=now,
+            updated_at=now,
+        )
+
+
+def test_price_series_metadata_rejects_invalid_date_range() -> None:
+    now = datetime(2026, 3, 16, 12, 0, tzinfo=UTC)
+
+    with pytest.raises(ValidationError):
+        PriceSeriesMetadata(
+            price_series_metadata_id="pxmeta_test",
+            company_id="co_test",
+            symbol="TEST",
+            exchange="NASDAQ",
+            currency="USD",
+            frequency="daily",
+            timezone="America/New_York",
+            dataset_name="sample_prices",
+            source_reference_id="src_test",
+            vendor_symbol="TEST.O",
+            first_price_date=date(2026, 3, 16),
+            last_price_date=date(2026, 3, 15),
+            status=PriceSeriesStatus.PLACEHOLDER,
             provenance=ProvenanceRecord(processing_time=now),
             created_at=now,
             updated_at=now,

@@ -1,5 +1,13 @@
 # Test Fixtures
 
-Reserved for representative filing, transcript, news, and market data fixtures used by parsing, research, and temporal hygiene tests.
+Representative local fixtures used to validate ingestion, normalization, timestamp handling, and provenance retention.
 
-Day 1 keeps this directory intentionally light while the contract surface is being established.
+Current fixture groups:
+
+- `ingestion/filings/` for SEC-style filing payloads
+- `ingestion/transcripts/` for earnings call transcript payloads
+- `ingestion/news/` for financial news payloads
+- `ingestion/companies/` for company reference data payloads
+- `ingestion/market_data/` for price-series metadata placeholders
+
+These fixtures are intentionally small and readable. They are not benchmark datasets and they are not intended to imply market edge.
