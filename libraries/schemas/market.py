@@ -90,6 +90,10 @@ class EvidenceSpan(TimestampedModel):
     document_id: str | None = Field(
         default=None, description="Canonical document identifier if registered."
     )
+    segment_id: str | None = Field(
+        default=None,
+        description="Parser-owned segment identifier when the span is anchored to parsed text.",
+    )
     text: str = Field(description="Quoted or normalized evidence text used in reasoning.")
     start_char: int | None = Field(
         default=None, ge=0, description="Start character offset in normalized text."
@@ -112,12 +116,16 @@ class EvidenceSpan(TimestampedModel):
     def validate_offsets(self) -> EvidenceSpan:
         """Ensure evidence offsets are internally consistent when present."""
 
+        if (self.start_char is None) != (self.end_char is None):
+            raise ValueError("start_char and end_char must be provided together.")
         if (
             self.start_char is not None
             and self.end_char is not None
             and self.end_char < self.start_char
         ):
             raise ValueError("end_char must be greater than or equal to start_char.")
+        if self.segment_id is not None and (self.start_char is None or self.end_char is None):
+            raise ValueError("segment-linked evidence spans must include exact char offsets.")
         return self
 
 

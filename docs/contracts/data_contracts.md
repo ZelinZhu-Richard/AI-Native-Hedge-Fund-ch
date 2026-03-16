@@ -23,6 +23,12 @@ All first-class entities use explicit prefixed IDs. Examples:
 - `snap_...` for `DataSnapshot`
 - `pxmeta_...` for `PriceSeriesMetadata`
 - `store_...` for `ArtifactStorageLocation`
+- `pdoc_...` for `ParsedDocumentText`
+- `seg_...` for `DocumentSegment`
+- `claim_...` for `ExtractedClaim`
+- `rfact_...` for `ExtractedRiskFactor`
+- `gchg_...` for `GuidanceChange`
+- `tone_...` for `ToneMarker`
 
 IDs should be immutable once assigned. Upstream vendor IDs may be stored separately, but they are not substitutes for canonical IDs.
 
@@ -70,6 +76,12 @@ Current ingestion examples:
 - `EarningsCall.call_datetime` is event time, while transcript publication time is a separate source timestamp
 - company metadata may have `as_of_time` that is earlier than fixture ingestion time
 
+Current parsing examples:
+
+- `ParsedDocumentText` is the canonical text coordinate space for extraction offsets
+- `DocumentSegment` and `EvidenceSpan` offsets are relative to that canonical text, not segment-local text
+- extracted claims and other evidence-derived artifacts inherit source availability from the upstream document and span lineage
+
 ## Raw vs Normalized vs Derived Data
 
 - Raw: unmodified payloads from upstream sources
@@ -115,6 +127,7 @@ If provenance is incomplete, downstream consumers should degrade trust and may r
 
 - Claims that refer to textual evidence must link to `EvidenceSpan`
 - `EvidenceSpan` must link to `SourceReference`
+- parser-emitted `EvidenceSpan` should also link to a concrete `DocumentSegment` when exact segment regions exist
 - If a hypothesis or memo contains a substantive assertion with no evidence span, it must be marked as an assumption or open question
 - Evidence excerpts should preserve offsets, page numbers, or speaker labels when available
 
