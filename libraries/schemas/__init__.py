@@ -58,6 +58,7 @@ from libraries.schemas.market import (
 from libraries.schemas.portfolio import (
     PaperTrade,
     PortfolioConstraint,
+    PortfolioExposureSummary,
     PortfolioProposal,
     PositionIdea,
     ReviewDecision,
@@ -173,6 +174,7 @@ __all__ = [
     "PriceSeriesMetadata",
     "PriceSeriesStatus",
     "PortfolioConstraint",
+    "PortfolioExposureSummary",
     "PortfolioProposal",
     "PortfolioProposalStatus",
     "PositionIdea",

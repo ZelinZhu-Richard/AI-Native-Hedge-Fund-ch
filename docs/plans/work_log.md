@@ -278,20 +278,63 @@ Build the first explicit backtesting and simulation boundary with strong tempora
 - ablation-aware replay
 - explicit promotion gate from exploratory artifacts into reviewed validation work
 
-## Day 7: Signal Evaluation And Promotion Gate
+## Day 7: Portfolio Proposal And Paper-Trade Review Flow
+
+Status: `Completed`
+
+### Goal
+
+Build the first risk-aware downstream proposal layer on top of the current signal and backtesting foundation.
+
+### Plan Focus
+
+- signal-to-position mapping
+- inspectable portfolio proposals
+- explicit risk checks
+- paper-trade candidate creation
+- human review hooks with no live execution path
+
+### Implemented
+
+- refined `PositionIdea`, `PortfolioProposal`, `RiskCheck`, `ReviewDecision`, and `PaperTrade`
+- added `PortfolioExposureSummary`
+- added shared review-transition helpers for position ideas, proposals, and paper trades
+- built deterministic portfolio loaders, construction logic, local artifact storage, and `PortfolioConstructionService.run_portfolio_workflow()`
+- built explicit Day 7 risk rules under `services/risk_engine/`
+- refined `PaperExecutionService` to consume full `PortfolioProposal` objects and emit paper-only trade candidates
+- added `pipelines/portfolio/run_portfolio_review_pipeline()`
+- persisted Day 7 artifacts under `artifacts/portfolio/`
+- added schema, workflow, and end-to-end integration tests
+- updated agent spec and Day 7 risk docs
+
+### Key Decisions
+
+- candidate signals may enter Day 7 proposals, but they remain visibly provisional and trigger warnings
+- blocking risk checks cannot be silently bypassed
+- proposal approval and paper-trade approval remain separate states
+- no broker path or live execution path exists in the Day 7 flow
+
+### Carry-Forward
+
+- reviewed signal-evaluation and promotion gates
+- trade-level review workflow
+- richer multi-name portfolio constraints and holdings-aware turnover logic
+
+## Week 1 Review
 
 Status: `Planned`
 
 ### Goal
 
-Build the first reviewed signal-evaluation and promotion workflow on top of the Day 6 exploratory backtest boundary.
+Review the full Day 1 through Day 7 foundation as one system before Week 2 work begins.
 
 ### Planned Focus
 
-- typed signal-evaluation artifacts
-- snapshot-aware replay checks
-- ablation coverage across future signal slices
-- explicit promotion guardrails before portfolio logic or paper execution
+- schema consistency and lifecycle clarity
+- lineage completeness from evidence to paper-trade candidate
+- temporal correctness across downstream proposal layers
+- explicit separation between candidate and validated artifacts
+- remaining review, validation, and risk-control gaps
 
 ## Maintenance Rule
 

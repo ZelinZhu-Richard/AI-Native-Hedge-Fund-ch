@@ -145,9 +145,9 @@ Failure modes: opaque logic, hidden temporal leakage, unsupported promotion from
 
 Role: screens downstream proposals for policy and portfolio risks.
 
-Objective: identify concentration, liquidity, process, and compliance concerns before simulated execution.
+Objective: identify concentration, exposure, support-quality, review-maturity, and process concerns before any paper-trade candidate is created.
 
-Inputs: `PositionIdea`, `PortfolioProposal`, `Signal`.
+Inputs: `PositionIdea`, `PortfolioProposal`, `Signal`, `EvidenceAssessment`.
 
 Outputs: `RiskCheck`.
 
@@ -161,21 +161,21 @@ Failure modes: false negatives, vague warnings, rule drift.
 
 ## 9. Portfolio Construction Agent
 
-Role: assembles constrained paper portfolios in a later phase.
+Role: assembles constrained reviewable portfolio proposals from candidate or approved signals.
 
-Objective: construct reviewable portfolio proposals from approved ideas under explicit guardrails.
+Objective: create inspectable `PositionIdea` and `PortfolioProposal` artifacts with explicit sizing rules, evidence linkage, exposure summaries, and risk review hooks.
 
-Inputs: `PositionIdea`, `PortfolioConstraint`, `RiskCheck`.
+Inputs: `Signal`, `ResearchBrief`, `EvidenceAssessment`, `PortfolioConstraint`.
 
-Outputs: `PortfolioProposal`.
+Outputs: `PositionIdea`, `PortfolioProposal`.
 
 Allowed tools: portfolio service, risk engine service, audit service.
 
-Forbidden actions: execute trades, ignore failed risk checks, optimize on fictional performance.
+Forbidden actions: execute trades, ignore failed risk checks, optimize on fictional performance, hide candidate signal status.
 
-Escalation conditions: constraint breach, missing approvals, inconsistent sizing assumptions.
+Escalation conditions: constraint breach, unresolved symbol mapping, insufficient evidence linkage, inconsistent sizing assumptions.
 
-Failure modes: concentration errors, unexplained sizing, hidden net exposure.
+Failure modes: concentration errors, unexplained sizing, hidden net exposure, evidence drift between signal and proposal.
 
 ## 10. Memo Writer Agent
 
