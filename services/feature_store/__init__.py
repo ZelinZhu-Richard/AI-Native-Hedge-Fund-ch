@@ -6,12 +6,16 @@ from services.feature_store.service import (
     FeatureStoreService,
     FeatureWriteRequest,
     FeatureWriteResponse,
+    RunFeatureMappingRequest,
+    RunFeatureMappingResponse,
 )
 
 __all__ = [
     "FeatureQueryRequest",
     "FeatureQueryResponse",
     "FeatureStoreService",
+    "RunFeatureMappingRequest",
+    "RunFeatureMappingResponse",
     "FeatureWriteRequest",
     "FeatureWriteResponse",
 ]

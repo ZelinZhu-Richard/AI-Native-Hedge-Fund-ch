@@ -17,7 +17,13 @@ All first-class entities use explicit prefixed IDs. Examples:
 - `sel_...` for `SupportingEvidenceLink`
 - `eass_...` for `EvidenceAssessment`
 - `rbrief_...` for `ResearchBrief`
+- `fdef_...` for `FeatureDefinition`
+- `fval_...` for `FeatureValue`
+- `feat_...` for `Feature`
+- `flin_...` for `FeatureLineage`
+- `sscore_...` for `SignalScore`
 - `sig_...` for `Signal`
+- `slin_...` for `SignalLineage`
 - `idea_...` for `PositionIdea`
 - `proposal_...` for `PortfolioProposal`
 - `risk_...` for `RiskCheck`
@@ -105,6 +111,14 @@ Current local ingestion runs materialize under `artifacts/ingestion/` using the 
 
 - `artifacts/ingestion/raw/` for exact fixture payload copies
 - `artifacts/ingestion/normalized/` for canonical typed outputs
+
+Current Day 5 feature and signal runs materialize under `artifacts/signal_generation/`:
+
+- `feature_definitions/`
+- `feature_values/`
+- `features/`
+- `signal_scores/`
+- `signals/`
 
 ## Provenance Requirements
 

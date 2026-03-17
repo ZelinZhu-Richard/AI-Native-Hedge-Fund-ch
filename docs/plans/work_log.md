@@ -197,32 +197,60 @@ Tighten the existing research workflow so human review status and validation sta
 - evidence assessment grade: `strong`
 - evidence assessment validation status: `pending_validation`
 
-## Day 5: Review And Validation Gate
+## Day 5: Feature And Candidate Signal Pipeline
+
+Status: `Completed`
+
+### Goal
+
+Convert structured research artifacts into typed candidate features and candidate signals without pretending those signals are already validated or portfolio-ready.
+
+### Plan Focus
+
+- refine feature and signal contracts
+- preserve exact lineage from research artifacts into candidate features
+- build deterministic feature mapping from the Day 4 research slice
+- build deterministic candidate signal generation with conservative confidence
+- establish ablation hooks without faking non-text baselines
+
+### Implemented
+
+- added `FeatureDefinition`, `FeatureValue`, `FeatureLineage`, `SignalLineage`, `FeatureFamily`, `AblationView`, and `DerivedArtifactValidationStatus`
+- upgraded `Feature`, `SignalScore`, and `Signal` into provenance-aware Day 5 artifacts
+- replaced `Signal.direction` with `Signal.stance` so signals remain non-portfolio-facing
+- built `FeatureStoreService.run_feature_mapping_workflow()` for deterministic Day 5 feature generation
+- built `SignalGenerationService.run_signal_generation_workflow()` for deterministic candidate signal generation
+- added local artifact persistence under `artifacts/signal_generation/`
+- added the end-to-end `pipelines/signal_generation/run_feature_signal_pipeline()`
+- added schema, workflow, and integration tests for the new feature and signal layer
+
+### Key Decisions
+
+- candidate feature generation is allowed before the formal review gate exists, but outputs remain provisional and unvalidated
+- only `text_only` is populated on Day 5; price, fundamentals, and macro remain future family hooks
+- Day 5 scoring is deterministic and explicitly non-empirical
+- signals remain candidate research artifacts, not position instructions
+
+### Carry-Forward
+
+- temporally honest candidate-signal evaluation
+- ablation infrastructure
+- explicit promotion gate before any portfolio or paper-trading work
+
+## Day 6: Candidate Signal Evaluation And Ablation
 
 Status: `Planned`
 
 ### Goal
 
-Build the promotion boundary that decides when research artifacts are ready to inform feature work.
+Build the first temporally honest evaluation and ablation harness for candidate signals.
 
 ### Planned Focus
 
-- attach `ReviewDecision` records to research artifacts
-- define explicit review and validation transitions
-- persist review and audit events for research artifacts
-- define the first reviewed-and-validation-aware research-to-feature contract
-- add golden expected outputs and stronger negative tests for the research workflow
-
-### Why This Is Next
-
-The repo already has:
-
-- ingestion
-- evidence extraction
-- structured research artifacts
-- review and validation status fields
-
-What it does not yet have is the actual gate that governs promotion from research artifacts into downstream feature work.
+- enforce feature and signal availability cutoffs
+- define candidate signal eval artifacts and coverage checks
+- compare `text_only` against future `price_only`, `fundamentals_only`, and `combined` slices
+- add the first promotion guardrails before backtesting or portfolio logic
 
 ## Maintenance Rule
 

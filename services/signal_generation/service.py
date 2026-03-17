@@ -1,12 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import Field
 
+from libraries.config import get_settings
 from libraries.core.service_framework import BaseService, ServiceCapability
-from libraries.schemas import StrictModel
+from libraries.schemas import (
+    AblationView,
+    ArtifactStorageLocation,
+    Signal,
+    SignalScore,
+    StrictModel,
+)
 from libraries.utils import make_prefixed_id
+from services.signal_generation.loaders import load_signal_generation_inputs
+from services.signal_generation.scoring import build_candidate_signals
+from services.signal_generation.storage import LocalSignalArtifactStore
 
 
 class SignalGenerationRequest(StrictModel):
@@ -33,11 +44,57 @@ class SignalGenerationResponse(StrictModel):
     accepted_at: datetime = Field(description="UTC timestamp when the batch was accepted.")
 
 
+class RunSignalGenerationWorkflowRequest(StrictModel):
+    """Explicit local request to build candidate signals from Day 5 feature artifacts."""
+
+    feature_root: Path = Field(description="Root path for persisted feature artifacts.")
+    research_root: Path | None = Field(
+        default=None,
+        description="Optional research artifact root used to reload thesis and evidence context.",
+    )
+    output_root: Path | None = Field(
+        default=None,
+        description="Optional signal artifact root. Defaults to the configured artifact root.",
+    )
+    company_id: str | None = Field(
+        default=None,
+        description="Covered company identifier. Required when the feature root contains multiple companies.",
+    )
+    ablation_view: AblationView = Field(
+        default=AblationView.TEXT_ONLY,
+        description="Requested ablation slice for signal generation.",
+    )
+    requested_by: str = Field(description="Requester identifier.")
+
+
+class RunSignalGenerationWorkflowResponse(StrictModel):
+    """Result of a local Day 5 signal-generation workflow."""
+
+    signal_generation_run_id: str = Field(description="Canonical workflow identifier.")
+    company_id: str = Field(description="Covered company identifier.")
+    signals: list[Signal] = Field(
+        default_factory=list,
+        description="Candidate signals emitted by the workflow.",
+    )
+    signal_scores: list[SignalScore] = Field(
+        default_factory=list,
+        description="Signal-score components emitted by the workflow.",
+    )
+    storage_locations: list[ArtifactStorageLocation] = Field(
+        default_factory=list,
+        description="Artifact storage locations written by the workflow.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes describing skipped work, assumptions, or gaps.",
+    )
+
+
 class SignalGenerationService(BaseService):
-    """Generate candidate signals from reviewed research artifacts."""
+    """Generate Day 5 candidate signals from candidate features."""
 
     capability_name = "signal_generation"
-    capability_description = "Builds candidate signals from hypotheses and features."
+    capability_description = "Builds candidate signals from candidate features and research lineage."
 
     def capability(self) -> ServiceCapability:
         """Return capability metadata for service discovery."""
@@ -45,7 +102,7 @@ class SignalGenerationService(BaseService):
         return ServiceCapability(
             name=self.capability_name,
             description=self.capability_description,
-            consumes=["Hypothesis", "Feature"],
+            consumes=["Feature", "ResearchBrief", "EvidenceAssessment"],
             produces=["Signal", "SignalScore"],
             api_routes=[],
         )
@@ -59,4 +116,59 @@ class SignalGenerationService(BaseService):
             status="queued",
             review_required=True,
             accepted_at=self.clock.now(),
+        )
+
+    def run_signal_generation_workflow(
+        self,
+        request: RunSignalGenerationWorkflowRequest,
+    ) -> RunSignalGenerationWorkflowResponse:
+        """Execute deterministic Day 5 signal generation from persisted feature artifacts."""
+
+        signal_generation_run_id = make_prefixed_id("sgen")
+        inferred_research_root = request.research_root
+        if inferred_research_root is None:
+            sibling_research_root = request.feature_root.parent / "research"
+            inferred_research_root = sibling_research_root if sibling_research_root.exists() else None
+
+        inputs = load_signal_generation_inputs(
+            feature_root=request.feature_root,
+            research_root=inferred_research_root,
+            company_id=request.company_id,
+        )
+        result = build_candidate_signals(
+            inputs=inputs,
+            ablation_view=request.ablation_view,
+            clock=self.clock,
+            workflow_run_id=signal_generation_run_id,
+        )
+        output_root = request.output_root or (
+            get_settings().resolved_artifact_root / "signal_generation"
+        )
+        store = LocalSignalArtifactStore(root=output_root, clock=self.clock)
+        storage_locations: list[ArtifactStorageLocation] = []
+        for signal_score in result.signal_scores:
+            storage_locations.append(
+                store.persist_model(
+                    artifact_id=signal_score.signal_score_id,
+                    category="signal_scores",
+                    model=signal_score,
+                    source_reference_ids=[],
+                )
+            )
+        for signal in result.signals:
+            storage_locations.append(
+                store.persist_model(
+                    artifact_id=signal.signal_id,
+                    category="signals",
+                    model=signal,
+                    source_reference_ids=signal.provenance.source_reference_ids,
+                )
+            )
+        return RunSignalGenerationWorkflowResponse(
+            signal_generation_run_id=signal_generation_run_id,
+            company_id=inputs.company_id,
+            signals=result.signals,
+            signal_scores=result.signal_scores,
+            storage_locations=storage_locations,
+            notes=result.notes,
         )

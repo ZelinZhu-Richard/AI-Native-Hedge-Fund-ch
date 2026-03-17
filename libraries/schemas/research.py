@@ -14,7 +14,6 @@ from libraries.schemas.base import (
     FeatureStatus,
     HypothesisStatus,
     MemoStatus,
-    PositionSide,
     ProvenanceRecord,
     SignalStatus,
     TimestampedModel,
@@ -74,6 +73,42 @@ class CritiqueKind(StrEnum):
     MISSING_EVIDENCE = "missing_evidence"
     ASSUMPTION_RISK = "assumption_risk"
     CAUSAL_GAP = "causal_gap"
+
+
+class FeatureFamily(StrEnum):
+    """Top-level feature families used for ablation and grouping."""
+
+    PRICE = "price"
+    FUNDAMENTALS = "fundamentals"
+    TEXT_DERIVED = "text_derived"
+    MACRO = "macro"
+
+
+class AblationView(StrEnum):
+    """Feature-set slices used for honest future ablations."""
+
+    PRICE_ONLY = "price_only"
+    FUNDAMENTALS_ONLY = "fundamentals_only"
+    TEXT_ONLY = "text_only"
+    COMBINED = "combined"
+
+
+class DerivedArtifactValidationStatus(StrEnum):
+    """Validation lifecycle for downstream feature and signal artifacts."""
+
+    UNVALIDATED = "unvalidated"
+    PENDING_VALIDATION = "pending_validation"
+    PARTIALLY_VALIDATED = "partially_validated"
+    VALIDATED = "validated"
+    INVALIDATED = "invalidated"
+
+
+class FeatureValueType(StrEnum):
+    """Typed value families supported by Day 5 features."""
+
+    NUMERIC = "numeric"
+    TEXT = "text"
+    BOOLEAN = "boolean"
 
 
 class SupportingEvidenceLink(TimestampedModel):
@@ -324,25 +359,45 @@ class ResearchBrief(TimestampedModel):
         return self
 
 
-class Feature(TimestampedModel):
-    """Point-in-time feature value with explicit availability semantics."""
+class FeatureDefinition(TimestampedModel):
+    """Stable definition for a reusable candidate feature."""
 
-    feature_id: str = Field(description="Canonical feature identifier.")
+    feature_definition_id: str = Field(description="Canonical feature-definition identifier.")
     name: str = Field(description="Stable feature name.")
-    family: str = Field(description="Feature family or namespace.")
-    entity_id: str = Field(
-        description="Entity the feature applies to, such as company or portfolio."
+    family: FeatureFamily = Field(description="Feature family used for grouping and ablation.")
+    value_type: FeatureValueType = Field(description="Expected value type for feature values.")
+    description: str = Field(description="Human-readable description of what the feature measures.")
+    unit: str | None = Field(default=None, description="Optional unit for numeric values.")
+    ablation_views: list[AblationView] = Field(
+        default_factory=list,
+        description="Ablation slices where the feature can participate.",
     )
-    company_id: str | None = Field(
-        default=None, description="Associated company identifier when applicable."
+    status: FeatureStatus = Field(description="Feature-definition lifecycle status.")
+    validation_status: DerivedArtifactValidationStatus = Field(
+        description="Validation lifecycle status for the feature definition."
     )
-    data_layer: DataLayer = Field(description="Artifact layer of the feature value.")
-    definition: str = Field(description="Human-readable feature definition.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the feature definition.")
+
+    @model_validator(mode="after")
+    def validate_definition(self) -> FeatureDefinition:
+        """Require at least one ablation view and a non-empty description."""
+
+        if not self.description:
+            raise ValueError("description must be non-empty.")
+        if not self.ablation_views:
+            raise ValueError("ablation_views must contain at least one value.")
+        return self
+
+
+class FeatureValue(TimestampedModel):
+    """Point-in-time materialized value for a feature definition."""
+
+    feature_value_id: str = Field(description="Canonical feature-value identifier.")
+    feature_definition_id: str = Field(description="Feature definition that owns this value.")
     as_of_date: date = Field(description="Logical business date the feature describes.")
     available_at: datetime = Field(
-        description="UTC time when the feature became available to decision-making systems."
+        description="UTC time when the feature value becomes available downstream."
     )
-    status: FeatureStatus = Field(description="Feature lifecycle status.")
     numeric_value: float | None = Field(
         default=None, description="Numeric feature value when applicable."
     )
@@ -352,15 +407,14 @@ class Feature(TimestampedModel):
     boolean_value: bool | None = Field(
         default=None, description="Boolean feature value when applicable."
     )
-    unit: str | None = Field(default=None, description="Unit associated with the feature value.")
     confidence: ConfidenceAssessment | None = Field(
         default=None,
-        description="Confidence and uncertainty assessment for the feature value.",
+        description="Conservative confidence assessment for the materialized value.",
     )
-    provenance: ProvenanceRecord = Field(description="Traceability for the feature.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the feature value.")
 
     @model_validator(mode="after")
-    def validate_single_value(self) -> Feature:
+    def validate_single_value(self) -> FeatureValue:
         """Ensure exactly one feature value field is populated."""
 
         populated = [
@@ -372,6 +426,74 @@ class Feature(TimestampedModel):
             raise ValueError(
                 "Exactly one of numeric_value, text_value, or boolean_value must be set."
             )
+        return self
+
+
+class FeatureLineage(TimestampedModel):
+    """Exact upstream research and evidence lineage for a candidate feature."""
+
+    feature_lineage_id: str = Field(description="Canonical feature-lineage identifier.")
+    hypothesis_id: str = Field(description="Upstream hypothesis identifier.")
+    counter_hypothesis_id: str = Field(description="Upstream counter-hypothesis identifier.")
+    evidence_assessment_id: str = Field(description="Upstream evidence-assessment identifier.")
+    research_brief_id: str = Field(description="Upstream research-brief identifier.")
+    supporting_evidence_link_ids: list[str] = Field(
+        default_factory=list,
+        description="Supporting evidence link identifiers grounding the feature.",
+    )
+    source_document_ids: list[str] = Field(
+        default_factory=list,
+        description="Source document identifiers referenced by the lineage.",
+    )
+
+    @model_validator(mode="after")
+    def validate_lineage(self) -> FeatureLineage:
+        """Require exact evidence-link and document references."""
+
+        if not self.supporting_evidence_link_ids:
+            raise ValueError("supporting_evidence_link_ids must contain at least one value.")
+        if not self.source_document_ids:
+            raise ValueError("source_document_ids must contain at least one value.")
+        return self
+
+
+class Feature(TimestampedModel):
+    """Primary candidate feature artifact with definition, value, and lineage."""
+
+    feature_id: str = Field(description="Canonical feature identifier.")
+    entity_id: str = Field(
+        description="Entity the feature applies to, such as company or portfolio."
+    )
+    company_id: str | None = Field(
+        default=None, description="Associated company identifier when applicable."
+    )
+    data_layer: DataLayer = Field(
+        default=DataLayer.DERIVED,
+        description="Artifact layer for the candidate feature.",
+    )
+    feature_definition: FeatureDefinition = Field(description="Stable feature definition.")
+    feature_value: FeatureValue = Field(description="Point-in-time feature value.")
+    status: FeatureStatus = Field(description="Feature lifecycle status.")
+    validation_status: DerivedArtifactValidationStatus = Field(
+        description="Validation lifecycle status for the feature."
+    )
+    lineage: FeatureLineage = Field(description="Exact upstream lineage for the feature.")
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Explicit assumptions required to interpret the feature responsibly.",
+    )
+    confidence: ConfidenceAssessment | None = Field(
+        default=None,
+        description="Confidence and uncertainty assessment for the feature artifact.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the feature.")
+
+    @model_validator(mode="after")
+    def validate_feature_contract(self) -> Feature:
+        """Require aligned definition/value identifiers and exact lineage."""
+
+        if self.feature_definition.feature_definition_id != self.feature_value.feature_definition_id:
+            raise ValueError("Feature definition and value must reference the same definition ID.")
         return self
 
 
@@ -387,6 +509,17 @@ class SignalScore(TimestampedModel):
     scale_max: float | None = Field(
         default=None, description="Upper bound of the score scale if known."
     )
+    validation_status: DerivedArtifactValidationStatus = Field(
+        description="Validation lifecycle status for the score component."
+    )
+    source_feature_ids: list[str] = Field(
+        default_factory=list,
+        description="Feature identifiers used to compute this component.",
+    )
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Explicit assumptions attached to the component score.",
+    )
     calibrated_probability: float | None = Field(
         default=None,
         ge=0.0,
@@ -398,6 +531,59 @@ class SignalScore(TimestampedModel):
         description="Confidence and uncertainty assessment for the score.",
     )
     rationale: str | None = Field(default=None, description="Short explanation for the score.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the score component.")
+
+    @model_validator(mode="after")
+    def validate_score_sources(self) -> SignalScore:
+        """Require score components to identify their contributing features."""
+
+        if not self.source_feature_ids:
+            raise ValueError("source_feature_ids must contain at least one feature identifier.")
+        return self
+
+
+class SignalLineage(TimestampedModel):
+    """Exact upstream lineage for a candidate signal."""
+
+    signal_lineage_id: str = Field(description="Canonical signal-lineage identifier.")
+    feature_ids: list[str] = Field(
+        default_factory=list,
+        description="Feature identifiers used to build the signal.",
+    )
+    feature_definition_ids: list[str] = Field(
+        default_factory=list,
+        description="Feature definition identifiers used to build the signal.",
+    )
+    feature_value_ids: list[str] = Field(
+        default_factory=list,
+        description="Feature value identifiers used to build the signal.",
+    )
+    research_artifact_ids: list[str] = Field(
+        default_factory=list,
+        description="Upstream research artifact identifiers informing the signal.",
+    )
+    supporting_evidence_link_ids: list[str] = Field(
+        default_factory=list,
+        description="Evidence-link identifiers grounding the signal lineage.",
+    )
+    input_families: list[FeatureFamily] = Field(
+        default_factory=list,
+        description="Feature families included in the signal input mix.",
+    )
+
+    @model_validator(mode="after")
+    def validate_signal_lineage(self) -> SignalLineage:
+        """Require feature and evidence lineage for every signal."""
+
+        if not self.feature_ids:
+            raise ValueError("feature_ids must contain at least one feature identifier.")
+        if not self.supporting_evidence_link_ids:
+            raise ValueError(
+                "supporting_evidence_link_ids must contain at least one evidence link identifier."
+            )
+        if not self.input_families:
+            raise ValueError("input_families must contain at least one feature family.")
+        return self
 
 
 class Signal(TimestampedModel):
@@ -407,7 +593,8 @@ class Signal(TimestampedModel):
     company_id: str = Field(description="Covered company identifier.")
     hypothesis_id: str = Field(description="Primary hypothesis driving the signal.")
     signal_family: str = Field(description="Stable signal family name.")
-    direction: PositionSide = Field(description="Directional view implied by the signal.")
+    stance: ResearchStance = Field(description="Research-layer stance implied by the signal.")
+    ablation_view: AblationView = Field(description="Ablation slice used to build the signal.")
     thesis_summary: str = Field(description="Short explanation of the signal.")
     feature_ids: list[str] = Field(
         default_factory=list, description="Feature identifiers used to build the signal."
@@ -420,6 +607,18 @@ class Signal(TimestampedModel):
     effective_at: datetime = Field(description="UTC time when the signal becomes active.")
     expires_at: datetime | None = Field(default=None, description="UTC expiry time for the signal.")
     status: SignalStatus = Field(description="Signal lifecycle status.")
+    validation_status: DerivedArtifactValidationStatus = Field(
+        description="Validation lifecycle status for the signal."
+    )
+    lineage: SignalLineage = Field(description="Exact upstream lineage for the signal.")
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Explicit assumptions required to interpret the signal responsibly.",
+    )
+    uncertainties: list[str] = Field(
+        default_factory=list,
+        description="Open uncertainties still limiting trust in the signal.",
+    )
     confidence: ConfidenceAssessment | None = Field(
         default=None,
         description="Confidence and uncertainty assessment for the signal.",
@@ -430,6 +629,8 @@ class Signal(TimestampedModel):
     def validate_signal_window(self) -> Signal:
         """Ensure a signal cannot expire before it becomes effective."""
 
+        if not self.feature_ids:
+            raise ValueError("feature_ids must contain at least one feature identifier.")
         if self.expires_at is not None and self.expires_at < self.effective_at:
             raise ValueError("expires_at must be greater than or equal to effective_at.")
         return self

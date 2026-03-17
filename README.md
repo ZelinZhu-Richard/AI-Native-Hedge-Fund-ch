@@ -1,6 +1,6 @@
 # ANHF Research OS
 
-Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended with the first local ingestion and normalization slice.
+Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended through the first candidate feature and signal pipeline.
 
 This repository is the operating system for future research workflows, not a toy demo and not a live-trading system. The current scope is deliberately narrow: establish the architecture, typed contracts, service boundaries, safety controls, local development workflow, and documentation needed to build quickly without sacrificing rigor.
 
@@ -18,6 +18,7 @@ The repository currently includes:
 - an initial agent framework and agent registry
 - a local fixture-backed ingestion and normalization pipeline for filings, transcripts, news, company metadata, and price-series metadata
 - a deterministic evidence-first research workflow that produces hypotheses, critiques, support grades, research briefs, and draft memo skeletons
+- a deterministic Day 5 bridge from research artifacts into typed candidate features and candidate signals with explicit lineage
 - documentation for architecture, temporal contracts, risk controls, eval philosophy, and Day 2 execution
 - local quality tooling: `ruff`, `mypy`, `pytest`, `pre-commit`, and `Makefile`
 
@@ -28,17 +29,17 @@ The repository still does **not** include:
 - real alpha claims
 - backtest performance claims
 - production data connectors beyond local fixture-backed loaders
-- real feature computation or signal ranking logic
+- validated feature promotion gates or backtested signal evaluation
 - persistent storage or deployment infrastructure
 
 ## Immediate Goal
 
-The immediate goal is to harden the research workflow boundary before feature work begins:
+The immediate goal is to harden the candidate feature and signal bridge before any evaluation or portfolio logic begins:
 
 - preserve exact evidence linkage from research artifacts back to source spans
-- keep hypotheses, critiques, support grades, and memo-ready briefs reviewable and modular
-- preserve point-in-time and provenance discipline
-- keep signals and portfolio logic downstream of explicit human review
+- keep candidate features definition-backed, lineaged, and point-in-time aware
+- keep candidate signals explicitly provisional, unvalidated, and non-portfolio-facing
+- preserve point-in-time and provenance discipline ahead of future ablation and backtesting work
 
 ## Design Intent
 
