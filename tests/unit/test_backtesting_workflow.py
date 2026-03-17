@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+from libraries.schemas import (
+    AblationView,
+    BacktestConfig,
+    BenchmarkKind,
+    ExecutionAssumption,
+    SignalStatus,
+)
+from libraries.schemas.base import ProvenanceRecord
+from libraries.time import FrozenClock
+from libraries.utils import make_canonical_id
+from pipelines.backtesting import run_backtest_pipeline
+from pipelines.daily_research import run_hypothesis_workflow_pipeline
+from pipelines.document_processing import (
+    run_evidence_extraction_pipeline,
+    run_fixture_ingestion_pipeline,
+)
+from pipelines.signal_generation import run_feature_signal_pipeline
+from services.backtesting.loaders import load_backtest_inputs
+from services.backtesting.simulation import run_backtest_simulation
+
+FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "ingestion"
+PRICE_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "backtesting"
+    / "apex_synthetic_daily_prices.json"
+)
+FIXED_NOW = datetime(2026, 3, 17, 11, 0, tzinfo=UTC)
+
+
+def test_backtesting_workflow_generates_run_events_and_benchmarks(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+
+    response = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        output_root=artifact_root / "backtesting",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert response.backtest_run.exploratory_only is True
+    assert response.strategy_decisions
+    assert response.simulation_events
+    assert response.performance_summary.trade_count >= 1
+    assert {benchmark.benchmark_kind for benchmark in response.benchmark_references} == {
+        BenchmarkKind.FLAT_BASELINE,
+        BenchmarkKind.BUY_AND_HOLD,
+    }
+
+
+def test_future_feature_availability_blocks_signal_use(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+    feature_path = next((signal_root / "features").glob("*.json"))
+    payload = json.loads(feature_path.read_text(encoding="utf-8"))
+    payload["feature_value"]["available_at"] = "2026-03-24T20:00:00Z"
+    feature_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    response = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        output_root=artifact_root / "backtesting",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(test_end=date(2026, 3, 20)),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert all(decision.signal_id is None for decision in response.strategy_decisions)
+    assert all(event.event_type.value != "fill" for event in response.simulation_events)
+    assert any(
+        check.startswith("future_feature_availability_rejected")
+        for check in response.backtest_run.leakage_checks
+    )
+
+
+def test_execution_lag_and_costs_reduce_net_pnl(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+
+    response = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        output_root=artifact_root / "backtesting",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    decision_event = next(
+        event for event in response.simulation_events if event.event_type.value == "decision"
+    )
+    fill_event = next(event for event in response.simulation_events if event.event_type.value == "fill")
+    assert fill_event.event_time > decision_event.event_time
+    assert fill_event.price == 101.2
+    assert response.performance_summary.net_pnl < response.performance_summary.gross_pnl
+
+
+def test_transaction_costs_reduce_net_pnl(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+    inputs = load_backtest_inputs(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        price_fixture_path=PRICE_FIXTURE_PATH,
+    )
+
+    zero_cost = run_backtest_simulation(
+        inputs=inputs,
+        config=_backtest_config(transaction_cost_bps=0.0, slippage_bps=0.0),
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="btrun_zero",
+        backtest_run_id="btrun_zero",
+    )
+    with_cost = run_backtest_simulation(
+        inputs=inputs,
+        config=_backtest_config(transaction_cost_bps=10.0, slippage_bps=5.0),
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="btrun_cost",
+        backtest_run_id="btrun_cost",
+    )
+
+    assert with_cost.performance_summary.net_pnl < zero_cost.performance_summary.net_pnl
+
+
+def test_backtest_simulation_is_reproducible_for_fixed_inputs(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+    inputs = load_backtest_inputs(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        price_fixture_path=PRICE_FIXTURE_PATH,
+    )
+    config = _backtest_config()
+
+    first = run_backtest_simulation(
+        inputs=inputs,
+        config=config,
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="btrun_replay",
+        backtest_run_id="btrun_replay",
+    )
+    second = run_backtest_simulation(
+        inputs=inputs,
+        config=config,
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="btrun_replay",
+        backtest_run_id="btrun_replay",
+    )
+
+    assert [
+        (decision.decision_time, decision.action, decision.target_units, decision.signal_id)
+        for decision in first.strategy_decisions
+    ] == [
+        (decision.decision_time, decision.action, decision.target_units, decision.signal_id)
+        for decision in second.strategy_decisions
+    ]
+    assert first.performance_summary.model_dump() == second.performance_summary.model_dump()
+
+
+def _build_signal_artifacts(*, artifact_root: Path) -> Path:
+    run_fixture_ingestion_pipeline(
+        fixtures_root=FIXTURE_ROOT,
+        output_root=artifact_root / "ingestion",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_evidence_extraction_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        output_root=artifact_root / "parsing",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_hypothesis_workflow_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "research",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_feature_signal_pipeline(
+        research_root=artifact_root / "research",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "signal_generation",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    return artifact_root / "signal_generation"
+
+
+def _backtest_config(
+    *,
+    test_start: date = date(2026, 3, 17),
+    test_end: date = date(2026, 3, 30),
+    transaction_cost_bps: float = 5.0,
+    slippage_bps: float = 2.0,
+) -> BacktestConfig:
+    return BacktestConfig(
+        backtest_config_id=make_canonical_id(
+            "btcfg",
+            "text_only_candidate_signal",
+            test_start.isoformat(),
+            test_end.isoformat(),
+            str(transaction_cost_bps),
+            str(slippage_bps),
+        ),
+        strategy_name="day6_text_signal_exploratory",
+        signal_family="text_only_candidate_signal",
+        ablation_view=AblationView.TEXT_ONLY,
+        test_start=test_start,
+        test_end=test_end,
+        signal_status_allowlist=[SignalStatus.CANDIDATE],
+        execution_assumption=ExecutionAssumption(
+            execution_assumption_id=make_canonical_id(
+                "exec",
+                str(transaction_cost_bps),
+                str(slippage_bps),
+                "lag1",
+            ),
+            transaction_cost_bps=transaction_cost_bps,
+            slippage_bps=slippage_bps,
+            execution_lag_bars=1,
+            decision_price_field="close",
+            execution_price_field="open",
+            provenance=_provenance(),
+            created_at=FIXED_NOW,
+            updated_at=FIXED_NOW,
+        ),
+        benchmark_kinds=[BenchmarkKind.FLAT_BASELINE, BenchmarkKind.BUY_AND_HOLD],
+        provenance=_provenance(),
+        created_at=FIXED_NOW,
+        updated_at=FIXED_NOW,
+    )
+
+
+def _provenance() -> ProvenanceRecord:
+    return ProvenanceRecord(processing_time=FIXED_NOW)

@@ -636,25 +636,323 @@ class Signal(TimestampedModel):
         return self
 
 
+class DecisionAction(StrEnum):
+    """Action implied by a backtest strategy decision."""
+
+    OPEN_LONG = "open_long"
+    OPEN_SHORT = "open_short"
+    CLOSE_POSITION = "close_position"
+    HOLD_POSITION = "hold_position"
+    HOLD_CASH = "hold_cash"
+    SKIP_SIGNAL = "skip_signal"
+
+
+class SimulationEventType(StrEnum):
+    """Event types recorded by the Day 6 simulation engine."""
+
+    DECISION = "decision"
+    FILL = "fill"
+    MARK = "mark"
+    BENCHMARK_MARK = "benchmark_mark"
+    RUN_STARTED = "run_started"
+    RUN_COMPLETED = "run_completed"
+
+
+class BenchmarkKind(StrEnum):
+    """Mechanical benchmark types supported by the Day 6 skeleton."""
+
+    FLAT_BASELINE = "flat_baseline"
+    BUY_AND_HOLD = "buy_and_hold"
+    PLACEHOLDER = "placeholder"
+
+
+class ExecutionAssumption(TimestampedModel):
+    """Explicit execution and cost assumptions for a backtest run."""
+
+    execution_assumption_id: str = Field(description="Canonical execution-assumption identifier.")
+    transaction_cost_bps: float = Field(
+        ge=0.0,
+        description="One-way transaction cost assumption in basis points.",
+    )
+    slippage_bps: float = Field(
+        ge=0.0,
+        description="One-way slippage assumption in basis points.",
+    )
+    execution_lag_bars: int = Field(
+        default=1,
+        ge=1,
+        description="Number of bars between decision time and execution time.",
+    )
+    decision_price_field: str = Field(
+        default="close",
+        description="Price field used to anchor the decision event.",
+    )
+    execution_price_field: str = Field(
+        default="open",
+        description="Price field used for simulated execution.",
+    )
+    signal_availability_buffer_minutes: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional extra delay between signal availability and eligibility.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the assumption set.")
+
+    @model_validator(mode="after")
+    def validate_fields(self) -> ExecutionAssumption:
+        """Require explicit supported price fields for the Day 6 skeleton."""
+
+        if self.decision_price_field != "close":
+            raise ValueError("Day 6 only supports `close` as the decision_price_field.")
+        if self.execution_price_field != "open":
+            raise ValueError("Day 6 only supports `open` as the execution_price_field.")
+        return self
+
+
+class BacktestConfig(TimestampedModel):
+    """Reproducible configuration for one exploratory Day 6 backtest run."""
+
+    backtest_config_id: str = Field(description="Stable backtest-config identifier.")
+    strategy_name: str = Field(description="Human-readable strategy name.")
+    signal_family: str = Field(description="Signal family evaluated by the run.")
+    ablation_view: AblationView = Field(description="Ablation slice evaluated by the run.")
+    test_start: date = Field(description="Backtest window start date.")
+    test_end: date = Field(description="Backtest window end date.")
+    decision_frequency: str = Field(
+        default="daily",
+        description="Decision cadence. Day 6 only supports daily decisions.",
+    )
+    signal_status_allowlist: list[SignalStatus] = Field(
+        default_factory=lambda: [SignalStatus.CANDIDATE],
+        description="Signal statuses allowed into the exploratory backtest boundary.",
+    )
+    decision_rule: str = Field(
+        default="latest_signal_to_unit_position",
+        description="Deterministic Day 6 decision rule name.",
+    )
+    exploratory_only: bool = Field(
+        default=True,
+        description="Whether the run is explicitly exploratory and non-promotable.",
+    )
+    starting_cash: float = Field(
+        default=100_000.0,
+        gt=0.0,
+        description="Starting account value used for simple simulation accounting.",
+    )
+    execution_assumption: ExecutionAssumption = Field(
+        description="Execution assumptions applied by the simulation engine."
+    )
+    benchmark_kinds: list[BenchmarkKind] = Field(
+        default_factory=lambda: [BenchmarkKind.FLAT_BASELINE, BenchmarkKind.BUY_AND_HOLD],
+        description="Mechanical benchmarks emitted alongside the strategy run.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the backtest config.")
+
+    @model_validator(mode="after")
+    def validate_config(self) -> BacktestConfig:
+        """Require a coherent daily exploratory backtest configuration."""
+
+        if self.test_end < self.test_start:
+            raise ValueError("test_end must be greater than or equal to test_start.")
+        if self.decision_frequency != "daily":
+            raise ValueError("Day 6 only supports `daily` decision_frequency.")
+        if self.decision_rule != "latest_signal_to_unit_position":
+            raise ValueError("Day 6 only supports `latest_signal_to_unit_position`.")
+        if not self.signal_status_allowlist:
+            raise ValueError("signal_status_allowlist must contain at least one status.")
+        if not self.benchmark_kinds:
+            raise ValueError("benchmark_kinds must contain at least one benchmark.")
+        return self
+
+
+class StrategyDecision(TimestampedModel):
+    """One point-in-time strategy decision made during the backtest."""
+
+    strategy_decision_id: str = Field(description="Canonical strategy-decision identifier.")
+    backtest_run_id: str = Field(description="Owning backtest run identifier.")
+    company_id: str = Field(description="Covered company identifier.")
+    signal_id: str | None = Field(
+        default=None,
+        description="Signal selected for the decision when one was eligible.",
+    )
+    decision_time: datetime = Field(description="UTC decision timestamp.")
+    signal_effective_at: datetime | None = Field(
+        default=None,
+        description="UTC signal effective time when a signal drove the decision.",
+    )
+    action: DecisionAction = Field(description="Action implied by the decision.")
+    target_units: int = Field(
+        ge=-1,
+        le=1,
+        description="Target unit exposure after execution under the Day 6 unit-position rule.",
+    )
+    decision_snapshot_id: str = Field(description="Snapshot identifier used for the decision.")
+    reason: str = Field(description="Short explanation for the decision.")
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Assumptions attached to the decision.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the decision.")
+
+    @model_validator(mode="after")
+    def validate_signal_link(self) -> StrategyDecision:
+        """Require signal timestamps whenever a signal drives the decision."""
+
+        if self.signal_id is None and self.signal_effective_at is not None:
+            raise ValueError("signal_effective_at requires a corresponding signal_id.")
+        if self.signal_id is not None and self.signal_effective_at is None:
+            raise ValueError("signal_effective_at is required when signal_id is set.")
+        return self
+
+
+class SimulationEvent(TimestampedModel):
+    """Structured event emitted by the Day 6 simulation skeleton."""
+
+    simulation_event_id: str = Field(description="Canonical simulation-event identifier.")
+    backtest_run_id: str = Field(description="Owning backtest run identifier.")
+    strategy_decision_id: str | None = Field(
+        default=None,
+        description="Decision identifier associated with the event when applicable.",
+    )
+    event_type: SimulationEventType = Field(description="Simulation event type.")
+    event_time: datetime = Field(description="UTC event timestamp.")
+    symbol: str | None = Field(default=None, description="Instrument symbol when applicable.")
+    quantity: int | None = Field(
+        default=None,
+        description="Executed or marked quantity associated with the event.",
+    )
+    price: float | None = Field(default=None, gt=0.0, description="Event price when applicable.")
+    transaction_cost_applied: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Transaction cost deducted at the event.",
+    )
+    slippage_applied: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Slippage cost deducted at the event.",
+    )
+    cash_delta: float = Field(description="Cash change applied by the event.")
+    position_after_units: int | None = Field(
+        default=None,
+        description="Position units after applying the event.",
+    )
+    note: str | None = Field(default=None, description="Short event note.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the event.")
+
+    @model_validator(mode="after")
+    def validate_event_payload(self) -> SimulationEvent:
+        """Ensure fill and decision events carry the minimum expected structure."""
+
+        if self.event_type in {SimulationEventType.DECISION, SimulationEventType.FILL}:
+            if self.strategy_decision_id is None:
+                raise ValueError(
+                    "strategy_decision_id is required for decision and fill events."
+                )
+        if self.event_type is SimulationEventType.FILL:
+            if self.price is None or self.quantity is None or self.position_after_units is None:
+                raise ValueError(
+                    "Fill events require price, quantity, and position_after_units."
+                )
+        return self
+
+
+class PerformanceSummary(TimestampedModel):
+    """Mechanical performance summary for a Day 6 exploratory run."""
+
+    performance_summary_id: str = Field(description="Canonical performance-summary identifier.")
+    backtest_run_id: str = Field(description="Owning backtest run identifier.")
+    starting_cash: float = Field(gt=0.0, description="Starting account value.")
+    ending_cash: float = Field(description="Ending marked-to-market account value.")
+    gross_pnl: float = Field(description="Gross PnL before costs.")
+    net_pnl: float = Field(description="Net PnL after costs.")
+    trade_count: int = Field(ge=0, description="Number of executed fills.")
+    turnover_notional: float = Field(
+        ge=0.0,
+        description="Total turnover notional traded during the run.",
+    )
+    benchmark_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Benchmark references emitted alongside the run.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Important assumptions or interpretation notes for the summary.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the summary.")
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> PerformanceSummary:
+        """Require benchmark references for every Day 6 performance summary."""
+
+        if not self.benchmark_reference_ids:
+            raise ValueError("benchmark_reference_ids must contain at least one benchmark.")
+        return self
+
+
+class BenchmarkReference(TimestampedModel):
+    """Mechanical benchmark result emitted for an exploratory backtest run."""
+
+    benchmark_reference_id: str = Field(description="Canonical benchmark-reference identifier.")
+    backtest_run_id: str = Field(description="Owning backtest run identifier.")
+    benchmark_name: str = Field(description="Human-readable benchmark name.")
+    benchmark_kind: BenchmarkKind = Field(description="Benchmark type.")
+    symbol: str | None = Field(default=None, description="Symbol when the benchmark uses one.")
+    starting_value: float = Field(gt=0.0, description="Starting benchmark account value.")
+    ending_value: float = Field(gt=0.0, description="Ending benchmark account value.")
+    simple_return: float = Field(description="Simple benchmark return over the run window.")
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Interpretation notes for the benchmark.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the benchmark.")
+
+
 class BacktestRun(TimestampedModel):
     """Metadata for a temporally controlled backtest execution."""
 
     backtest_run_id: str = Field(description="Canonical backtest run identifier.")
-    experiment_id: str = Field(description="Experiment identifier that owns the run.")
+    backtest_config_id: str = Field(description="Backtest configuration used by the run.")
+    experiment_id: str | None = Field(
+        default=None, description="Optional experiment identifier that owns the run."
+    )
+    company_id: str = Field(description="Covered company identifier for the run.")
     strategy_name: str = Field(description="Strategy or signal family under evaluation.")
+    signal_family: str = Field(description="Signal family evaluated by the run.")
+    ablation_view: AblationView = Field(description="Ablation slice evaluated by the run.")
     status: BacktestStatus = Field(description="Backtest execution status.")
     train_start: date | None = Field(default=None, description="Training window start date.")
     train_end: date | None = Field(default=None, description="Training window end date.")
     test_start: date = Field(description="Out-of-sample test window start date.")
     test_end: date = Field(description="Out-of-sample test window end date.")
-    decision_cutoff_time: datetime = Field(
-        description="UTC cutoff representing the maximum information set available during the run."
+    signal_snapshot_id: str = Field(description="Signal snapshot identifier used by the run.")
+    price_snapshot_id: str = Field(description="Price snapshot identifier used by the run.")
+    execution_assumption_id: str = Field(
+        description="Execution assumption identifier applied by the run."
     )
-    rebalance_frequency: str = Field(description="Rebalance cadence used by the run.")
-    universe_definition: str = Field(description="Point-in-time universe definition.")
+    performance_summary_id: str = Field(description="Performance summary identifier.")
+    benchmark_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Benchmark references emitted alongside the run.",
+    )
+    decision_cutoff_time: datetime = Field(
+        description="UTC cutoff representing the latest decision time used during the run."
+    )
+    exploratory_only: bool = Field(
+        default=True,
+        description="Whether the run is exploratory and non-promotable by default.",
+    )
+    allowed_signal_statuses: list[SignalStatus] = Field(
+        default_factory=list,
+        description="Signal lifecycle states explicitly allowed into the run.",
+    )
     leakage_checks: list[str] = Field(
         default_factory=list,
         description="Leakage checks executed as part of the run.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes and simplifications for the run.",
     )
     result_artifact_uri: str | None = Field(
         default=None,
@@ -674,6 +972,10 @@ class BacktestRun(TimestampedModel):
             and self.train_end < self.train_start
         ):
             raise ValueError("train_end must be greater than or equal to train_start.")
+        if not self.allowed_signal_statuses:
+            raise ValueError("allowed_signal_statuses must contain at least one status.")
+        if not self.benchmark_reference_ids:
+            raise ValueError("benchmark_reference_ids must contain at least one benchmark.")
         return self
 
 

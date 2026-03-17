@@ -237,20 +237,61 @@ Convert structured research artifacts into typed candidate features and candidat
 - ablation infrastructure
 - explicit promotion gate before any portfolio or paper-trading work
 
-## Day 6: Candidate Signal Evaluation And Ablation
+## Day 6: Honest Backtesting And Simulation Skeleton
+
+Status: `Completed`
+
+### Goal
+
+Build the first explicit backtesting and simulation boundary with strong temporal discipline.
+
+### Plan Focus
+
+- explicit backtest configuration and execution assumptions
+- point-in-time snapshots for signals and prices
+- deterministic unit-position decisioning
+- next-bar execution with transaction-cost and slippage placeholders
+- mechanical benchmarks and persisted simulation artifacts
+
+### Implemented
+
+- refined backtesting contracts with `BacktestConfig`, `ExecutionAssumption`, `StrategyDecision`, `SimulationEvent`, `PerformanceSummary`, and `BenchmarkReference`
+- expanded `BacktestRun` to carry config, snapshot, benchmark, and temporal-hygiene metadata
+- added `DataSnapshot.information_cutoff_time` and validation
+- built a deterministic local backtesting workflow under `services/backtesting/`
+- added synthetic daily price fixture support for mechanical end-to-end tests
+- persisted exploratory backtest artifacts under `artifacts/backtesting/`
+- added unit and integration tests for schema validity, feature-availability gating, execution lag, transaction-cost handling, reproducibility, and benchmark output
+- added architecture and temporal-correctness docs for the new boundary
+
+### Key Decisions
+
+- candidate Day 5 signals are allowed as explicit dev-only inputs, but every run is marked `exploratory_only`
+- the first engine is daily-bar, one-company-at-a-time, and unit-position only
+- fills occur at next-bar open only
+- benchmarks are mechanical baselines, not investment claims
+- synthetic prices are test infrastructure only and clearly labeled as such
+
+### Carry-Forward
+
+- richer signal-evaluation artifacts
+- ablation-aware replay
+- explicit promotion gate from exploratory artifacts into reviewed validation work
+
+## Day 7: Signal Evaluation And Promotion Gate
 
 Status: `Planned`
 
 ### Goal
 
-Build the first temporally honest evaluation and ablation harness for candidate signals.
+Build the first reviewed signal-evaluation and promotion workflow on top of the Day 6 exploratory backtest boundary.
 
 ### Planned Focus
 
-- enforce feature and signal availability cutoffs
-- define candidate signal eval artifacts and coverage checks
-- compare `text_only` against future `price_only`, `fundamentals_only`, and `combined` slices
-- add the first promotion guardrails before backtesting or portfolio logic
+- typed signal-evaluation artifacts
+- snapshot-aware replay checks
+- ablation coverage across future signal slices
+- explicit promotion guardrails before portfolio logic or paper execution
 
 ## Maintenance Rule
 

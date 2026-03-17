@@ -292,6 +292,10 @@ class DataSnapshot(TimestampedModel):
         default=None,
         description="Latest source event time safely included in the snapshot.",
     )
+    information_cutoff_time: datetime | None = Field(
+        default=None,
+        description="Latest time that downstream workflows are allowed to assume is available.",
+    )
     storage_uri: str = Field(description="URI of the snapshot manifest or storage root.")
     row_count: int | None = Field(
         default=None, ge=0, description="Approximate row count in the snapshot."
@@ -312,6 +316,20 @@ class DataSnapshot(TimestampedModel):
     )
     created_by_process: str = Field(description="Workflow or process that generated the snapshot.")
     provenance: ProvenanceRecord = Field(description="Traceability for the snapshot.")
+
+    @model_validator(mode="after")
+    def validate_snapshot_times(self) -> DataSnapshot:
+        """Ensure snapshot watermarks do not exceed explicit information cutoffs."""
+
+        if (
+            self.watermark_time is not None
+            and self.information_cutoff_time is not None
+            and self.watermark_time > self.information_cutoff_time
+        ):
+            raise ValueError(
+                "watermark_time must be less than or equal to information_cutoff_time."
+            )
+        return self
 
 
 class PriceSeriesMetadata(TimestampedModel):

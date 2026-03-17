@@ -2,35 +2,50 @@
 
 ## Goal
 
-Build the first honest signal evaluation and ablation harness on top of the new Day 5 candidate feature and signal pipeline.
+Build the first honest backtesting and simulation skeleton with strong temporal discipline.
 
-## Priority 1: Temporal Evaluation Boundary
+## Priority 1: Backtesting Contracts
 
-- define the exact `as_of_time`, `available_at`, and decision-cutoff rules for candidate features and signals
-- add checks that reject signals whose features were not available by the requested cutoff
-- define the minimal replay interface for one company and one fixture time slice
+- refine `BacktestRun`
+- add `BacktestConfig`
+- add `ExecutionAssumption`
+- add `StrategyDecision`
+- add `SimulationEvent`
+- add `PerformanceSummary`
+- add `BenchmarkReference`
+- refine `DataSnapshot` with explicit information cutoffs
 
-## Priority 2: Ablation Harness
+## Priority 2: Deterministic Local Engine
 
-- compare `text_only` against future `price_only`, `fundamentals_only`, and `combined` slices using the same signal contract
-- record which feature families participated in each candidate signal
-- add empty-but-explicit baseline handling so missing families do not silently disappear
+- consume persisted candidate signals and features
+- apply a simple unit-position decision rule
+- execute at next-bar open
+- record every decision and fill explicitly
+- persist snapshots, runs, decisions, events, summaries, and benchmarks
 
-## Priority 3: Candidate Signal Eval Artifacts
+## Priority 3: Temporal Correctness
 
-- define lightweight evaluation outputs for:
-  - lineage completeness
-  - score stability under small input changes
-  - support-gap visibility
-  - ablation coverage
-- persist those eval artifacts alongside candidate signals
+- enforce `effective_at <= decision_time`
+- enforce `FeatureValue.available_at <= decision_time`
+- separate snapshot time from information cutoff time
+- reject same-bar execution
+- record leakage and integrity checks on the run artifact
 
-## Priority 4: Promotion Guardrails
+## Priority 4: Honest Assumptions
 
-- define the first explicit gate between candidate signals and any future backtest or portfolio logic
-- require review and validation state to remain visible
-- keep unvalidated signals out of any future proposal workflow by default
+- make transaction cost and slippage explicit
+- use synthetic price fixtures only for mechanical testing
+- mark every Day 6 run `exploratory_only`
+- emit only simple benchmarks:
+  - `flat_baseline`
+  - `buy_and_hold`
 
-## Exact Day 6 Target
+## Exact Target
 
-Implement a temporally honest candidate-signal evaluation and ablation workflow before any portfolio construction or paper-trading work begins.
+Implement a reproducible exploratory backtesting boundary that proves the platform can:
+
+- replay candidate signals under explicit temporal controls
+- simulate mechanical fills and marks honestly
+- persist structured run artifacts for later validation work
+
+without pretending the current signals are validated or profitable.
