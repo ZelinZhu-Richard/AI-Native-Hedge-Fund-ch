@@ -5,6 +5,7 @@ Institutional-grade foundation for an AI-native hedge fund research and paper-tr
 This repository is the operating system for future research workflows, not a toy demo and not a live-trading system. The current scope is deliberately narrow: establish the architecture, typed contracts, service boundaries, safety controls, local development workflow, and documentation needed to build quickly without sacrificing rigor.
 
 Execution sequencing and phase intent are anchored in `PLAN.md`. Repository contribution behavior and architectural guardrails are anchored in `AGENTS.md`.
+Rolling implementation history is tracked in `docs/plans/work_log.md`.
 
 ## Current Scope
 
