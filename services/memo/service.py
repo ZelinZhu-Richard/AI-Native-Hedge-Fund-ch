@@ -4,24 +4,20 @@ from pydantic import Field
 
 from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
-from libraries.schemas import Memo, MemoStatus, StrictModel
+from libraries.schemas import Memo, MemoStatus, ResearchBrief, StrictModel
 from libraries.utils import make_prefixed_id
 
 
 class MemoGenerationRequest(StrictModel):
-    """Request to generate a research memo from reviewed artifacts."""
+    """Request to generate a draft memo skeleton from a structured research brief."""
 
-    title: str = Field(description="Memo title.")
-    audience: str = Field(description="Primary audience.")
-    executive_summary: str = Field(description="Executive summary content.")
-    related_hypothesis_ids: list[str] = Field(
-        default_factory=list, description="Related hypotheses."
-    )
-    related_portfolio_proposal_id: str | None = Field(
-        default=None,
-        description="Related portfolio proposal identifier if applicable.",
-    )
+    research_brief: ResearchBrief = Field(description="Memo-ready research brief to render.")
+    audience: str = Field(default="research_review", description="Primary audience.")
     requested_by: str = Field(description="Requester identifier.")
+    author_agent_run_id: str | None = Field(
+        default=None,
+        description="Agent run that assembled the memo-ready brief when available.",
+    )
 
 
 class MemoGenerationResponse(StrictModel):
@@ -34,9 +30,7 @@ class MemoGenerationService(BaseService):
     """Generate explainable, reviewable research memos."""
 
     capability_name = "memo"
-    capability_description = (
-        "Generates research memos from reviewed research and portfolio artifacts."
-    )
+    capability_description = "Generates draft research memos from memo-ready research briefs."
 
     def capability(self) -> ServiceCapability:
         """Return capability metadata for service discovery."""
@@ -44,33 +38,47 @@ class MemoGenerationService(BaseService):
         return ServiceCapability(
             name=self.capability_name,
             description=self.capability_description,
-            consumes=["Hypothesis", "PortfolioProposal", "RiskCheck"],
+            consumes=["ResearchBrief"],
             produces=["Memo"],
             api_routes=[],
         )
 
     def generate(self, request: MemoGenerationRequest) -> MemoGenerationResponse:
-        """Generate a placeholder memo artifact."""
+        """Generate a structured memo skeleton from a research brief."""
 
         now = self.clock.now()
+        brief = request.research_brief
         memo = Memo(
             memo_id=make_prefixed_id("memo"),
-            title=request.title,
+            title=brief.title,
             status=MemoStatus.DRAFT,
             audience=request.audience,
             generated_at=now,
-            author_agent_run_id=None,
-            related_hypothesis_ids=request.related_hypothesis_ids,
-            related_portfolio_proposal_id=request.related_portfolio_proposal_id,
-            executive_summary=request.executive_summary,
-            key_points=["Day 1 memo generation is a controlled placeholder."],
-            key_risks=["All outputs require human review."],
-            open_questions=["Source-linked evidence flow is still being built in Day 2."],
+            author_agent_run_id=request.author_agent_run_id,
+            related_hypothesis_ids=[brief.hypothesis_id],
+            related_portfolio_proposal_id=None,
+            executive_summary=f"{brief.core_hypothesis} Counter-case: {brief.counter_hypothesis_summary}",
+            key_points=[
+                brief.context_summary,
+                brief.core_hypothesis,
+                *[
+                    link.note or link.quote
+                    for link in brief.supporting_evidence_links[:2]
+                ],
+            ],
+            key_risks=brief.key_counterarguments,
+            open_questions=brief.next_validation_steps,
             content_uri=None,
             provenance=build_provenance(
                 clock=self.clock,
-                transformation_name="memo_generation_stub",
-                upstream_artifact_ids=request.related_hypothesis_ids,
+                transformation_name="memo_generation_from_research_brief",
+                source_reference_ids=brief.provenance.source_reference_ids,
+                upstream_artifact_ids=[
+                    brief.research_brief_id,
+                    brief.hypothesis_id,
+                    brief.counter_hypothesis_id,
+                ],
+                agent_run_id=request.author_agent_run_id,
             ),
             created_at=now,
             updated_at=now,

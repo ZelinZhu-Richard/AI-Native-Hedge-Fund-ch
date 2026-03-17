@@ -13,6 +13,10 @@ All first-class entities use explicit prefixed IDs. Examples:
 - `doc_...` for `Document`
 - `evd_...` for `EvidenceSpan`
 - `hyp_...` for `Hypothesis`
+- `chyp_...` for `CounterHypothesis`
+- `sel_...` for `SupportingEvidenceLink`
+- `eass_...` for `EvidenceAssessment`
+- `rbrief_...` for `ResearchBrief`
 - `sig_...` for `Signal`
 - `idea_...` for `PositionIdea`
 - `proposal_...` for `PortfolioProposal`
@@ -86,7 +90,7 @@ Current parsing examples:
 
 - Raw: unmodified payloads from upstream sources
 - Normalized: cleaned or structured representations preserving source meaning
-- Derived: hypotheses, features, signals, scores, proposals, and memos built from normalized inputs
+- Derived: hypotheses, critiques, evidence assessments, research briefs, features, signals, scores, proposals, and memos built from normalized inputs
 
 Every artifact should declare its `DataLayer` or be inferable from its entity type.
 
@@ -128,7 +132,8 @@ If provenance is incomplete, downstream consumers should degrade trust and may r
 - Claims that refer to textual evidence must link to `EvidenceSpan`
 - `EvidenceSpan` must link to `SourceReference`
 - parser-emitted `EvidenceSpan` should also link to a concrete `DocumentSegment` when exact segment regions exist
-- If a hypothesis or memo contains a substantive assertion with no evidence span, it must be marked as an assumption or open question
+- `Hypothesis`, `CounterHypothesis`, and `ResearchBrief` should cite textual support through `SupportingEvidenceLink`
+- If a hypothesis, critique, or memo contains a substantive assertion with no evidence span, it must be marked as an assumption, open question, or missing evidence
 - Evidence excerpts should preserve offsets, page numbers, or speaker labels when available
 
 ## Versioning Rules

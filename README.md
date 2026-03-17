@@ -16,6 +16,7 @@ The repository currently includes:
 - a minimal FastAPI control-plane API
 - an initial agent framework and agent registry
 - a local fixture-backed ingestion and normalization pipeline for filings, transcripts, news, company metadata, and price-series metadata
+- a deterministic evidence-first research workflow that produces hypotheses, critiques, support grades, research briefs, and draft memo skeletons
 - documentation for architecture, temporal contracts, risk controls, eval philosophy, and Day 2 execution
 - local quality tooling: `ruff`, `mypy`, `pytest`, `pre-commit`, and `Makefile`
 
@@ -31,12 +32,12 @@ The repository still does **not** include:
 
 ## Immediate Goal
 
-The immediate goal is to turn the local ingestion backbone into parser-ready evidence flows:
+The immediate goal is to harden the research workflow boundary before feature work begins:
 
-- preserve explicit service boundaries
+- preserve exact evidence linkage from research artifacts back to source spans
+- keep hypotheses, critiques, support grades, and memo-ready briefs reviewable and modular
 - preserve point-in-time and provenance discipline
-- keep raw, normalized, derived, and reviewable artifacts unambiguous
-- keep local development and validation friction low
+- keep signals and portfolio logic downstream of explicit human review
 
 ## Design Intent
 
@@ -156,6 +157,7 @@ The current ingestion slice writes exact raw fixture copies and canonical normal
     ├── architecture/
     ├── agents/
     ├── contracts/
+    ├── research/
     ├── risk/
     └── plans/
 ```
@@ -235,8 +237,8 @@ These are deliberate Day 1 deferrals that deserve review before Day 3:
 Future work should extend the platform in this order:
 
 1. parsing and evidence extraction with traceable spans over the normalized artifacts
-2. first research artifact flow from document to hypothesis to memo
-3. feature computation and signal generation with temporal controls
+2. first research artifact flow from evidence to hypothesis, critique, brief, and memo skeleton
+3. review-gated feature computation and signal generation with temporal controls
 4. backtesting and eval harnesses with strict out-of-sample discipline
 5. paper portfolio construction and simulated execution under risk review
 6. real provider connectors once the local artifact flow is stable

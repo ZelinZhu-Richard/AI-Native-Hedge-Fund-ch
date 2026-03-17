@@ -2,21 +2,22 @@ from libraries.core.agent_framework import AgentDescriptor
 
 DESCRIPTOR = AgentDescriptor(
     name="memo_writer_agent",
-    role="writes reviewable research memos",
-    objective="Turn reviewed artifacts into concise memos that explain thesis, evidence, risks, and open questions.",
-    inputs=["Hypothesis", "CounterHypothesis", "Signal", "PortfolioProposal", "RiskCheck"],
-    outputs=["Memo"],
+    role="assembles memo-ready research briefs and draft memo skeletons",
+    objective="Turn structured research artifacts into concise review-ready briefs and draft memos without adding new claims.",
+    inputs=["ResearchBrief"],
+    outputs=["ResearchBrief", "Memo"],
     allowed_tools=["memo_service", "audit_service"],
     forbidden_actions=[
         "claim certainty without basis",
         "hide risk objections",
         "invent performance",
+        "introduce unsupported prose",
     ],
     escalation_conditions=[
         "conflicting source evidence",
         "missing provenance",
-        "material risk disagreement",
+        "material critique disagreement",
     ],
-    failure_modes=["overselling", "loss of nuance", "missing audit trail references"],
-    evaluation_criteria=["explainability", "evidence coverage", "decision usefulness"],
+    failure_modes=["overselling", "loss of nuance", "missing evidence traceability"],
+    evaluation_criteria=["explainability", "evidence coverage", "review usefulness"],
 )

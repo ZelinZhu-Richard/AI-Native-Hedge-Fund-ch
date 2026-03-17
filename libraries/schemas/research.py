@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from enum import StrEnum
 
 from pydantic import Field, model_validator
 
@@ -20,30 +21,161 @@ from libraries.schemas.base import (
 )
 
 
+class ResearchStance(StrEnum):
+    """Research-layer view classification, deliberately separate from trading side."""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    MIXED = "mixed"
+    MONITOR = "monitor"
+
+
+class ResearchReviewStatus(StrEnum):
+    """Human-review status for research artifacts before downstream promotion."""
+
+    DRAFT = "draft"
+    PENDING_HUMAN_REVIEW = "pending_human_review"
+    REVISION_REQUESTED = "revision_requested"
+    APPROVED_FOR_FEATURE_WORK = "approved_for_feature_work"
+    REJECTED = "rejected"
+
+
+class EvidenceLinkRole(StrEnum):
+    """How an evidence link is used inside a research artifact."""
+
+    SUPPORT = "support"
+    CONTRADICT = "contradict"
+    CONTEXT = "context"
+
+
+class EvidenceGrade(StrEnum):
+    """Strength of evidence backing a research thesis."""
+
+    STRONG = "strong"
+    MODERATE = "moderate"
+    WEAK = "weak"
+    INSUFFICIENT = "insufficient"
+
+
+class CritiqueKind(StrEnum):
+    """Structured critique categories used by counter-hypotheses."""
+
+    CONTRADICTORY_EVIDENCE = "contradictory_evidence"
+    MISSING_EVIDENCE = "missing_evidence"
+    ASSUMPTION_RISK = "assumption_risk"
+    CAUSAL_GAP = "causal_gap"
+
+
+class SupportingEvidenceLink(TimestampedModel):
+    """Exact research-layer link back to one extracted evidence span."""
+
+    supporting_evidence_link_id: str = Field(
+        description="Canonical supporting-evidence link identifier."
+    )
+    source_reference_id: str = Field(description="Source reference that contains the evidence.")
+    document_id: str = Field(description="Document that contains the evidence.")
+    evidence_span_id: str = Field(description="Exact evidence span grounding the link.")
+    extracted_artifact_id: str | None = Field(
+        default=None,
+        description="Optional upstream extracted artifact identifier such as a claim or risk factor.",
+    )
+    role: EvidenceLinkRole = Field(description="How the evidence is used in the research artifact.")
+    quote: str = Field(description="Exact quoted text from the linked evidence span.")
+    note: str | None = Field(
+        default=None,
+        description="Short note explaining how the evidence supports or challenges the thesis.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for how the link was assembled.")
+
+    @model_validator(mode="after")
+    def validate_quote(self) -> SupportingEvidenceLink:
+        """Ensure evidence links always carry exact source text."""
+
+        if not self.quote:
+            raise ValueError("quote must be non-empty.")
+        return self
+
+
+class EvidenceAssessment(TimestampedModel):
+    """Structured evaluation of the support and gaps for a hypothesis."""
+
+    evidence_assessment_id: str = Field(description="Canonical evidence-assessment identifier.")
+    company_id: str = Field(description="Covered company identifier.")
+    hypothesis_id: str | None = Field(
+        default=None,
+        description="Hypothesis under review when the assessment is attached to a thesis.",
+    )
+    grade: EvidenceGrade = Field(description="Structured support grade.")
+    supporting_evidence_link_ids: list[str] = Field(
+        default_factory=list,
+        description="Evidence links used as primary support.",
+    )
+    support_summary: str = Field(description="Short summary of what the current evidence supports.")
+    key_gaps: list[str] = Field(
+        default_factory=list,
+        description="Important evidence gaps still preventing stronger confidence.",
+    )
+    contradiction_notes: list[str] = Field(
+        default_factory=list,
+        description="Observed contradictory or cautionary evidence notes.",
+    )
+    review_status: ResearchReviewStatus = Field(
+        description="Human-review status for the assessment."
+    )
+    confidence: ConfidenceAssessment | None = Field(
+        default=None,
+        description="Conservative confidence and uncertainty assessment for the support grade.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the evidence assessment.")
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> EvidenceAssessment:
+        """Require a non-empty support summary."""
+
+        if not self.support_summary:
+            raise ValueError("support_summary must be non-empty.")
+        return self
+
+
 class Hypothesis(TimestampedModel):
-    """Forward-looking research thesis supported by evidence and assumptions."""
+    """Forward-looking research thesis supported by explicit evidence and assumptions."""
 
     hypothesis_id: str = Field(description="Canonical hypothesis identifier.")
     company_id: str = Field(description="Covered company identifier.")
     title: str = Field(description="Short hypothesis title.")
-    thesis: str = Field(description="Primary investment thesis statement.")
-    direction: PositionSide = Field(description="Directional view implied by the thesis.")
+    thesis: str = Field(description="Primary research thesis statement.")
+    stance: ResearchStance = Field(description="Research stance implied by the thesis.")
     status: HypothesisStatus = Field(description="Hypothesis lifecycle status.")
-    time_horizon: str = Field(
-        description="Qualitative time horizon, for example `quarterly` or `12m`."
+    review_status: ResearchReviewStatus = Field(
+        description="Human-review status for the hypothesis."
     )
-    catalyst: str | None = Field(default=None, description="Expected catalyst or validating event.")
+    time_horizon: str = Field(
+        description="Qualitative time horizon, for example `next_2_4_quarters`."
+    )
+    catalyst: str | None = Field(default=None, description="Expected validating event if known.")
     invalidation_conditions: list[str] = Field(
         default_factory=list,
         description="Observable conditions that would invalidate the thesis.",
     )
-    evidence_span_ids: list[str] = Field(
+    supporting_evidence_links: list[SupportingEvidenceLink] = Field(
         default_factory=list,
-        description="Evidence spans directly supporting the thesis.",
+        description="Exact evidence links directly supporting the thesis.",
     )
     assumptions: list[str] = Field(
         default_factory=list,
         description="Explicit assumptions that are not yet verified by evidence.",
+    )
+    uncertainties: list[str] = Field(
+        default_factory=list,
+        description="Material uncertainties that a reviewer should keep visible.",
+    )
+    validation_steps: list[str] = Field(
+        default_factory=list,
+        description="Concrete next checks needed before downstream promotion.",
+    )
+    evidence_assessment_id: str | None = Field(
+        default=None,
+        description="Evidence assessment associated with the hypothesis when available.",
     )
     confidence: ConfidenceAssessment | None = Field(
         default=None,
@@ -51,27 +183,123 @@ class Hypothesis(TimestampedModel):
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the hypothesis.")
 
+    @model_validator(mode="after")
+    def validate_support(self) -> Hypothesis:
+        """Require directly linked support and explicit review path."""
+
+        if not self.supporting_evidence_links:
+            raise ValueError("supporting_evidence_links must contain at least one link.")
+        if not self.validation_steps:
+            raise ValueError("validation_steps must contain at least one next step.")
+        return self
+
 
 class CounterHypothesis(TimestampedModel):
-    """Adversarial counter-thesis designed to challenge a primary hypothesis."""
+    """Adversarial counter-thesis designed to challenge a primary hypothesis honestly."""
 
     counter_hypothesis_id: str = Field(description="Canonical counter-hypothesis identifier.")
     hypothesis_id: str = Field(description="Primary hypothesis being challenged.")
     title: str = Field(description="Short counter-thesis title.")
-    thesis: str = Field(description="Concise statement of the opposing case.")
-    strongest_evidence_span_ids: list[str] = Field(
+    thesis: str = Field(description="Concise statement of the opposing or cautionary case.")
+    critique_kinds: list[CritiqueKind] = Field(
         default_factory=list,
-        description="Evidence spans that most strongly support the counter case.",
+        description="Structured critique categories surfaced by the counter-thesis.",
+    )
+    supporting_evidence_links: list[SupportingEvidenceLink] = Field(
+        default_factory=list,
+        description="Evidence links that contradict or contextualize the thesis.",
+    )
+    challenged_assumptions: list[str] = Field(
+        default_factory=list,
+        description="Primary assumptions challenged by the critique.",
+    )
+    missing_evidence: list[str] = Field(
+        default_factory=list,
+        description="Evidence still missing before the thesis can be trusted more fully.",
+    )
+    causal_gaps: list[str] = Field(
+        default_factory=list,
+        description="Potential breaks between the cited facts and the claimed mechanism.",
     )
     unresolved_questions: list[str] = Field(
         default_factory=list,
         description="Questions still unresolved after critique.",
     )
+    review_status: ResearchReviewStatus = Field(
+        description="Human-review status for the counter-hypothesis."
+    )
     confidence: ConfidenceAssessment | None = Field(
         default=None,
-        description="Confidence and uncertainty assessment for the counter-thesis.",
+        description="Conservative confidence and uncertainty assessment for the critique.",
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the counter-hypothesis.")
+
+    @model_validator(mode="after")
+    def validate_critique_basis(self) -> CounterHypothesis:
+        """Require concrete critique content instead of empty objection text."""
+
+        if not self.critique_kinds:
+            raise ValueError("critique_kinds must contain at least one critique category.")
+        if not any(
+            [
+                self.supporting_evidence_links,
+                self.challenged_assumptions,
+                self.missing_evidence,
+                self.causal_gaps,
+                self.unresolved_questions,
+            ]
+        ):
+            raise ValueError("CounterHypothesis requires at least one concrete critique basis.")
+        return self
+
+
+class ResearchBrief(TimestampedModel):
+    """Structured memo-ready research artifact for human review."""
+
+    research_brief_id: str = Field(description="Canonical research-brief identifier.")
+    company_id: str = Field(description="Covered company identifier.")
+    title: str = Field(description="Short review title for the brief.")
+    context_summary: str = Field(description="Compact company and document context summary.")
+    core_hypothesis: str = Field(description="Core hypothesis statement for review.")
+    counter_hypothesis_summary: str = Field(
+        description="Primary counter-hypothesis or critique summary."
+    )
+    hypothesis_id: str = Field(description="Primary hypothesis summarized in the brief.")
+    counter_hypothesis_id: str = Field(
+        description="Primary counter-hypothesis summarized in the brief."
+    )
+    evidence_assessment_id: str = Field(description="Evidence assessment backing the brief.")
+    supporting_evidence_links: list[SupportingEvidenceLink] = Field(
+        default_factory=list,
+        description="Primary evidence links included for review.",
+    )
+    key_counterarguments: list[str] = Field(
+        default_factory=list,
+        description="Concise counterarguments or challenge points.",
+    )
+    confidence: ConfidenceAssessment | None = Field(
+        default=None,
+        description="Conservative confidence and uncertainty assessment for the brief.",
+    )
+    uncertainty_summary: str = Field(description="Compact summary of the open uncertainty.")
+    review_status: ResearchReviewStatus = Field(
+        description="Human-review status for the brief."
+    )
+    next_validation_steps: list[str] = Field(
+        default_factory=list,
+        description="Concrete next checks a researcher should perform.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the research brief.")
+
+    @model_validator(mode="after")
+    def validate_brief(self) -> ResearchBrief:
+        """Require evidence-backed content and clear next actions."""
+
+        if not self.supporting_evidence_links:
+            raise ValueError("supporting_evidence_links must contain at least one link.")
+        if not self.next_validation_steps:
+            raise ValueError("next_validation_steps must contain at least one step.")
+        return self
 
 
 class Feature(TimestampedModel):
@@ -90,7 +318,7 @@ class Feature(TimestampedModel):
     definition: str = Field(description="Human-readable feature definition.")
     as_of_date: date = Field(description="Logical business date the feature describes.")
     available_at: datetime = Field(
-        description="UTC time when the feature became available to decision-making systems.",
+        description="UTC time when the feature became available to decision-making systems."
     )
     status: FeatureStatus = Field(description="Feature lifecycle status.")
     numeric_value: float | None = Field(
@@ -197,7 +425,7 @@ class BacktestRun(TimestampedModel):
     test_start: date = Field(description="Out-of-sample test window start date.")
     test_end: date = Field(description="Out-of-sample test window end date.")
     decision_cutoff_time: datetime = Field(
-        description="UTC cutoff representing the maximum information set available during the run.",
+        description="UTC cutoff representing the maximum information set available during the run."
     )
     rebalance_frequency: str = Field(description="Rebalance cadence used by the run.")
     universe_definition: str = Field(description="Point-in-time universe definition.")
@@ -269,7 +497,7 @@ class Memo(TimestampedModel):
     )
     related_portfolio_proposal_id: str | None = Field(
         default=None,
-        description="Portfolio proposal discussed in the memo, if any.",
+        description="Portfolio proposal discussed in the memo, if applicable.",
     )
     executive_summary: str = Field(description="Short executive summary.")
     key_points: list[str] = Field(

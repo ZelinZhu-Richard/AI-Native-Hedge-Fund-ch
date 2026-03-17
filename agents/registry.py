@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agents.counterargument_agent import DESCRIPTOR as COUNTERARGUMENT_AGENT
+from agents.evidence_grader_agent import DESCRIPTOR as EVIDENCE_GRADER_AGENT
 from agents.filing_ingestion_agent import DESCRIPTOR as FILING_INGESTION_AGENT
 from agents.hypothesis_agent import DESCRIPTOR as HYPOTHESIS_AGENT
 from agents.memo_writer_agent import DESCRIPTOR as MEMO_WRITER_AGENT
@@ -20,6 +21,7 @@ def list_agent_descriptors() -> list[AgentDescriptor]:
         TRANSCRIPT_AGENT,
         NEWS_AGENT,
         HYPOTHESIS_AGENT,
+        EVIDENCE_GRADER_AGENT,
         COUNTERARGUMENT_AGENT,
         SIGNAL_BUILDER_AGENT,
         RISK_REVIEWER_AGENT,
