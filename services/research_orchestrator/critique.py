@@ -10,6 +10,7 @@ from libraries.schemas import (
     EvidenceSpan,
     Hypothesis,
     ResearchReviewStatus,
+    ResearchValidationStatus,
     SupportingEvidenceLink,
     ToneMarkerType,
 )
@@ -102,6 +103,7 @@ def generate_counter_hypothesis(
         causal_gaps=causal_gaps,
         unresolved_questions=unresolved_questions,
         review_status=ResearchReviewStatus.PENDING_HUMAN_REVIEW,
+        validation_status=ResearchValidationStatus.UNVALIDATED,
         confidence=ConfidenceAssessment(
             confidence=0.51,
             uncertainty=0.49,

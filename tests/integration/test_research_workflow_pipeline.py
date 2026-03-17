@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -53,6 +54,30 @@ def test_research_workflow_pipeline_persists_artifacts(tmp_path: Path) -> None:
         / f"{response.research_brief.research_brief_id}.json"
     ).exists()
     assert (artifact_root / "research" / "memos" / f"{response.memo.memo_id}.json").exists()
+    hypothesis_payload = json.loads(
+        (
+            artifact_root / "research" / "hypotheses" / f"{response.hypothesis.hypothesis_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assessment_payload = json.loads(
+        (
+            artifact_root
+            / "research"
+            / "evidence_assessments"
+            / f"{response.evidence_assessment.evidence_assessment_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    brief_payload = json.loads(
+        (
+            artifact_root
+            / "research"
+            / "research_briefs"
+            / f"{response.research_brief.research_brief_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert hypothesis_payload["validation_status"] == response.hypothesis.validation_status.value
+    assert assessment_payload["validation_status"] == response.evidence_assessment.validation_status.value
+    assert brief_payload["validation_status"] == response.research_brief.validation_status.value
     parsing_span_ids = {
         path.stem for path in (artifact_root / "parsing" / "evidence_spans").glob("*.json")
     }

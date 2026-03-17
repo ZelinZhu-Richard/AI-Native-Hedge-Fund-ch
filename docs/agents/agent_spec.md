@@ -10,6 +10,7 @@ Agents may help ingest, parse, grade, challenge, summarize, and eventually trans
 
 - Agents may use only approved services and tools.
 - Agents must preserve provenance, timestamps, assumptions, and uncertainty.
+- Agents must preserve the distinction between human review status and validation status.
 - Agents must escalate when support is weak, timestamps are ambiguous, or provenance is missing.
 - Agents must not fabricate evidence, price moves, performance, customer adoption, or causal certainty.
 - Agents must not bypass human review gates.
@@ -102,7 +103,7 @@ Forbidden actions: inflate support quality, hide missing evidence, promote direc
 
 Escalation conditions: insufficient support, missing provenance, unresolved contradictions.
 
-Failure modes: overstated support, invisible gaps, implicit confidence inflation.
+Failure modes: overstated support, invisible gaps, implicit confidence inflation, review and validation state being conflated.
 
 ## 6. Counterargument Agent
 
@@ -192,4 +193,4 @@ Forbidden actions: claim certainty without basis, hide risk objections, invent p
 
 Escalation conditions: conflicting source evidence, missing provenance, material critique disagreement.
 
-Failure modes: overselling, loss of nuance, missing evidence traceability.
+Failure modes: overselling, loss of nuance, missing evidence traceability, review and validation state omitted from the memo skeleton.

@@ -8,6 +8,8 @@ from libraries.schemas import (
     EvidenceGrade,
     EvidenceSpan,
     ProvenanceRecord,
+    ResearchReviewStatus,
+    ResearchValidationStatus,
     ToneMarker,
     ToneMarkerType,
 )
@@ -53,11 +55,21 @@ def test_apex_workflow_produces_reviewable_hypothesis_and_critique(tmp_path: Pat
     assert len(response.hypothesis.supporting_evidence_links) >= 3
     assert len({link.document_id for link in response.hypothesis.supporting_evidence_links}) >= 2
     assert response.evidence_assessment.grade in {EvidenceGrade.STRONG, EvidenceGrade.MODERATE}
+    assert response.hypothesis.review_status == ResearchReviewStatus.PENDING_HUMAN_REVIEW
+    assert response.hypothesis.validation_status == ResearchValidationStatus.UNVALIDATED
+    assert response.evidence_assessment.review_status == ResearchReviewStatus.PENDING_HUMAN_REVIEW
+    assert response.evidence_assessment.validation_status == ResearchValidationStatus.PENDING_VALIDATION
+    assert response.counter_hypothesis.review_status == ResearchReviewStatus.PENDING_HUMAN_REVIEW
+    assert response.counter_hypothesis.validation_status == ResearchValidationStatus.UNVALIDATED
+    assert response.research_brief.review_status == response.hypothesis.review_status
+    assert response.research_brief.validation_status == response.hypothesis.validation_status
     assert response.counter_hypothesis.challenged_assumptions
     assert response.counter_hypothesis.missing_evidence
     assert response.research_brief.key_counterarguments
     assert response.research_brief.core_hypothesis == response.hypothesis.thesis
-    assert response.memo.executive_summary.startswith(response.research_brief.core_hypothesis)
+    assert response.research_brief.core_hypothesis in response.memo.executive_summary
+    assert "Review status:" in response.memo.executive_summary
+    assert "Validation status:" in response.memo.executive_summary
 
 
 def test_insufficient_evidence_returns_no_hypothesis() -> None:
@@ -87,6 +99,7 @@ def test_insufficient_evidence_returns_no_hypothesis() -> None:
     assert result.hypothesis is None
     assert result.notes
     assert assessment.grade == EvidenceGrade.INSUFFICIENT
+    assert assessment.validation_status == ResearchValidationStatus.UNVALIDATED
 
 
 def _evidence_span() -> EvidenceSpan:

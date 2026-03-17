@@ -48,6 +48,10 @@ class MemoGenerationService(BaseService):
 
         now = self.clock.now()
         brief = request.research_brief
+        status_summary = (
+            f"Review status: {brief.review_status.value}. "
+            f"Validation status: {brief.validation_status.value}."
+        )
         memo = Memo(
             memo_id=make_prefixed_id("memo"),
             title=brief.title,
@@ -57,8 +61,12 @@ class MemoGenerationService(BaseService):
             author_agent_run_id=request.author_agent_run_id,
             related_hypothesis_ids=[brief.hypothesis_id],
             related_portfolio_proposal_id=None,
-            executive_summary=f"{brief.core_hypothesis} Counter-case: {brief.counter_hypothesis_summary}",
+            executive_summary=(
+                f"{status_summary} {brief.core_hypothesis} "
+                f"Counter-case: {brief.counter_hypothesis_summary}"
+            ),
             key_points=[
+                status_summary,
                 brief.context_summary,
                 brief.core_hypothesis,
                 *[

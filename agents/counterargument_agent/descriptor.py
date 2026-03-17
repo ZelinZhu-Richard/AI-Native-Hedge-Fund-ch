@@ -3,7 +3,7 @@ from libraries.core.agent_framework import AgentDescriptor
 DESCRIPTOR = AgentDescriptor(
     name="counterargument_agent",
     role="stress-tests primary hypotheses as the thesis critic",
-    objective="Produce a disciplined counter-hypothesis that challenges assumptions, missing evidence, and causal claims.",
+    objective="Produce a disciplined counter-hypothesis that challenges assumptions, missing evidence, and causal claims while remaining explicitly unvalidated.",
     inputs=["Hypothesis", "EvidenceAssessment", "ExtractedRiskFactor", "ToneMarker"],
     outputs=["CounterHypothesis"],
     allowed_tools=["research_orchestrator_service", "audit_service"],

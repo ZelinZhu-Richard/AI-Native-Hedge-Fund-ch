@@ -8,6 +8,7 @@ Turn the Day 4 research artifacts into a real promotion boundary for later featu
 
 - attach `ReviewDecision` records to `Hypothesis`, `EvidenceAssessment`, `CounterHypothesis`, and `ResearchBrief`
 - define the exact conditions for `approved_for_feature_work`
+- define the exact interaction between human review state and validation state
 - persist review decisions and audit events for research artifacts
 
 ## Priority 2: Reviewed-Research Input Contract For Features
@@ -30,4 +31,4 @@ Turn the Day 4 research artifacts into a real promotion boundary for later featu
 
 ## Exact Day 5 Target
 
-Build the human review and promotion gate for research artifacts, then define the first reviewed-research-to-feature contract.
+Build the human review and validation gate for research artifacts, then define the first reviewed-and-validation-aware research-to-feature contract.

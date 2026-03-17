@@ -8,6 +8,7 @@ from libraries.schemas import (
     EvidenceGrade,
     Hypothesis,
     ResearchReviewStatus,
+    ResearchValidationStatus,
     SupportingEvidenceLink,
     ToneMarkerType,
 )
@@ -43,6 +44,11 @@ def build_evidence_assessment(
         grade = EvidenceGrade.WEAK
     else:
         grade = EvidenceGrade.INSUFFICIENT
+    validation_status = (
+        ResearchValidationStatus.PENDING_VALIDATION
+        if grade in {EvidenceGrade.STRONG, EvidenceGrade.MODERATE}
+        else ResearchValidationStatus.UNVALIDATED
+    )
 
     key_gaps = [
         "Evidence remains concentrated in company-controlled disclosures.",
@@ -103,6 +109,7 @@ def build_evidence_assessment(
         key_gaps=key_gaps,
         contradiction_notes=contradiction_notes,
         review_status=ResearchReviewStatus.PENDING_HUMAN_REVIEW,
+        validation_status=validation_status,
         confidence=confidence,
         provenance=build_provenance(
             clock=clock,

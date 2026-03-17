@@ -40,6 +40,16 @@ class ResearchReviewStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class ResearchValidationStatus(StrEnum):
+    """Validation lifecycle for research artifacts, separate from human review."""
+
+    UNVALIDATED = "unvalidated"
+    PENDING_VALIDATION = "pending_validation"
+    PARTIALLY_VALIDATED = "partially_validated"
+    VALIDATED = "validated"
+    INVALIDATED = "invalidated"
+
+
 class EvidenceLinkRole(StrEnum):
     """How an evidence link is used inside a research artifact."""
 
@@ -122,6 +132,9 @@ class EvidenceAssessment(TimestampedModel):
     review_status: ResearchReviewStatus = Field(
         description="Human-review status for the assessment."
     )
+    validation_status: ResearchValidationStatus = Field(
+        description="Validation lifecycle status for the assessment."
+    )
     confidence: ConfidenceAssessment | None = Field(
         default=None,
         description="Conservative confidence and uncertainty assessment for the support grade.",
@@ -148,6 +161,9 @@ class Hypothesis(TimestampedModel):
     status: HypothesisStatus = Field(description="Hypothesis lifecycle status.")
     review_status: ResearchReviewStatus = Field(
         description="Human-review status for the hypothesis."
+    )
+    validation_status: ResearchValidationStatus = Field(
+        description="Validation lifecycle status for the hypothesis."
     )
     time_horizon: str = Field(
         description="Qualitative time horizon, for example `next_2_4_quarters`."
@@ -228,6 +244,9 @@ class CounterHypothesis(TimestampedModel):
     review_status: ResearchReviewStatus = Field(
         description="Human-review status for the counter-hypothesis."
     )
+    validation_status: ResearchValidationStatus = Field(
+        description="Validation lifecycle status for the counter-hypothesis."
+    )
     confidence: ConfidenceAssessment | None = Field(
         default=None,
         description="Conservative confidence and uncertainty assessment for the critique.",
@@ -284,6 +303,9 @@ class ResearchBrief(TimestampedModel):
     uncertainty_summary: str = Field(description="Compact summary of the open uncertainty.")
     review_status: ResearchReviewStatus = Field(
         description="Human-review status for the brief."
+    )
+    validation_status: ResearchValidationStatus = Field(
+        description="Validation lifecycle status for the brief."
     )
     next_validation_steps: list[str] = Field(
         default_factory=list,

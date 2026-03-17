@@ -7,7 +7,6 @@ from libraries.schemas import (
     EvidenceAssessment,
     Hypothesis,
     ResearchBrief,
-    ResearchReviewStatus,
 )
 from libraries.time import Clock
 from libraries.utils import make_canonical_id
@@ -71,7 +70,8 @@ def build_research_brief(
         key_counterarguments=key_counterarguments,
         confidence=hypothesis.confidence,
         uncertainty_summary="; ".join(hypothesis.uncertainties),
-        review_status=ResearchReviewStatus.PENDING_HUMAN_REVIEW,
+        review_status=hypothesis.review_status,
+        validation_status=hypothesis.validation_status,
         next_validation_steps=hypothesis.validation_steps,
         provenance=build_provenance(
             clock=clock,

@@ -94,6 +94,17 @@ Every Day 4 artifact remains review-bound:
 - `CounterHypothesis.review_status`
 - `ResearchBrief.review_status`
 
+Every Day 4 artifact also carries a separate validation lifecycle:
+
+- `Hypothesis.validation_status`
+- `EvidenceAssessment.validation_status`
+- `CounterHypothesis.validation_status`
+- `ResearchBrief.validation_status`
+
+Review status answers "has a human accepted or blocked this artifact?"
+
+Validation status answers "has the thesis or critique actually been checked, stress-tested, or invalidated by later evidence?"
+
 No Day 4 artifact is automatically promoted into a feature or signal.
 
 ## Downstream Contract
@@ -110,10 +121,11 @@ Later systems must not consume:
 - memo prose as a substitute for evidence
 - unsupported assumptions as if they were facts
 - hypotheses that remain below human review thresholds
+- artifacts that remain unvalidated when later stages require validated research inputs
 
 ## Known Day 4 Weaknesses
 
 - the workflow is deterministic and template-based, not model-assisted
 - the thesis and critique are still single-company and single-thesis
 - evidence ranking is narrow and not materiality-aware
-- human review state exists in schema form, but not yet as an interactive workflow
+- review and validation state exist in schema form, but not yet as an interactive workflow

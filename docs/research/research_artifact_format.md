@@ -45,6 +45,7 @@ Required content:
 - assumptions
 - uncertainties
 - invalidation conditions
+- validation status
 - next validation steps
 - review status
 - provenance
@@ -66,6 +67,7 @@ Required content:
 - linked support IDs
 - key gaps
 - contradiction notes
+- validation status
 - review status
 - provenance
 
@@ -87,6 +89,7 @@ Required content:
 - missing evidence
 - causal gaps
 - unresolved questions
+- validation status
 - review status
 - provenance
 
@@ -107,6 +110,7 @@ Required content:
 - support links
 - counterarguments
 - uncertainty summary
+- validation status
 - next validation steps
 - review status
 - provenance
@@ -137,4 +141,6 @@ Day 4 usage:
 
 - all research artifacts default to human review
 - approval for feature work is a separate state, not an implied consequence of a strong thesis
+- validation status is separate from review status
+- a hypothesis may be reviewable while still being unvalidated
 - unsupported narrative language should be rejected or rewritten into assumptions, gaps, or questions
