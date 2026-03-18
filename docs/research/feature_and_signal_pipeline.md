@@ -63,7 +63,8 @@ Current limitations:
 
 - only `FeatureFamily.TEXT_DERIVED` is instantiated
 - there are no Day 5 price, fundamentals, or macro features yet
-- `price_only`, `fundamentals_only`, and `combined` exist as contract hooks, not real evaluated baselines
+- `price_only`, `fundamentals_only`, and `combined` are still not Day 5 feature families
+- Day 9 now adds downstream baseline comparisons through `StrategyVariantSignal`, not through new Day 5 feature families
 
 ## Candidate Signal Construction
 
@@ -104,12 +105,13 @@ If lineage is incomplete, the feature or signal should fail validation or no-op 
 
 ## What Day 5 Does Not Support Yet
 
-Day 5 does not yet provide:
+Day 5 still does not provide:
 
 - validated signals
 - promotion gates from review decisions
 - price-only or fundamentals-only feature sets
-- ablation reporting
 - snapshot-native replay selection across the full chain
 
-Backtesting, portfolio proposals, and paper-trade candidates now exist downstream, but they still consume candidate-only artifacts and remain explicitly review-bound.
+Day 9 now adds baseline strategy and ablation reporting downstream of this layer, but those comparisons remain exploratory and do not validate the Day 5 text-derived signals by default.
+
+Backtesting, ablations, portfolio proposals, and paper-trade candidates now exist downstream, but they still consume candidate-only artifacts and remain explicitly review-bound.

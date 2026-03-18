@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from pydantic import Field, model_validator
 
-from libraries.schemas import Feature, Signal, StrictModel
+from libraries.schemas import Feature, Signal, StrategyVariantSignal, StrictModel
 from libraries.time import parse_datetime_value
 from libraries.time.clock import ensure_utc
 
@@ -64,9 +64,13 @@ class LoadedBacktestInputs(StrictModel):
     signal_root: Path = Field(description="Root path containing persisted signal artifacts.")
     feature_root: Path = Field(description="Root path containing persisted feature artifacts.")
     price_fixture_path: Path = Field(description="Path to the synthetic price fixture.")
-    signals: list[Signal] = Field(
+    signals: list[Signal | StrategyVariantSignal] = Field(
         default_factory=list,
         description="Persisted signals eligible for the run before temporal filtering.",
+    )
+    research_signals_by_id: dict[str, Signal] = Field(
+        default_factory=dict,
+        description="Research-signal artifacts keyed by signal ID for lineage revalidation.",
     )
     features_by_id: dict[str, Feature] = Field(
         default_factory=dict,
@@ -128,7 +132,8 @@ def load_backtest_inputs(
         signal_root=signal_root,
         feature_root=feature_root,
         price_fixture_path=price_fixture_path,
-        signals=company_signals,
+        signals=cast(list[Signal | StrategyVariantSignal], list(company_signals)),
+        research_signals_by_id={signal.signal_id: signal for signal in company_signals},
         features_by_id=feature_map,
         price_fixture=price_fixture,
     )

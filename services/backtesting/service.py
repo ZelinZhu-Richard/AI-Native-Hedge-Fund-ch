@@ -12,6 +12,9 @@ from libraries.config import get_settings
 from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
+    AblationConfig,
+    AblationResult,
+    AblationVariantResult,
     ArtifactStorageLocation,
     AuditOutcome,
     BacktestConfig,
@@ -35,12 +38,27 @@ from libraries.schemas import (
     SimulationEvent,
     SourceVersion,
     StrategyDecision,
+    StrategySpec,
+    StrategyVariant,
     StrictModel,
 )
 from libraries.schemas.base import ProvenanceRecord
 from libraries.utils import make_canonical_id, make_prefixed_id
 from services.audit import AuditEventRequest, AuditLoggingService
-from services.backtesting.loaders import load_backtest_inputs
+from services.backtesting.ablation import (
+    build_parent_experiment_artifacts,
+    build_parent_experiment_config,
+    build_parent_experiment_metrics,
+    build_parent_run_context,
+    build_strategy_input_snapshots,
+    build_strategy_specs,
+    build_variant_backtest_config,
+    build_variant_backtest_inputs,
+    load_strategy_inputs,
+    materialize_variant_signals,
+    sort_variant_results,
+)
+from services.backtesting.loaders import LoadedBacktestInputs, load_backtest_inputs
 from services.backtesting.simulation import run_backtest_simulation
 from services.backtesting.storage import LocalBacktestArtifactStore
 from services.experiment_registry import (
@@ -79,6 +97,10 @@ class RunBacktestWorkflowRequest(StrictModel):
     signal_root: Path = Field(description="Root path containing persisted signal artifacts.")
     feature_root: Path = Field(description="Root path containing persisted feature artifacts.")
     price_fixture_path: Path = Field(description="Path to the synthetic daily price fixture.")
+    loaded_inputs: LoadedBacktestInputs | None = Field(
+        default=None,
+        description="Optional preloaded comparable inputs used by internal workflows such as strategy ablations.",
+    )
     output_root: Path | None = Field(
         default=None,
         description="Optional output root for persisted backtesting artifacts.",
@@ -161,6 +183,61 @@ class RunBacktestWorkflowResponse(StrictModel):
     )
 
 
+class RunStrategyAblationWorkflowRequest(StrictModel):
+    """Explicit local request to compare multiple baseline strategy variants honestly."""
+
+    signal_root: Path = Field(description="Root path containing persisted research signal artifacts.")
+    feature_root: Path = Field(description="Root path containing persisted feature artifacts.")
+    price_fixture_path: Path = Field(description="Path to the shared synthetic daily price fixture.")
+    output_root: Path | None = Field(
+        default=None,
+        description="Optional root for persisted ablation artifacts.",
+    )
+    experiment_root: Path | None = Field(
+        default=None,
+        description="Optional root for persisted experiment-registry artifacts.",
+    )
+    company_id: str | None = Field(
+        default=None,
+        description="Covered company identifier. Required when roots contain multiple companies.",
+    )
+    ablation_config: AblationConfig = Field(
+        description="Shared reproducible configuration for the ablation run."
+    )
+
+
+class RunStrategyAblationWorkflowResponse(StrictModel):
+    """Result of the deterministic Day 9 strategy ablation workflow."""
+
+    strategy_specs: list[StrategySpec] = Field(
+        default_factory=list,
+        description="Strategy-family specifications used by the run.",
+    )
+    strategy_variants: list[StrategyVariant] = Field(
+        default_factory=list,
+        description="Concrete strategy variants compared by the run.",
+    )
+    ablation_result: AblationResult = Field(
+        description="Structured comparison result across all configured variants."
+    )
+    variant_backtest_runs: list[BacktestRun] = Field(
+        default_factory=list,
+        description="Backtest runs recorded for each compared variant.",
+    )
+    experiment: Experiment | None = Field(
+        default=None,
+        description="Optional parent experiment recorded for the ablation harness.",
+    )
+    storage_locations: list[ArtifactStorageLocation] = Field(
+        default_factory=list,
+        description="Artifact storage locations written by the ablation workflow.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes describing assumptions and comparison caveats.",
+    )
+
+
 class BacktestingService(BaseService):
     """Run temporally disciplined exploratory backtests against persisted artifacts."""
 
@@ -206,7 +283,7 @@ class BacktestingService(BaseService):
         """Execute the deterministic Day 6 exploratory backtesting workflow."""
 
         backtest_run_id = make_prefixed_id("btrun")
-        inputs = load_backtest_inputs(
+        inputs = request.loaded_inputs or load_backtest_inputs(
             signal_root=request.signal_root,
             feature_root=request.feature_root,
             price_fixture_path=request.price_fixture_path,
@@ -452,6 +529,408 @@ class BacktestingService(BaseService):
             dataset_references=dataset_references,
             experiment_artifacts=experiment_artifacts,
             experiment_metrics=experiment_metrics,
+            storage_locations=storage_locations,
+            notes=notes,
+        )
+
+    def run_strategy_ablation_workflow(
+        self,
+        request: RunStrategyAblationWorkflowRequest,
+    ) -> RunStrategyAblationWorkflowResponse:
+        """Execute the deterministic Day 9 baseline and ablation workflow."""
+
+        ablation_run_id = make_prefixed_id("ablation")
+        output_root = request.output_root or (get_settings().resolved_artifact_root / "ablation")
+        experiment_root = request.experiment_root or (output_root.parent / "experiments")
+        audit_root = output_root.parent / "audit"
+        store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
+        storage_locations: list[ArtifactStorageLocation] = []
+        notes: list[str] = [
+            "Day 9 ablation rows are mechanical comparisons, not validated performance claims."
+        ]
+
+        strategy_inputs = load_strategy_inputs(
+            signal_root=request.signal_root,
+            feature_root=request.feature_root,
+            price_fixture_path=request.price_fixture_path,
+            company_id=request.company_id,
+            as_of_time=request.ablation_config.evaluation_slice.as_of_time,
+        )
+        strategy_specs = build_strategy_specs(
+            families=[variant.family for variant in request.ablation_config.strategy_variants],
+            clock=self.clock,
+            workflow_run_id=ablation_run_id,
+        )
+        spec_by_id = {spec.strategy_spec_id: spec for spec in strategy_specs}
+        for variant in request.ablation_config.strategy_variants:
+            strategy_spec = spec_by_id.get(variant.strategy_spec_id)
+            if strategy_spec is None:
+                raise ValueError(
+                    "Strategy variant references an unknown strategy_spec_id: "
+                    f"{variant.strategy_spec_id}"
+                )
+            if strategy_spec.family is not variant.family:
+                raise ValueError(
+                    "Strategy variant family does not match its referenced spec: "
+                    f"{variant.strategy_variant_id}"
+                )
+
+        source_snapshots = build_strategy_input_snapshots(
+            inputs=strategy_inputs,
+            evaluation_slice=request.ablation_config.evaluation_slice,
+            ablation_config_id=request.ablation_config.ablation_config_id,
+            clock=self.clock,
+            workflow_run_id=ablation_run_id,
+        )
+        for strategy_spec in strategy_specs:
+            storage_locations.append(
+                self._persist_model(store=store, category="strategy_specs", model=strategy_spec)
+            )
+        for strategy_variant in request.ablation_config.strategy_variants:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="strategy_variants",
+                    model=strategy_variant,
+                )
+            )
+        storage_locations.append(
+            self._persist_model(
+                store=store,
+                category="evaluation_slices",
+                model=request.ablation_config.evaluation_slice,
+            )
+        )
+        storage_locations.append(
+            self._persist_model(
+                store=store,
+                category="source_snapshots",
+                model=source_snapshots.research_signal_snapshot,
+            )
+        )
+        storage_locations.append(
+            self._persist_model(
+                store=store,
+                category="source_snapshots",
+                model=source_snapshots.price_snapshot,
+            )
+        )
+        storage_locations.append(
+            self._persist_model(
+                store=store,
+                category="ablation_configs",
+                model=request.ablation_config,
+            )
+        )
+
+        variant_results = []
+        variant_backtest_runs: list[BacktestRun] = []
+        child_backtest_responses: list[RunBacktestWorkflowResponse] = []
+        child_experiments: list[Experiment] = []
+
+        for strategy_variant in request.ablation_config.strategy_variants:
+            strategy_spec = spec_by_id[strategy_variant.strategy_spec_id]
+            materialized = materialize_variant_signals(
+                inputs=strategy_inputs,
+                variant=strategy_variant,
+                evaluation_slice=request.ablation_config.evaluation_slice,
+                source_snapshots=source_snapshots,
+                clock=self.clock,
+                workflow_run_id=ablation_run_id,
+            )
+            notes.extend(
+                [
+                    f"{strategy_variant.variant_name}: {note}"
+                    for note in materialized.notes
+                ]
+            )
+            variant_signal_root = output_root / "variant_signals" / strategy_variant.strategy_variant_id
+            for signal in materialized.signals:
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=signal.strategy_variant_signal_id,
+                        category=f"variant_signals/{strategy_variant.strategy_variant_id}/signals",
+                        model=signal,
+                        source_reference_ids=signal.provenance.source_reference_ids,
+                    )
+                )
+
+            variant_response = self.run_backtest_workflow(
+                RunBacktestWorkflowRequest(
+                    signal_root=variant_signal_root,
+                    feature_root=request.feature_root,
+                    price_fixture_path=request.price_fixture_path,
+                    loaded_inputs=build_variant_backtest_inputs(
+                        strategy_inputs=strategy_inputs,
+                        variant_signals=materialized.signals,
+                        variant_signal_root=variant_signal_root,
+                    ),
+                    output_root=(
+                        output_root.parent
+                        / "backtesting"
+                        / "ablation_runs"
+                        / strategy_variant.strategy_variant_id
+                    ),
+                    company_id=strategy_inputs.company_id,
+                    backtest_config=build_variant_backtest_config(
+                        shared_backtest_config=request.ablation_config.shared_backtest_config,
+                        variant=strategy_variant,
+                        strategy_spec=strategy_spec,
+                        clock=self.clock,
+                        workflow_run_id=ablation_run_id,
+                    ),
+                    record_experiment=request.ablation_config.record_experiment,
+                    experiment_name=f"{request.ablation_config.name}:{strategy_variant.variant_name}",
+                    experiment_objective=(
+                        "Mechanical Day 9 ablation child run for "
+                        f"{strategy_variant.variant_name}."
+                    ),
+                    experiment_root=experiment_root,
+                    requested_by=request.ablation_config.requested_by,
+                )
+            )
+            child_backtest_responses.append(variant_response)
+            variant_backtest_runs.append(variant_response.backtest_run)
+            storage_locations.extend(variant_response.storage_locations)
+            if variant_response.experiment is not None:
+                child_experiments.append(variant_response.experiment)
+            variant_results.append(
+                AblationVariantResult(
+                    strategy_variant_id=strategy_variant.strategy_variant_id,
+                    family=strategy_variant.family,
+                    variant_signal_ids=[
+                        signal.strategy_variant_signal_id for signal in materialized.signals
+                    ],
+                    backtest_run_id=variant_response.backtest_run.backtest_run_id,
+                    experiment_id=(
+                        variant_response.experiment.experiment_id
+                        if variant_response.experiment is not None
+                        else None
+                    ),
+                    performance_summary_id=variant_response.performance_summary.performance_summary_id,
+                    benchmark_reference_ids=[
+                        benchmark.benchmark_reference_id
+                        for benchmark in variant_response.benchmark_references
+                    ],
+                    dataset_reference_ids=[
+                        dataset_reference.dataset_reference_id
+                        for dataset_reference in variant_response.dataset_references
+                    ],
+                    gross_pnl=variant_response.performance_summary.gross_pnl,
+                    net_pnl=variant_response.performance_summary.net_pnl,
+                    trade_count=variant_response.performance_summary.trade_count,
+                    turnover_notional=variant_response.performance_summary.turnover_notional,
+                    notes=[
+                        f"variant_name={strategy_variant.variant_name}",
+                        f"comparison_metric={request.ablation_config.comparison_metric_name}",
+                    ],
+                    provenance=build_provenance(
+                        clock=self.clock,
+                        transformation_name="day9_ablation_variant_result",
+                        upstream_artifact_ids=[
+                            strategy_variant.strategy_variant_id,
+                            variant_response.backtest_run.backtest_run_id,
+                            variant_response.performance_summary.performance_summary_id,
+                        ],
+                        workflow_run_id=ablation_run_id,
+                    ),
+                    created_at=self.clock.now(),
+                    updated_at=self.clock.now(),
+                )
+            )
+
+        sorted_results = sort_variant_results(
+            results=variant_results,
+            comparison_metric_name=request.ablation_config.comparison_metric_name,
+        )
+        ablation_result = AblationResult(
+            ablation_result_id=make_canonical_id(
+                "abres",
+                request.ablation_config.ablation_config_id,
+                request.ablation_config.comparison_metric_name,
+            ),
+            ablation_config_id=request.ablation_config.ablation_config_id,
+            evaluation_slice_id=request.ablation_config.evaluation_slice.evaluation_slice_id,
+            variant_results=sorted_results,
+            comparison_metric_name=request.ablation_config.comparison_metric_name,
+            notes=[
+                "Rows are mechanically ordered by the declared comparison metric only.",
+                "No ordering implies validation, promotion, or statistical significance.",
+            ],
+            provenance=build_provenance(
+                clock=self.clock,
+                transformation_name="day9_ablation_result",
+                upstream_artifact_ids=[
+                    request.ablation_config.ablation_config_id,
+                    *[
+                        result.backtest_run_id
+                        for result in sorted_results
+                    ],
+                ],
+                workflow_run_id=ablation_run_id,
+            ),
+            created_at=self.clock.now(),
+            updated_at=self.clock.now(),
+        )
+        storage_locations.append(
+            self._persist_model(store=store, category="ablation_results", model=ablation_result)
+        )
+
+        dataset_references = list(
+            {
+                dataset_reference.dataset_reference_id: dataset_reference
+                for response in child_backtest_responses
+                for dataset_reference in response.dataset_references
+            }.values()
+        )
+        parent_experiment: Experiment | None = None
+        if request.ablation_config.record_experiment and dataset_references:
+            experiment_config = build_parent_experiment_config(
+                ablation_config=request.ablation_config,
+                strategy_specs=strategy_specs,
+                clock=self.clock,
+                workflow_run_id=ablation_run_id,
+            )
+            run_context = build_parent_run_context(
+                workflow_run_id=ablation_run_id,
+                requested_by=request.ablation_config.requested_by,
+                artifact_root=output_root,
+                as_of_time=request.ablation_config.evaluation_slice.as_of_time,
+                clock=self.clock,
+            )
+            begin_response = ExperimentRegistryService(clock=self.clock).begin_experiment(
+                BeginExperimentRequest(
+                    name=request.ablation_config.name,
+                    objective=(
+                        "Mechanical Day 9 comparison across naive, price-only, text-only, "
+                        "and combined baseline variants."
+                    ),
+                    created_by=request.ablation_config.requested_by,
+                    experiment_config=experiment_config,
+                    run_context=run_context,
+                    dataset_references=dataset_references,
+                    backtest_run_ids=[
+                        response.backtest_run.backtest_run_id
+                        for response in child_backtest_responses
+                    ],
+                    notes=[
+                        "Parent experiment aggregates child variant backtests.",
+                        "Ordering remains mechanical and non-validated.",
+                    ],
+                ),
+                output_root=experiment_root,
+            )
+            parent_experiment = begin_response.experiment
+            storage_locations.extend(begin_response.storage_locations)
+
+            storage_by_artifact_id = {
+                location.artifact_id: location for location in storage_locations
+            }
+            experiment_artifacts = build_parent_experiment_artifacts(
+                experiment=parent_experiment,
+                ablation_config=request.ablation_config,
+                evaluation_slice=request.ablation_config.evaluation_slice,
+                strategy_specs=strategy_specs,
+                strategy_variants=request.ablation_config.strategy_variants,
+                source_snapshots=source_snapshots,
+                ablation_result=ablation_result,
+                child_experiments=child_experiments,
+                storage_by_artifact_id=storage_by_artifact_id,
+                experiment_root=experiment_root,
+                clock=self.clock,
+                workflow_run_id=ablation_run_id,
+            )
+            experiment_metrics = build_parent_experiment_metrics(
+                experiment=parent_experiment,
+                ablation_result=ablation_result,
+                clock=self.clock,
+                workflow_run_id=ablation_run_id,
+            )
+            finalize_response = ExperimentRegistryService(clock=self.clock).finalize_experiment(
+                FinalizeExperimentRequest(
+                    experiment=parent_experiment,
+                    experiment_artifacts=experiment_artifacts,
+                    experiment_metrics=experiment_metrics,
+                    status=ExperimentStatus.COMPLETED,
+                    notes=[
+                        f"ablation_result_id={ablation_result.ablation_result_id}",
+                        "Parent ablation experiment finalized after child backtests completed.",
+                    ],
+                ),
+                output_root=experiment_root,
+            )
+            parent_experiment = finalize_response.experiment
+            storage_locations.extend(finalize_response.storage_locations)
+            notes.append(f"parent_experiment_id={parent_experiment.experiment_id}")
+
+        audit_response = AuditLoggingService(clock=self.clock).record_event(
+            AuditEventRequest(
+                event_type="strategy_ablation_completed",
+                actor_type="service",
+                actor_id="backtesting",
+                target_type="ablation_result",
+                target_id=ablation_result.ablation_result_id,
+                action="completed",
+                outcome=AuditOutcome.SUCCESS,
+                reason="Deterministic baseline strategy ablation completed.",
+                request_id=ablation_run_id,
+                related_artifact_ids=[
+                    request.ablation_config.ablation_config_id,
+                    request.ablation_config.evaluation_slice.evaluation_slice_id,
+                    source_snapshots.research_signal_snapshot.data_snapshot_id,
+                    source_snapshots.price_snapshot.data_snapshot_id,
+                    *[strategy_spec.strategy_spec_id for strategy_spec in strategy_specs],
+                    *[
+                        strategy_variant.strategy_variant_id
+                        for strategy_variant in request.ablation_config.strategy_variants
+                    ],
+                    *[result.backtest_run_id for result in sorted_results],
+                    *[
+                        result.experiment_id
+                        for result in sorted_results
+                        if result.experiment_id is not None
+                    ],
+                    *[result.performance_summary_id for result in sorted_results],
+                    ablation_result.ablation_result_id,
+                    *([parent_experiment.experiment_id] if parent_experiment is not None else []),
+                ],
+                notes=notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
+
+        if parent_experiment is not None:
+            experiment_audit_response = AuditLoggingService(clock=self.clock).record_event(
+                AuditEventRequest(
+                    event_type="experiment_completed",
+                    actor_type="service",
+                    actor_id="experiment_registry",
+                    target_type="experiment",
+                    target_id=parent_experiment.experiment_id,
+                    action="completed",
+                    outcome=AuditOutcome.SUCCESS,
+                    reason="Parent Day 9 ablation experiment registry records were persisted.",
+                    request_id=ablation_run_id,
+                    related_artifact_ids=[
+                        parent_experiment.experiment_config_id,
+                        parent_experiment.run_context_id,
+                        *parent_experiment.dataset_reference_ids,
+                        *parent_experiment.experiment_artifact_ids,
+                        *parent_experiment.experiment_metric_ids,
+                    ],
+                    notes=notes,
+                ),
+                output_root=audit_root,
+            )
+            storage_locations.append(experiment_audit_response.storage_location)
+
+        return RunStrategyAblationWorkflowResponse(
+            strategy_specs=strategy_specs,
+            strategy_variants=request.ablation_config.strategy_variants,
+            ablation_result=ablation_result,
+            variant_backtest_runs=variant_backtest_runs,
+            experiment=parent_experiment,
             storage_locations=storage_locations,
             notes=notes,
         )

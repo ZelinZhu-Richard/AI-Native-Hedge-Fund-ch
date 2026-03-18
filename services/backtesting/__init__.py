@@ -6,6 +6,8 @@ from services.backtesting.service import (
     BacktestResponse,
     RunBacktestWorkflowRequest,
     RunBacktestWorkflowResponse,
+    RunStrategyAblationWorkflowRequest,
+    RunStrategyAblationWorkflowResponse,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     "BacktestingService",
     "RunBacktestWorkflowRequest",
     "RunBacktestWorkflowResponse",
+    "RunStrategyAblationWorkflowRequest",
+    "RunStrategyAblationWorkflowResponse",
 ]

@@ -22,6 +22,8 @@ from libraries.schemas import (
     SimulationEvent,
     SimulationEventType,
     StrategyDecision,
+    StrategyFamily,
+    StrategyVariantSignal,
     StrictModel,
 )
 from libraries.time import Clock, ensure_utc
@@ -67,6 +69,9 @@ class BacktestComputationResult(StrictModel):
         default_factory=list,
         description="Operational notes, simplifications, and skipped-work explanations.",
     )
+
+
+ComparableSignal = Signal | StrategyVariantSignal
 
 
 def run_backtest_simulation(
@@ -128,9 +133,9 @@ def run_backtest_simulation(
         _append_unique(leakage_checks, "price_window_coverage_check:passed")
 
     missing_lineage_signals = [
-        signal.signal_id
+        _signal_id(signal)
         for signal in inputs.signals
-        if not signal.lineage.feature_ids or not signal.lineage.supporting_evidence_link_ids
+        if not _signal_has_traceability(signal=signal, inputs=inputs)
     ]
     if missing_lineage_signals:
         for signal_id in missing_lineage_signals:
@@ -264,7 +269,7 @@ def run_backtest_simulation(
                 transformation_name="day6_strategy_decision",
                 source_reference_ids=source_reference_ids,
                 upstream_artifact_ids=(
-                    [selected_signal.signal_id] if selected_signal is not None else []
+                    [_signal_id(selected_signal)] if selected_signal is not None else []
                 ),
                 workflow_run_id=workflow_run_id,
                 notes=[f"backtest_run_id={backtest_run_id}"],
@@ -428,7 +433,7 @@ def run_backtest_simulation(
             transformation_name="day6_backtest_run",
             source_reference_ids=source_reference_ids,
             upstream_artifact_ids=(
-                [signal.signal_id for signal in inputs.signals]
+                [_signal_id(signal) for signal in inputs.signals]
                 + list(inputs.features_by_id.keys())
                 + [config.backtest_config_id]
             ),
@@ -477,10 +482,11 @@ def _build_signal_snapshot(
     """Build the signal snapshot metadata for the exploratory run."""
 
     now = clock.now()
-    event_time_start = min(signal.effective_at for signal in inputs.signals)
-    cutoff_time = max(signal.effective_at for signal in inputs.signals)
-    ingestion_cutoff_time = max(signal.created_at for signal in inputs.signals)
-    snapshot_time = max(now, cutoff_time)
+    event_time_start = min((signal.effective_at for signal in inputs.signals), default=None)
+    cutoff_time = max((signal.effective_at for signal in inputs.signals), default=None)
+    ingestion_cutoff_time = max((signal.created_at for signal in inputs.signals), default=None)
+    dataset_name = _signal_dataset_name(inputs=inputs)
+    snapshot_time = max(now, cutoff_time) if cutoff_time is not None else now
     return DataSnapshot(
         data_snapshot_id=make_canonical_id(
             "snap",
@@ -488,7 +494,7 @@ def _build_signal_snapshot(
             "signals",
             config.backtest_config_id,
         ),
-        dataset_name="candidate_signals",
+        dataset_name=dataset_name,
         dataset_version=config.backtest_config_id,
         dataset_manifest_id=None,
         data_layer=DataLayer.DERIVED,
@@ -496,7 +502,7 @@ def _build_signal_snapshot(
         event_time_start=event_time_start,
         watermark_time=cutoff_time,
         ingestion_cutoff_time=ingestion_cutoff_time,
-        information_cutoff_time=cutoff_time,
+        information_cutoff_time=cutoff_time or now,
         storage_uri=inputs.signal_root.resolve().as_uri(),
         row_count=len(inputs.signals),
         schema_version="day6_backtesting",
@@ -509,15 +515,15 @@ def _build_signal_snapshot(
             }
         ),
         completeness_ratio=1.0,
-        source_families=["candidate_signals"],
+        source_families=_signal_source_families(inputs=inputs),
         created_by_process="day6_backtesting_signal_snapshot",
         provenance=build_provenance(
             clock=clock,
             transformation_name="day6_signal_snapshot",
             source_reference_ids=_source_reference_ids(inputs=inputs),
-            upstream_artifact_ids=[signal.signal_id for signal in inputs.signals],
+            upstream_artifact_ids=[_signal_id(signal) for signal in inputs.signals],
             workflow_run_id=workflow_run_id,
-            notes=["Signals are loaded from persisted Day 5 local artifacts."],
+            notes=[_signal_snapshot_note(inputs=inputs)],
         ),
         created_at=now,
         updated_at=now,
@@ -580,10 +586,10 @@ def _select_signal_for_decision(
     config: BacktestConfig,
     decision_time: datetime,
     leakage_checks: list[str],
-) -> Signal | None:
+) -> ComparableSignal | None:
     """Return the latest eligible signal that passes temporal and lineage checks."""
 
-    eligible: list[Signal] = []
+    eligible: list[ComparableSignal] = []
     feature_availability_passed = False
     for signal in inputs.signals:
         if signal.status not in config.signal_status_allowlist:
@@ -591,33 +597,12 @@ def _select_signal_for_decision(
         eligible_at = _eligible_signal_time(signal=signal, assumption=config.execution_assumption)
         if eligible_at > decision_time:
             continue
-        if not signal.lineage.feature_ids:
-            _append_unique(leakage_checks, f"missing_lineage:signal_without_features:{signal.signal_id}")
-            continue
-        missing_feature_ids = [
-            feature_id for feature_id in signal.lineage.feature_ids if feature_id not in inputs.features_by_id
-        ]
-        if missing_feature_ids:
-            for feature_id in missing_feature_ids:
-                _append_unique(
-                    leakage_checks,
-                    f"missing_lineage:signal_missing_feature:{signal.signal_id}:{feature_id}",
-                )
-            continue
-        if any(
-            inputs.features_by_id[feature_id].feature_value.available_at > decision_time
-            for feature_id in signal.lineage.feature_ids
+        if not _validate_comparable_signal(
+            signal=signal,
+            inputs=inputs,
+            decision_time=decision_time,
+            leakage_checks=leakage_checks,
         ):
-            for feature_id in signal.lineage.feature_ids:
-                feature = inputs.features_by_id[feature_id]
-                if feature.feature_value.available_at > decision_time:
-                    _append_unique(
-                        leakage_checks,
-                        (
-                            "future_feature_availability_rejected:"
-                            f"{signal.signal_id}:{feature_id}:{feature.feature_value.available_at.isoformat()}"
-                        ),
-                    )
             continue
         feature_availability_passed = True
         eligible.append(signal)
@@ -631,12 +616,12 @@ def _select_signal_for_decision(
         key=lambda signal: (
             -ensure_utc(signal.effective_at).timestamp(),
             -abs(signal.primary_score),
-            signal.signal_id,
+            _signal_id(signal),
         ),
     )[0]
 
 
-def _eligible_signal_time(*, signal: Signal, assumption: ExecutionAssumption) -> datetime:
+def _eligible_signal_time(*, signal: ComparableSignal, assumption: ExecutionAssumption) -> datetime:
     """Return the earliest decision time when the signal is allowed into simulation."""
 
     effective_at = ensure_utc(signal.effective_at)
@@ -795,7 +780,7 @@ def _source_reference_ids(*, inputs: LoadedBacktestInputs) -> list[str]:
         {
             source_reference_id
             for signal in inputs.signals
-            for source_reference_id in signal.provenance.source_reference_ids
+            for source_reference_id in _signal_source_reference_ids(signal=signal, inputs=inputs)
         }
         | {
             source_reference_id
@@ -810,3 +795,164 @@ def _append_unique(values: list[str], value: str) -> None:
 
     if value not in values:
         values.append(value)
+
+
+def _signal_id(signal: ComparableSignal) -> str:
+    """Return a stable comparable signal identifier."""
+
+    return signal.signal_id if isinstance(signal, Signal) else signal.strategy_variant_signal_id
+
+
+def _signal_has_traceability(*, signal: ComparableSignal, inputs: LoadedBacktestInputs) -> bool:
+    """Return whether a comparable signal carries the minimum traceability for simulation."""
+
+    if isinstance(signal, Signal):
+        return bool(signal.lineage.feature_ids and signal.lineage.supporting_evidence_link_ids)
+    if not signal.source_snapshot_ids:
+        return False
+    if signal.family in {
+        StrategyFamily.TEXT_ONLY_CANDIDATE_BASELINE,
+        StrategyFamily.COMBINED_BASELINE,
+    }:
+        return all(
+            source_signal_id in inputs.research_signals_by_id
+            for source_signal_id in signal.source_signal_ids
+        )
+    return True
+
+
+def _signal_feature_ids(
+    *,
+    signal: ComparableSignal,
+    inputs: LoadedBacktestInputs,
+) -> list[str]:
+    """Resolve comparable-signal feature dependencies for temporal revalidation."""
+
+    if isinstance(signal, Signal):
+        return list(signal.lineage.feature_ids)
+
+    feature_ids: list[str] = []
+    for source_signal_id in signal.source_signal_ids:
+        source_signal = inputs.research_signals_by_id.get(source_signal_id)
+        if source_signal is None:
+            continue
+        feature_ids.extend(source_signal.lineage.feature_ids)
+    return list(dict.fromkeys(feature_ids))
+
+
+def _validate_comparable_signal(
+    *,
+    signal: ComparableSignal,
+    inputs: LoadedBacktestInputs,
+    decision_time: datetime,
+    leakage_checks: list[str],
+) -> bool:
+    """Validate traceability and feature availability for one comparable signal."""
+
+    signal_id = _signal_id(signal)
+    if isinstance(signal, Signal):
+        if not signal.lineage.feature_ids:
+            _append_unique(leakage_checks, f"missing_lineage:signal_without_features:{signal_id}")
+            return False
+        if not signal.lineage.supporting_evidence_link_ids:
+            _append_unique(leakage_checks, f"missing_lineage:signal_without_evidence:{signal_id}")
+            return False
+    else:
+        if not signal.source_snapshot_ids:
+            _append_unique(leakage_checks, f"missing_lineage:signal_without_snapshot:{signal_id}")
+            return False
+        if signal.family in {
+            StrategyFamily.TEXT_ONLY_CANDIDATE_BASELINE,
+            StrategyFamily.COMBINED_BASELINE,
+        } and not signal.source_signal_ids:
+            _append_unique(
+                leakage_checks,
+                f"missing_lineage:variant_signal_without_source_signal:{signal_id}",
+            )
+            return False
+        for source_signal_id in signal.source_signal_ids:
+            if source_signal_id not in inputs.research_signals_by_id:
+                _append_unique(
+                    leakage_checks,
+                    f"missing_lineage:variant_signal_missing_source_signal:{signal_id}:{source_signal_id}",
+                )
+                return False
+
+    feature_ids = _signal_feature_ids(signal=signal, inputs=inputs)
+    if not feature_ids:
+        return True
+
+    missing_feature_ids = [
+        feature_id for feature_id in feature_ids if feature_id not in inputs.features_by_id
+    ]
+    if missing_feature_ids:
+        for feature_id in missing_feature_ids:
+            _append_unique(
+                leakage_checks,
+                f"missing_lineage:signal_missing_feature:{signal_id}:{feature_id}",
+            )
+        return False
+    if any(
+        inputs.features_by_id[feature_id].feature_value.available_at > decision_time
+        for feature_id in feature_ids
+    ):
+        for feature_id in feature_ids:
+            feature = inputs.features_by_id[feature_id]
+            if feature.feature_value.available_at > decision_time:
+                _append_unique(
+                    leakage_checks,
+                    (
+                        "future_feature_availability_rejected:"
+                        f"{signal_id}:{feature_id}:{feature.feature_value.available_at.isoformat()}"
+                    ),
+                )
+        return False
+    return True
+
+
+def _signal_source_reference_ids(
+    *,
+    signal: ComparableSignal,
+    inputs: LoadedBacktestInputs,
+) -> list[str]:
+    """Return source references visible through a comparable signal."""
+
+    source_reference_ids = list(signal.provenance.source_reference_ids)
+    if isinstance(signal, StrategyVariantSignal):
+        for source_signal_id in signal.source_signal_ids:
+            source_signal = inputs.research_signals_by_id.get(source_signal_id)
+            if source_signal is not None:
+                source_reference_ids.extend(source_signal.provenance.source_reference_ids)
+    return list(dict.fromkeys(source_reference_ids))
+
+
+def _signal_dataset_name(*, inputs: LoadedBacktestInputs) -> str:
+    """Return the snapshot dataset name for the current comparable signal set."""
+
+    if all(isinstance(signal, Signal) for signal in inputs.signals):
+        return "candidate_signals"
+    return "strategy_variant_signals"
+
+
+def _signal_source_families(*, inputs: LoadedBacktestInputs) -> list[str]:
+    """Return canonical source-family labels for the current comparable signal set."""
+
+    if all(isinstance(signal, Signal) for signal in inputs.signals):
+        return ["candidate_signals"]
+    families = {
+        "strategy_variant_signals",
+        *[
+            signal.family.value
+            for signal in inputs.signals
+            if isinstance(signal, StrategyVariantSignal)
+        ],
+    }
+    return sorted(families)
+
+
+def _signal_snapshot_note(*, inputs: LoadedBacktestInputs) -> str:
+    """Return an honest note describing the signal snapshot source."""
+
+    if all(isinstance(signal, Signal) for signal in inputs.signals):
+        return "Signals are loaded from persisted Day 5 local artifacts."
+    return "Signals are comparable variant signals materialized by the Day 9 ablation harness."

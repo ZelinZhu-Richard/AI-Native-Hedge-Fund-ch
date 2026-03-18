@@ -12,7 +12,7 @@ Research workflows are not reproducible unless the system records:
 
 Day 8 adds that metadata spine without pretending to be a full ML platform.
 
-## Current Day 8 Capability
+## Current Capability
 
 The local experiment registry now persists typed records under `artifacts/experiments/`:
 
@@ -52,11 +52,15 @@ The registry therefore records dataset references separately from output artifac
 
 This keeps snapshot ownership with the producing workflow while still giving the experiment record enough metadata to explain the run.
 
-## First Integrated Workflow
+## Integrated Workflows
 
-Backtesting is the first workflow integrated with the registry.
+Backtesting remains the first directly integrated workflow.
+Day 9 also layers experiment tracking over the baseline and ablation harness by:
 
-For each recorded backtest run, the system now:
+- recording one child experiment per variant backtest
+- recording one parent experiment for the ablation run itself
+
+For each recorded backtest run, the system:
 
 1. records a stable `ExperimentConfig` derived from `BacktestConfig` and `ExecutionAssumption`
 2. records a `RunContext` with workflow run ID, requester, environment, artifact root, and `as_of_time`
@@ -81,9 +85,21 @@ Replaying a Day 8-recorded backtest depends on:
 - the manifest and source-version metadata attached to those snapshots
 - the persisted workflow outputs referenced by `ExperimentArtifact`
 
+For each recorded ablation run, the system:
+
+1. persists `StrategySpec`, `StrategyVariant`, `EvaluationSlice`, and shared source snapshots
+2. runs child backtests with `record_experiment=True`
+3. records one parent experiment that links:
+   - the ablation config
+   - the evaluation slice
+   - the shared source snapshots
+   - the strategy specs and variants
+   - the final `AblationResult`
+   - the child experiment identifiers
+
 ## Current Limitations
 
-- only backtesting is integrated today
+- feature mapping and signal generation are still not directly experiment-recorded
 - registry storage is local filesystem only
 - there is no cross-run query service yet
 - there is no promotion gate from exploratory experiments to validated experiments yet
@@ -91,7 +107,7 @@ Replaying a Day 8-recorded backtest depends on:
 
 ## Next Extension Point
 
-The next honest extension is upstream, not downstream:
+The next honest extension is still upstream, not downstream:
 
 - integrate experiment recording into feature mapping
 - integrate experiment recording into signal generation

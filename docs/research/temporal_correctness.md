@@ -54,6 +54,20 @@ Week 1 hardening added explicit `as_of_time` cutoffs to the upstream local workf
 
 When `as_of_time` is omitted, the current repo still allows latest-artifact loading for local development convenience. That behavior is intentionally called out in workflow notes as not replay-safe.
 
+## Day 9 Ablation Rules
+
+Day 9 extends honest temporal handling into the baseline comparison layer.
+
+The ablation harness now enforces these additional rules:
+
+1. `text_only_candidate_baseline` reuses only research signals already available by the current bar.
+2. `price_only_baseline` uses only trailing closes through the current bar close.
+3. `combined_baseline` uses:
+   - the latest eligible text-only signal with `effective_at <= current_bar_time`
+   - the current price-only momentum signal computed from historical closes only
+4. Child backtests still revalidate future feature availability whenever a comparable signal resolves back to research-signal lineage.
+5. Shared input snapshots are persisted for the ablation slice so variant signals can point to explicit source snapshot IDs.
+
 ## What Day 6 Explicitly Avoids
 
 The Day 6 engine does not:

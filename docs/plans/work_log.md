@@ -403,6 +403,55 @@ Add the reproducibility spine so workflow outputs are tied to explicit config, d
 - explicit artifact selection rather than cutoff-only loading
 - promotion gates between exploratory and validated experiment runs
 
+## Day 9: Baseline Strategy And Ablation Harness
+
+Status: `Completed`
+
+### Goal
+
+Build an honest baseline strategy and ablation framework so text-derived candidate signals can be compared against simple alternatives instead of drifting into ungrounded complexity.
+
+### Plan Focus
+
+- comparable strategy contracts
+- deterministic baseline variants
+- shared evaluation slices and source snapshots
+- child variant backtests plus parent ablation experiment recording
+- structured comparison results with no fake “winner” language
+
+### Implemented
+
+- added `StrategySpec`, `StrategyVariant`, `StrategyVariantSignal`, `EvaluationSlice`, `AblationConfig`, `AblationVariantResult`, and `AblationResult`
+- kept research `Signal` intact and introduced `StrategyVariantSignal` as the evaluation-layer comparable signal boundary
+- built deterministic Day 9 variants for:
+  - naive hold-cash baseline
+  - price-only 3-bar momentum
+  - text-only candidate adaptation
+  - combined 50/50 text-plus-price baseline
+- extended the backtest workflow to accept comparable preloaded signals without weakening the existing research-signal path
+- added a local ablation pipeline that:
+  - materializes variant signals
+  - persists ablation artifacts under `artifacts/ablation/`
+  - runs child backtests for each variant
+  - records child experiments
+  - records one parent ablation experiment
+  - emits one structured `AblationResult`
+- added schema, workflow, and end-to-end integration tests for the ablation layer
+- added Day 9 docs for the baseline framework and strategy variants
+
+### Key Decisions
+
+- do not overload the evidence-linked research `Signal` contract to represent naive or price-only baselines
+- compare variants at the signal boundary through a separate `StrategyVariantSignal`
+- keep ordering mechanical and explicit rather than implying validated strategy selection
+- reuse the Day 6 backtest engine and Day 8 experiment registry instead of creating parallel evaluation stacks
+
+### Carry-Forward
+
+- reviewed signal-evaluation artifacts and promotion gates
+- snapshot-native selection upstream of feature and signal generation
+- downstream enforcement so portfolio and paper-trade flows can reject unreviewed exploratory signals
+
 ## Maintenance Rule
 
 When future work is completed:

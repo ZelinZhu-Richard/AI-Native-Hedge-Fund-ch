@@ -87,10 +87,20 @@ class FeatureFamily(StrEnum):
 class AblationView(StrEnum):
     """Feature-set slices used for honest future ablations."""
 
+    NAIVE = "naive"
     PRICE_ONLY = "price_only"
     FUNDAMENTALS_ONLY = "fundamentals_only"
     TEXT_ONLY = "text_only"
     COMBINED = "combined"
+
+
+class StrategyFamily(StrEnum):
+    """Comparable strategy families used by the ablation harness."""
+
+    NAIVE_BASELINE = "naive_baseline"
+    PRICE_ONLY_BASELINE = "price_only_baseline"
+    TEXT_ONLY_CANDIDATE_BASELINE = "text_only_candidate_baseline"
+    COMBINED_BASELINE = "combined_baseline"
 
 
 class DerivedArtifactValidationStatus(StrEnum):
@@ -976,6 +986,262 @@ class BacktestRun(TimestampedModel):
             raise ValueError("allowed_signal_statuses must contain at least one status.")
         if not self.benchmark_reference_ids:
             raise ValueError("benchmark_reference_ids must contain at least one benchmark.")
+        return self
+
+
+class StrategySpec(TimestampedModel):
+    """Stable definition for one comparable strategy family."""
+
+    strategy_spec_id: str = Field(description="Canonical strategy-spec identifier.")
+    name: str = Field(description="Human-readable strategy name.")
+    family: StrategyFamily = Field(description="Strategy family represented by the spec.")
+    description: str = Field(description="Short explanation of the strategy family.")
+    signal_family: str = Field(description="Stable signal family label emitted by the strategy.")
+    required_inputs: list[str] = Field(
+        default_factory=list,
+        description="Named input families required to materialize the strategy.",
+    )
+    decision_rule_name: str = Field(description="Deterministic decision rule used by the strategy.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the strategy specification.")
+
+    @model_validator(mode="after")
+    def validate_spec(self) -> StrategySpec:
+        """Require honest, explicit strategy definitions."""
+
+        if not self.description:
+            raise ValueError("description must be non-empty.")
+        if not self.required_inputs:
+            raise ValueError("required_inputs must contain at least one declared input.")
+        if not self.decision_rule_name:
+            raise ValueError("decision_rule_name must be non-empty.")
+        return self
+
+
+class StrategyVariant(TimestampedModel):
+    """Concrete runnable strategy configuration inside one ablation run."""
+
+    strategy_variant_id: str = Field(description="Canonical strategy-variant identifier.")
+    strategy_spec_id: str = Field(description="Owning strategy-spec identifier.")
+    variant_name: str = Field(description="Human-readable variant label.")
+    family: StrategyFamily = Field(description="Strategy family implemented by the variant.")
+    parameters: list[ExperimentParameter] = Field(
+        default_factory=list,
+        description="Explicit parameters for the runnable variant.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes or constraints attached to the variant.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the strategy variant.")
+
+    @model_validator(mode="after")
+    def validate_variant(self) -> StrategyVariant:
+        """Require a stable spec link and non-empty naming."""
+
+        if not self.strategy_spec_id:
+            raise ValueError("strategy_spec_id must be non-empty.")
+        if not self.variant_name:
+            raise ValueError("variant_name must be non-empty.")
+        return self
+
+
+class StrategyVariantSignal(TimestampedModel):
+    """Comparable signal artifact emitted by a baseline or ablation strategy variant."""
+
+    strategy_variant_signal_id: str = Field(
+        description="Canonical strategy-variant-signal identifier."
+    )
+    strategy_variant_id: str = Field(description="Owning strategy-variant identifier.")
+    company_id: str = Field(description="Covered company identifier.")
+    signal_family: str = Field(description="Stable comparable signal family label.")
+    family: StrategyFamily = Field(description="Strategy family that emitted the signal.")
+    ablation_view: AblationView = Field(description="Ablation slice represented by the signal.")
+    stance: ResearchStance = Field(description="Research-layer stance implied by the signal.")
+    primary_score: float = Field(description="Comparable normalized score for the signal.")
+    effective_at: datetime = Field(description="UTC time when the signal becomes eligible.")
+    expires_at: datetime | None = Field(
+        default=None,
+        description="UTC expiry time when the signal should no longer be considered.",
+    )
+    status: SignalStatus = Field(description="Lifecycle status for the variant signal.")
+    validation_status: DerivedArtifactValidationStatus = Field(
+        description="Validation lifecycle status for the variant signal."
+    )
+    summary: str = Field(description="Short explanation of why the comparable signal exists.")
+    source_signal_ids: list[str] = Field(
+        default_factory=list,
+        description="Upstream research-signal identifiers used to derive the signal when applicable.",
+    )
+    source_snapshot_ids: list[str] = Field(
+        default_factory=list,
+        description="Snapshot identifiers used to derive the signal.",
+    )
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Explicit assumptions required to interpret the signal responsibly.",
+    )
+    uncertainties: list[str] = Field(
+        default_factory=list,
+        description="Open uncertainties still limiting trust in the signal.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the variant signal.")
+
+    @property
+    def signal_id(self) -> str:
+        """Expose a comparable signal identifier for generic backtest consumers."""
+
+        return self.strategy_variant_signal_id
+
+    @model_validator(mode="after")
+    def validate_signal_window(self) -> StrategyVariantSignal:
+        """Require an explicit snapshot trail and ordered signal windows."""
+
+        if not self.summary:
+            raise ValueError("summary must be non-empty.")
+        if not self.source_snapshot_ids:
+            raise ValueError("source_snapshot_ids must contain at least one snapshot identifier.")
+        if self.expires_at is not None and self.expires_at < self.effective_at:
+            raise ValueError("expires_at must be greater than or equal to effective_at.")
+        return self
+
+
+class EvaluationSlice(TimestampedModel):
+    """Shared evaluation slice used to compare strategy variants honestly."""
+
+    evaluation_slice_id: str = Field(description="Canonical evaluation-slice identifier.")
+    company_id: str = Field(description="Covered company identifier.")
+    test_start: date = Field(description="Evaluation window start date.")
+    test_end: date = Field(description="Evaluation window end date.")
+    decision_frequency: str = Field(
+        default="daily",
+        description="Decision cadence for the comparison slice.",
+    )
+    as_of_time: datetime | None = Field(
+        default=None,
+        description="Optional information boundary applied to the comparison slice.",
+    )
+    price_fixture_path: str = Field(description="Price fixture path used by the evaluation slice.")
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes attached to the evaluation slice.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the evaluation slice.")
+
+    @model_validator(mode="after")
+    def validate_slice(self) -> EvaluationSlice:
+        """Require an ordered daily evaluation slice."""
+
+        if self.test_end < self.test_start:
+            raise ValueError("test_end must be greater than or equal to test_start.")
+        if self.decision_frequency != "daily":
+            raise ValueError("Day 9 only supports `daily` decision_frequency.")
+        if not self.price_fixture_path:
+            raise ValueError("price_fixture_path must be non-empty.")
+        return self
+
+
+class AblationConfig(TimestampedModel):
+    """Shared reproducible configuration for one multi-variant comparison run."""
+
+    ablation_config_id: str = Field(description="Canonical ablation-config identifier.")
+    name: str = Field(description="Human-readable ablation name.")
+    strategy_variants: list[StrategyVariant] = Field(
+        default_factory=list,
+        description="Strategy variants to compare under the shared slice.",
+    )
+    evaluation_slice: EvaluationSlice = Field(description="Shared comparison slice.")
+    shared_backtest_config: BacktestConfig = Field(
+        description="Backtest configuration shared across all variants."
+    )
+    comparison_metric_name: str = Field(
+        description="Primary metric name used for mechanical row ordering."
+    )
+    record_experiment: bool = Field(
+        default=True,
+        description="Whether the ablation harness records experiment metadata.",
+    )
+    requested_by: str = Field(description="Requester identifier.")
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes for the ablation run.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the ablation config.")
+
+    @model_validator(mode="after")
+    def validate_ablation(self) -> AblationConfig:
+        """Require multiple variants and an explicit comparison metric."""
+
+        if len(self.strategy_variants) < 2:
+            raise ValueError("strategy_variants must contain at least two variants.")
+        if not self.comparison_metric_name:
+            raise ValueError("comparison_metric_name must be non-empty.")
+        return self
+
+
+class AblationVariantResult(TimestampedModel):
+    """Structured comparison row for one strategy variant inside an ablation run."""
+
+    strategy_variant_id: str = Field(description="Owning strategy-variant identifier.")
+    family: StrategyFamily = Field(description="Strategy family represented by the result.")
+    variant_signal_ids: list[str] = Field(
+        default_factory=list,
+        description="Comparable signal identifiers emitted for the variant.",
+    )
+    backtest_run_id: str = Field(description="Backtest run identifier for the variant.")
+    experiment_id: str | None = Field(
+        default=None,
+        description="Child experiment identifier recorded for the variant when available.",
+    )
+    performance_summary_id: str = Field(description="Performance summary identifier.")
+    benchmark_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Benchmark references emitted by the variant backtest.",
+    )
+    dataset_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Dataset references used by the variant run.",
+    )
+    gross_pnl: float = Field(description="Gross PnL reported by the variant backtest.")
+    net_pnl: float = Field(description="Net PnL reported by the variant backtest.")
+    trade_count: int = Field(ge=0, description="Trade count reported by the variant backtest.")
+    turnover_notional: float = Field(
+        ge=0.0,
+        description="Turnover notional reported by the variant backtest.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Interpretation notes for the comparison row.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the comparison row.")
+
+
+class AblationResult(TimestampedModel):
+    """Structured summary comparing multiple strategy variants on one shared slice."""
+
+    ablation_result_id: str = Field(description="Canonical ablation-result identifier.")
+    ablation_config_id: str = Field(description="Owning ablation-config identifier.")
+    evaluation_slice_id: str = Field(description="Evaluation-slice identifier used by the run.")
+    variant_results: list[AblationVariantResult] = Field(
+        default_factory=list,
+        description="Variant comparison rows produced by the ablation run.",
+    )
+    comparison_metric_name: str = Field(
+        description="Primary metric used for mechanical row ordering."
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes or caveats for the ablation result.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the ablation result.")
+
+    @model_validator(mode="after")
+    def validate_result(self) -> AblationResult:
+        """Require at least two comparison rows and an explicit metric."""
+
+        if len(self.variant_results) < 2:
+            raise ValueError("variant_results must contain at least two comparison rows.")
+        if not self.comparison_metric_name:
+            raise ValueError("comparison_metric_name must be non-empty.")
         return self
 
 
