@@ -358,6 +358,51 @@ Review the full Day 1 through Day 7 foundation as one system before Week 2 work 
 - first-class instrument/reference contracts
 - harder adversarial replay tests
 
+## Day 8: Experiment Registry And Dataset Snapshot Spine
+
+Status: `Completed`
+
+### Goal
+
+Add the reproducibility spine so workflow outputs are tied to explicit config, dataset references, artifacts, and metrics.
+
+### Plan Focus
+
+- experiment registry foundation
+- dataset manifest and snapshot-reference metadata
+- reproducible run recording
+- first workflow integration through backtesting
+
+### Implemented
+
+- added a local `experiment_registry` service and storage path under `artifacts/experiments/`
+- exported the full experiment-registry and dataset-reference contract surface through `libraries/schemas`
+- integrated the Day 6 backtesting workflow with:
+  - `ExperimentConfig`
+  - `RunContext`
+  - `DatasetManifest`
+  - `DatasetPartition`
+  - `SourceVersion`
+  - `DatasetReference`
+  - `Experiment`
+  - `ExperimentArtifact`
+  - `ExperimentMetric`
+- refined backtest snapshot metadata to carry `event_time_start`, `ingestion_cutoff_time`, and `source_families`
+- added schema, workflow, and integration tests for reproducible experiment recording
+- added Day 8 docs for experiment registry and dataset snapshot policy
+
+### Key Decisions
+
+- `DataSnapshot` remains owned by the producing workflow; the experiment registry references snapshots instead of duplicating them
+- backtesting is the first integrated workflow because it already has explicit config and deterministic outputs
+- registry storage stays metadata-first and local-filesystem-backed for now
+
+### Carry-Forward
+
+- snapshot-aware experiment recording for feature mapping and signal generation
+- explicit artifact selection rather than cutoff-only loading
+- promotion gates between exploratory and validated experiment runs
+
 ## Maintenance Rule
 
 When future work is completed:

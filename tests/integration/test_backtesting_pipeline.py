@@ -74,12 +74,26 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
         / "performance_summaries"
         / f"{response.performance_summary.performance_summary_id}.json"
     )
+    assert response.experiment is not None
+    assert response.experiment_config is not None
+    experiment_path = (
+        artifact_root / "experiments" / "experiments" / f"{response.experiment.experiment_id}.json"
+    )
+    config_path = (
+        artifact_root
+        / "experiments"
+        / "experiment_configs"
+        / f"{response.experiment_config.experiment_config_id}.json"
+    )
     assert run_path.exists()
     assert summary_path.exists()
+    assert experiment_path.exists()
+    assert config_path.exists()
 
     run_payload = json.loads(run_path.read_text(encoding="utf-8"))
     assert run_payload["exploratory_only"] is True
     assert run_payload["allowed_signal_statuses"] == [SignalStatus.CANDIDATE.value]
+    assert run_payload["experiment_id"] == response.experiment.experiment_id
 
     assert response.strategy_decisions
     assert any(event.event_type.value == "fill" for event in response.simulation_events)
@@ -107,6 +121,21 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert "sharpe" not in summary_payload
     assert "information_ratio" not in summary_payload
+    assert {reference.data_snapshot_id for reference in response.dataset_references} == {
+        snapshot.data_snapshot_id for snapshot in response.data_snapshots
+    }
+    assert all(
+        metric.metric_name
+        in {
+            "gross_pnl",
+            "net_pnl",
+            "trade_count",
+            "turnover_notional",
+            "benchmark_simple_return:flat_baseline",
+            "benchmark_simple_return:buy_and_hold",
+        }
+        for metric in response.experiment_metrics
+    )
     assert {benchmark.benchmark_kind for benchmark in response.benchmark_references} == {
         BenchmarkKind.FLAT_BASELINE,
         BenchmarkKind.BUY_AND_HOLD,

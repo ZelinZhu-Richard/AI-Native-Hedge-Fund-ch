@@ -288,9 +288,17 @@ class DataSnapshot(TimestampedModel):
     )
     data_layer: DataLayer = Field(description="Data layer represented by the snapshot.")
     snapshot_time: datetime = Field(description="UTC time the snapshot is materialized for access.")
+    event_time_start: datetime | None = Field(
+        default=None,
+        description="Earliest event time included in the snapshot when known.",
+    )
     watermark_time: datetime | None = Field(
         default=None,
         description="Latest source event time safely included in the snapshot.",
+    )
+    ingestion_cutoff_time: datetime | None = Field(
+        default=None,
+        description="Latest ingestion or materialization cutoff included in the snapshot.",
     )
     information_cutoff_time: datetime | None = Field(
         default=None,
@@ -308,6 +316,10 @@ class DataSnapshot(TimestampedModel):
     source_count: int | None = Field(
         default=None, ge=0, description="Number of contributing upstream sources."
     )
+    source_families: list[str] = Field(
+        default_factory=list,
+        description="Canonical source-family labels represented by the snapshot.",
+    )
     completeness_ratio: float | None = Field(
         default=None,
         ge=0.0,
@@ -322,6 +334,12 @@ class DataSnapshot(TimestampedModel):
         """Ensure snapshot watermarks do not exceed explicit information cutoffs."""
 
         if (
+            self.event_time_start is not None
+            and self.watermark_time is not None
+            and self.watermark_time < self.event_time_start
+        ):
+            raise ValueError("watermark_time must be greater than or equal to event_time_start.")
+        if (
             self.watermark_time is not None
             and self.information_cutoff_time is not None
             and self.watermark_time > self.information_cutoff_time
@@ -329,6 +347,18 @@ class DataSnapshot(TimestampedModel):
             raise ValueError(
                 "watermark_time must be less than or equal to information_cutoff_time."
             )
+        if (
+            self.information_cutoff_time is not None
+            and self.information_cutoff_time > self.snapshot_time
+        ):
+            raise ValueError(
+                "information_cutoff_time must be less than or equal to snapshot_time."
+            )
+        if (
+            self.ingestion_cutoff_time is not None
+            and self.ingestion_cutoff_time > self.snapshot_time
+        ):
+            raise ValueError("ingestion_cutoff_time must be less than or equal to snapshot_time.")
         return self
 
 

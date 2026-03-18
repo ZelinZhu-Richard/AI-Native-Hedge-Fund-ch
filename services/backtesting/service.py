@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Protocol, cast
 
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
@@ -14,18 +17,37 @@ from libraries.schemas import (
     BacktestConfig,
     BacktestRun,
     BenchmarkReference,
+    DatasetManifest,
+    DatasetPartition,
+    DatasetReference,
+    DatasetUsageRole,
     DataSnapshot,
+    Experiment,
+    ExperimentArtifact,
+    ExperimentArtifactRole,
+    ExperimentConfig,
+    ExperimentMetric,
+    ExperimentParameter,
+    ExperimentParameterValueType,
+    ExperimentStatus,
     PerformanceSummary,
+    RunContext,
     SimulationEvent,
+    SourceVersion,
     StrategyDecision,
     StrictModel,
 )
 from libraries.schemas.base import ProvenanceRecord
-from libraries.utils import make_prefixed_id
+from libraries.utils import make_canonical_id, make_prefixed_id
 from services.audit import AuditEventRequest, AuditLoggingService
 from services.backtesting.loaders import load_backtest_inputs
 from services.backtesting.simulation import run_backtest_simulation
 from services.backtesting.storage import LocalBacktestArtifactStore
+from services.experiment_registry import (
+    BeginExperimentRequest,
+    ExperimentRegistryService,
+    FinalizeExperimentRequest,
+)
 
 
 class BacktestRequest(StrictModel):
@@ -52,7 +74,7 @@ class BacktestResponse(StrictModel):
 
 
 class RunBacktestWorkflowRequest(StrictModel):
-    """Explicit local request to run the Day 6 exploratory backtest workflow."""
+    """Explicit local request to run the exploratory backtest workflow."""
 
     signal_root: Path = Field(description="Root path containing persisted signal artifacts.")
     feature_root: Path = Field(description="Root path containing persisted feature artifacts.")
@@ -66,11 +88,27 @@ class RunBacktestWorkflowRequest(StrictModel):
         description="Covered company identifier. Required when the signal root contains multiple companies.",
     )
     backtest_config: BacktestConfig = Field(description="Reproducible backtest configuration.")
+    record_experiment: bool = Field(
+        default=True,
+        description="Whether to record a reproducibility-complete experiment for the run.",
+    )
+    experiment_name: str | None = Field(
+        default=None,
+        description="Optional experiment name override for the reproducibility registry.",
+    )
+    experiment_objective: str | None = Field(
+        default=None,
+        description="Optional experiment objective override for the reproducibility registry.",
+    )
+    experiment_root: Path | None = Field(
+        default=None,
+        description="Optional output root for persisted experiment-registry artifacts.",
+    )
     requested_by: str = Field(description="Requester identifier.")
 
 
 class RunBacktestWorkflowResponse(StrictModel):
-    """Result of the deterministic Day 6 exploratory backtesting workflow."""
+    """Result of the deterministic exploratory backtesting workflow."""
 
     backtest_run: BacktestRun = Field(description="Completed exploratory backtest run artifact.")
     backtest_config: BacktestConfig = Field(description="Reproducible backtest configuration.")
@@ -93,6 +131,26 @@ class RunBacktestWorkflowResponse(StrictModel):
         default_factory=list,
         description="Mechanical benchmarks emitted alongside the run.",
     )
+    experiment: Experiment | None = Field(
+        default=None,
+        description="Optional experiment record associated with the run.",
+    )
+    experiment_config: ExperimentConfig | None = Field(
+        default=None,
+        description="Optional experiment configuration recorded for reproducibility.",
+    )
+    dataset_references: list[DatasetReference] = Field(
+        default_factory=list,
+        description="Dataset references used to reproduce the run.",
+    )
+    experiment_artifacts: list[ExperimentArtifact] = Field(
+        default_factory=list,
+        description="Structured experiment-artifact references recorded for the run.",
+    )
+    experiment_metrics: list[ExperimentMetric] = Field(
+        default_factory=list,
+        description="Structured experiment metrics recorded for the run.",
+    )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Artifact storage locations written by the workflow.",
@@ -107,7 +165,7 @@ class BacktestingService(BaseService):
     """Run temporally disciplined exploratory backtests against persisted artifacts."""
 
     capability_name = "backtesting"
-    capability_description = "Runs exploratory backtests with explicit temporal cutoffs and synthetic fixtures."
+    capability_description = "Runs exploratory backtests with explicit temporal cutoffs, synthetic fixtures, and experiment recording."
 
     def capability(self) -> ServiceCapability:
         """Return capability metadata for service discovery."""
@@ -122,6 +180,8 @@ class BacktestingService(BaseService):
                 "SimulationEvent",
                 "PerformanceSummary",
                 "BenchmarkReference",
+                "Experiment",
+                "DatasetReference",
             ],
             api_routes=[],
         )
@@ -160,9 +220,15 @@ class BacktestingService(BaseService):
             backtest_run_id=backtest_run_id,
         )
         output_root = request.output_root or (get_settings().resolved_artifact_root / "backtesting")
+        experiment_root = request.experiment_root or (output_root.parent / "experiments")
         audit_root = output_root.parent / "audit"
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
+        experiment: Experiment | None = None
+        experiment_config: ExperimentConfig | None = None
+        dataset_references: list[DatasetReference] = []
+        experiment_artifacts: list[ExperimentArtifact] = []
+        experiment_metrics: list[ExperimentMetric] = []
 
         storage_locations.append(
             store.persist_model(
@@ -179,7 +245,67 @@ class BacktestingService(BaseService):
                 model=request.backtest_config.execution_assumption,
             )
         )
-        for snapshot in result.data_snapshots:
+        data_snapshots = list(result.data_snapshots)
+        if request.record_experiment:
+            (
+                data_snapshots,
+                dataset_manifests,
+                dataset_partitions,
+                source_versions,
+                dataset_references,
+            ) = self._build_dataset_registry_records(
+                company_id=inputs.company_id,
+                signal_root=request.signal_root,
+                price_fixture_path=request.price_fixture_path,
+                snapshots=data_snapshots,
+                backtest_config=request.backtest_config,
+                workflow_run_id=backtest_run_id,
+            )
+            experiment_config = self._build_experiment_config(
+                backtest_config=request.backtest_config,
+                workflow_run_id=backtest_run_id,
+            )
+            run_context = self._build_run_context(
+                workflow_run_id=backtest_run_id,
+                requested_by=request.requested_by,
+                artifact_root=output_root,
+                as_of_time=max(
+                    snapshot.information_cutoff_time or snapshot.snapshot_time
+                    for snapshot in data_snapshots
+                ),
+            )
+            begin_response = ExperimentRegistryService(clock=self.clock).begin_experiment(
+                BeginExperimentRequest(
+                    name=(
+                        request.experiment_name
+                        or f"{request.backtest_config.strategy_name}:{request.backtest_config.test_start.isoformat()}:{request.backtest_config.test_end.isoformat()}"
+                    ),
+                    objective=(
+                        request.experiment_objective
+                        or (
+                            "Record a reproducible exploratory backtest for "
+                            f"{request.backtest_config.signal_family}:{request.backtest_config.ablation_view.value}."
+                        )
+                    ),
+                    created_by=request.requested_by,
+                    experiment_config=experiment_config,
+                    run_context=run_context,
+                    dataset_manifests=dataset_manifests,
+                    dataset_partitions=dataset_partitions,
+                    source_versions=source_versions,
+                    dataset_references=dataset_references,
+                    backtest_run_ids=[result.backtest_run.backtest_run_id],
+                    notes=[
+                        "Day 8 experiment recording is metadata-first and backtest-integrated.",
+                        "Backtest runs remain exploratory-only even when registered as experiments.",
+                    ],
+                ),
+                output_root=experiment_root,
+            )
+            experiment = begin_response.experiment
+            storage_locations.extend(begin_response.storage_locations)
+
+        for snapshot in data_snapshots:
             storage_locations.append(
                 self._persist_model(store=store, category="snapshots", model=snapshot)
             )
@@ -202,43 +328,130 @@ class BacktestingService(BaseService):
             storage_locations.append(
                 self._persist_model(store=store, category="benchmarks", model=benchmark)
             )
+        backtest_run = result.backtest_run
+        if experiment is not None:
+            now = self.clock.now()
+            backtest_run = result.backtest_run.model_copy(
+                update={
+                    "experiment_id": experiment.experiment_id,
+                    "updated_at": now,
+                    "provenance": result.backtest_run.provenance.model_copy(
+                        update={"experiment_id": experiment.experiment_id, "processing_time": now}
+                    ),
+                }
+            )
         storage_locations.append(
-            self._persist_model(store=store, category="runs", model=result.backtest_run)
+            self._persist_model(store=store, category="runs", model=backtest_run)
         )
+
+        if experiment is not None:
+            storage_by_artifact_id = {
+                location.artifact_id: location for location in storage_locations
+            }
+            experiment_artifacts = self._build_experiment_artifacts(
+                experiment=experiment,
+                backtest_run=backtest_run,
+                snapshots=data_snapshots,
+                performance_summary=result.performance_summary,
+                benchmark_references=result.benchmark_references,
+                storage_by_artifact_id=storage_by_artifact_id,
+                workflow_run_id=backtest_run_id,
+            )
+            experiment_metrics = self._build_experiment_metrics(
+                experiment=experiment,
+                performance_summary=result.performance_summary,
+                benchmark_references=result.benchmark_references,
+                workflow_run_id=backtest_run_id,
+            )
+            finalize_response = ExperimentRegistryService(clock=self.clock).finalize_experiment(
+                FinalizeExperimentRequest(
+                    experiment=experiment,
+                    experiment_artifacts=experiment_artifacts,
+                    experiment_metrics=experiment_metrics,
+                    status=ExperimentStatus.COMPLETED,
+                    notes=[
+                        f"backtest_run_id={backtest_run.backtest_run_id}",
+                        "Experiment finalized from deterministic backtest workflow output.",
+                    ],
+                ),
+                output_root=experiment_root,
+            )
+            experiment = finalize_response.experiment
+            storage_locations.extend(finalize_response.storage_locations)
+
         notes = [f"requested_by={request.requested_by}", *result.notes]
+        if experiment is not None:
+            notes.append(f"experiment_id={experiment.experiment_id}")
+        else:
+            notes.append("experiment_recording=disabled")
         audit_response = AuditLoggingService(clock=self.clock).record_event(
             AuditEventRequest(
                 event_type="backtest_workflow_completed",
                 actor_type="service",
                 actor_id="backtesting",
                 target_type="backtest_run",
-                target_id=result.backtest_run.backtest_run_id,
+                target_id=backtest_run.backtest_run_id,
                 action="completed",
                 outcome=AuditOutcome.SUCCESS,
                 reason="Exploratory backtest workflow completed.",
-                request_id=result.backtest_run.backtest_run_id,
+                request_id=backtest_run.backtest_run_id,
                 related_artifact_ids=[
                     request.backtest_config.backtest_config_id,
-                    *[snapshot.data_snapshot_id for snapshot in result.data_snapshots],
+                    *[snapshot.data_snapshot_id for snapshot in data_snapshots],
                     *[decision.strategy_decision_id for decision in result.strategy_decisions],
                     *[event.simulation_event_id for event in result.simulation_events],
                     result.performance_summary.performance_summary_id,
                     *[benchmark.benchmark_reference_id for benchmark in result.benchmark_references],
+                    *[dataset_reference.dataset_reference_id for dataset_reference in dataset_references],
+                    *(
+                        [experiment.experiment_id, experiment.experiment_config_id]
+                        if experiment is not None
+                        else []
+                    ),
                 ],
                 notes=notes,
             ),
             output_root=audit_root,
         )
         storage_locations.append(audit_response.storage_location)
+        if experiment is not None:
+            experiment_audit_response = AuditLoggingService(clock=self.clock).record_event(
+                AuditEventRequest(
+                    event_type="experiment_completed",
+                    actor_type="service",
+                    actor_id="experiment_registry",
+                    target_type="experiment",
+                    target_id=experiment.experiment_id,
+                    action="completed",
+                    outcome=AuditOutcome.SUCCESS,
+                    reason="Backtest experiment registry records were persisted.",
+                    request_id=backtest_run.backtest_run_id,
+                    related_artifact_ids=[
+                        experiment.experiment_config_id,
+                        experiment.run_context_id,
+                        *experiment.dataset_reference_ids,
+                        *experiment.experiment_artifact_ids,
+                        *experiment.experiment_metric_ids,
+                    ],
+                    notes=notes,
+                ),
+                output_root=audit_root,
+            )
+            storage_locations.append(experiment_audit_response.storage_location)
 
         return RunBacktestWorkflowResponse(
-            backtest_run=result.backtest_run,
+            backtest_run=backtest_run,
             backtest_config=request.backtest_config,
-            data_snapshots=result.data_snapshots,
+            data_snapshots=data_snapshots,
             strategy_decisions=result.strategy_decisions,
             simulation_events=result.simulation_events,
             performance_summary=result.performance_summary,
             benchmark_references=result.benchmark_references,
+            experiment=experiment,
+            experiment_config=experiment_config,
+            dataset_references=dataset_references,
+            experiment_artifacts=experiment_artifacts,
+            experiment_metrics=experiment_metrics,
             storage_locations=storage_locations,
             notes=notes,
         )
@@ -261,6 +474,524 @@ class BacktestingService(BaseService):
             source_reference_ids=source_reference_ids,
         )
 
+    def _build_dataset_registry_records(
+        self,
+        *,
+        company_id: str,
+        signal_root: Path,
+        price_fixture_path: Path,
+        snapshots: list[DataSnapshot],
+        backtest_config: BacktestConfig,
+        workflow_run_id: str,
+    ) -> tuple[
+        list[DataSnapshot],
+        list[DatasetManifest],
+        list[DatasetPartition],
+        list[SourceVersion],
+        list[DatasetReference],
+    ]:
+        """Build manifest and dataset-reference records from existing backtest snapshots."""
+
+        manifests: list[DatasetManifest] = []
+        partitions: list[DatasetPartition] = []
+        source_versions: list[SourceVersion] = []
+        dataset_references: list[DatasetReference] = []
+        updated_snapshots: list[DataSnapshot] = []
+        now = self.clock.now()
+
+        for snapshot in snapshots:
+            storage_uri = (
+                signal_root.resolve().as_uri()
+                if snapshot.dataset_name == "candidate_signals"
+                else price_fixture_path.resolve().as_uri()
+            )
+            source_family = (
+                "candidate_signals"
+                if snapshot.dataset_name == "candidate_signals"
+                else "synthetic_price_fixture"
+            )
+            source_version = SourceVersion(
+                source_version_id=make_canonical_id(
+                    "sver",
+                    snapshot.dataset_name,
+                    snapshot.dataset_version,
+                    company_id,
+                ),
+                source_family=source_family,
+                version_label=snapshot.dataset_version,
+                storage_uri=storage_uri,
+                event_time_start=snapshot.event_time_start,
+                event_time_watermark=snapshot.watermark_time,
+                ingestion_cutoff_time=snapshot.ingestion_cutoff_time,
+                notes=[
+                    f"data_snapshot_id={snapshot.data_snapshot_id}",
+                    "Owned by the backtesting workflow and referenced by the experiment registry.",
+                ],
+                provenance=build_provenance(
+                    clock=self.clock,
+                    transformation_name="day8_source_version_from_backtest_snapshot",
+                    source_reference_ids=snapshot.provenance.source_reference_ids,
+                    upstream_artifact_ids=[snapshot.data_snapshot_id],
+                    workflow_run_id=workflow_run_id,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            source_versions.append(source_version)
+
+            partition = DatasetPartition(
+                dataset_partition_id=make_canonical_id(
+                    "dpart",
+                    snapshot.dataset_name,
+                    snapshot.dataset_version,
+                    company_id,
+                ),
+                dataset_name=snapshot.dataset_name,
+                partition_key=snapshot.partition_key or "company_id",
+                partition_value=company_id,
+                data_snapshot_id=snapshot.data_snapshot_id,
+                date_range_start=(
+                    snapshot.event_time_start.date() if snapshot.event_time_start is not None else None
+                ),
+                date_range_end=(
+                    snapshot.watermark_time.date() if snapshot.watermark_time is not None else None
+                ),
+                event_time_start=snapshot.event_time_start,
+                event_time_end=snapshot.watermark_time,
+                ingestion_cutoff_time=snapshot.ingestion_cutoff_time,
+                row_count=snapshot.row_count,
+                source_version_ids=[source_version.source_version_id],
+                provenance=build_provenance(
+                    clock=self.clock,
+                    transformation_name="day8_dataset_partition_from_backtest_snapshot",
+                    source_reference_ids=snapshot.provenance.source_reference_ids,
+                    upstream_artifact_ids=[
+                        snapshot.data_snapshot_id,
+                        source_version.source_version_id,
+                    ],
+                    workflow_run_id=workflow_run_id,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            partitions.append(partition)
+
+            manifest = DatasetManifest(
+                dataset_manifest_id=make_canonical_id(
+                    "dman",
+                    snapshot.dataset_name,
+                    snapshot.dataset_version,
+                    company_id,
+                ),
+                dataset_name=snapshot.dataset_name,
+                dataset_version=snapshot.dataset_version,
+                schema_version=snapshot.schema_version,
+                data_layer=snapshot.data_layer,
+                storage_uri=storage_uri,
+                partition_ids=[partition.dataset_partition_id],
+                source_families=snapshot.source_families or [source_family],
+                source_version_ids=[source_version.source_version_id],
+                source_count=snapshot.source_count,
+                row_count=snapshot.row_count,
+                lineage_notes=[
+                    f"data_snapshot_id={snapshot.data_snapshot_id}",
+                    "Manifest captures the local backtesting dataset slice for replay.",
+                ],
+                provenance=build_provenance(
+                    clock=self.clock,
+                    transformation_name="day8_dataset_manifest_from_backtest_snapshot",
+                    source_reference_ids=snapshot.provenance.source_reference_ids,
+                    upstream_artifact_ids=[
+                        snapshot.data_snapshot_id,
+                        partition.dataset_partition_id,
+                        source_version.source_version_id,
+                    ],
+                    workflow_run_id=workflow_run_id,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            manifests.append(manifest)
+
+            updated_snapshot = snapshot.model_copy(
+                update={
+                    "dataset_manifest_id": manifest.dataset_manifest_id,
+                    "updated_at": now,
+                    "provenance": snapshot.provenance.model_copy(update={"processing_time": now}),
+                }
+            )
+            updated_snapshots.append(updated_snapshot)
+
+            dataset_references.append(
+                DatasetReference(
+                    dataset_reference_id=make_canonical_id(
+                        "dref",
+                        updated_snapshot.dataset_name,
+                        updated_snapshot.data_snapshot_id,
+                        "input",
+                    ),
+                    dataset_name=updated_snapshot.dataset_name,
+                    usage_role=DatasetUsageRole.INPUT,
+                    dataset_manifest_id=manifest.dataset_manifest_id,
+                    data_snapshot_id=updated_snapshot.data_snapshot_id,
+                    data_layer=updated_snapshot.data_layer,
+                    information_cutoff_time=updated_snapshot.information_cutoff_time,
+                    schema_version=manifest.schema_version,
+                    storage_uri=manifest.storage_uri or storage_uri,
+                    provenance=build_provenance(
+                        clock=self.clock,
+                        transformation_name="day8_dataset_reference_from_backtest_snapshot",
+                        source_reference_ids=updated_snapshot.provenance.source_reference_ids,
+                        upstream_artifact_ids=[
+                            manifest.dataset_manifest_id,
+                            updated_snapshot.data_snapshot_id,
+                        ],
+                        workflow_run_id=workflow_run_id,
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+
+        return updated_snapshots, manifests, partitions, source_versions, dataset_references
+
+    def _build_experiment_config(
+        self,
+        *,
+        backtest_config: BacktestConfig,
+        workflow_run_id: str,
+    ) -> ExperimentConfig:
+        """Flatten a backtest config into a stable experiment configuration record."""
+
+        parameters = self._build_experiment_parameters(
+            backtest_config=backtest_config,
+            workflow_run_id=workflow_run_id,
+        )
+        parameter_hash = sha256(
+            json.dumps(
+                [
+                    {
+                        "key": parameter.key,
+                        "value_repr": parameter.value_repr,
+                        "value_type": parameter.value_type.value,
+                    }
+                    for parameter in parameters
+                ],
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        now = self.clock.now()
+        return ExperimentConfig(
+            experiment_config_id=make_canonical_id(
+                "ecfg",
+                "backtesting_workflow",
+                get_settings().app_version,
+                parameter_hash,
+            ),
+            workflow_name="backtesting_workflow",
+            workflow_version=get_settings().app_version,
+            parameter_hash=parameter_hash,
+            parameters=parameters,
+            source_config_artifact_id=backtest_config.backtest_config_id,
+            model_reference_ids=[],
+            provenance=build_provenance(
+                clock=self.clock,
+                transformation_name="day8_backtest_experiment_config",
+                source_reference_ids=backtest_config.provenance.source_reference_ids,
+                upstream_artifact_ids=[
+                    backtest_config.backtest_config_id,
+                    backtest_config.execution_assumption.execution_assumption_id,
+                    *[parameter.experiment_parameter_id for parameter in parameters],
+                ],
+                workflow_run_id=workflow_run_id,
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _build_experiment_parameters(
+        self,
+        *,
+        backtest_config: BacktestConfig,
+        workflow_run_id: str,
+    ) -> list[ExperimentParameter]:
+        """Create stable parameter rows from one backtest configuration."""
+
+        raw_parameters: list[tuple[str, object, ExperimentParameterValueType]] = [
+            ("strategy_name", backtest_config.strategy_name, ExperimentParameterValueType.STRING),
+            ("signal_family", backtest_config.signal_family, ExperimentParameterValueType.STRING),
+            ("ablation_view", backtest_config.ablation_view.value, ExperimentParameterValueType.ENUM),
+            ("test_start", backtest_config.test_start.isoformat(), ExperimentParameterValueType.DATE),
+            ("test_end", backtest_config.test_end.isoformat(), ExperimentParameterValueType.DATE),
+            (
+                "decision_frequency",
+                backtest_config.decision_frequency,
+                ExperimentParameterValueType.STRING,
+            ),
+            (
+                "signal_status_allowlist",
+                json.dumps(
+                    [status.value for status in backtest_config.signal_status_allowlist],
+                    sort_keys=True,
+                ),
+                ExperimentParameterValueType.ENUM,
+            ),
+            ("decision_rule", backtest_config.decision_rule, ExperimentParameterValueType.STRING),
+            ("exploratory_only", backtest_config.exploratory_only, ExperimentParameterValueType.BOOLEAN),
+            ("starting_cash", backtest_config.starting_cash, ExperimentParameterValueType.FLOAT),
+            (
+                "benchmark_kinds",
+                json.dumps([kind.value for kind in backtest_config.benchmark_kinds], sort_keys=True),
+                ExperimentParameterValueType.ENUM,
+            ),
+            (
+                "transaction_cost_bps",
+                backtest_config.execution_assumption.transaction_cost_bps,
+                ExperimentParameterValueType.FLOAT,
+            ),
+            (
+                "slippage_bps",
+                backtest_config.execution_assumption.slippage_bps,
+                ExperimentParameterValueType.FLOAT,
+            ),
+            (
+                "execution_lag_bars",
+                backtest_config.execution_assumption.execution_lag_bars,
+                ExperimentParameterValueType.INTEGER,
+            ),
+            (
+                "decision_price_field",
+                backtest_config.execution_assumption.decision_price_field,
+                ExperimentParameterValueType.STRING,
+            ),
+            (
+                "execution_price_field",
+                backtest_config.execution_assumption.execution_price_field,
+                ExperimentParameterValueType.STRING,
+            ),
+        ]
+        if backtest_config.execution_assumption.signal_availability_buffer_minutes is not None:
+            raw_parameters.append(
+                (
+                    "signal_availability_buffer_minutes",
+                    backtest_config.execution_assumption.signal_availability_buffer_minutes,
+                    ExperimentParameterValueType.INTEGER,
+                )
+            )
+
+        now = self.clock.now()
+        parameters: list[ExperimentParameter] = []
+        for key, value, value_type in raw_parameters:
+            value_repr = _value_repr(value)
+            parameters.append(
+                ExperimentParameter(
+                    experiment_parameter_id=make_canonical_id(
+                        "eparam",
+                        "backtesting_workflow",
+                        key,
+                        value_repr,
+                    ),
+                    key=key,
+                    value_repr=value_repr,
+                    value_type=value_type,
+                    redacted=False,
+                    provenance=build_provenance(
+                        clock=self.clock,
+                        transformation_name="day8_backtest_experiment_parameter",
+                        source_reference_ids=backtest_config.provenance.source_reference_ids,
+                        upstream_artifact_ids=[
+                            backtest_config.backtest_config_id,
+                            backtest_config.execution_assumption.execution_assumption_id,
+                        ],
+                        workflow_run_id=workflow_run_id,
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return parameters
+
+    def _build_run_context(
+        self,
+        *,
+        workflow_run_id: str,
+        requested_by: str,
+        artifact_root: Path,
+        as_of_time: datetime,
+    ) -> RunContext:
+        """Build the operational run context used by the experiment record."""
+
+        now = self.clock.now()
+        settings = get_settings()
+        return RunContext(
+            run_context_id=make_canonical_id("rctx", "backtesting_workflow", workflow_run_id),
+            workflow_name="backtesting_workflow",
+            workflow_run_id=workflow_run_id,
+            requested_by=requested_by,
+            environment=settings.environment,
+            artifact_root_uri=artifact_root.resolve().as_uri(),
+            as_of_time=as_of_time,
+            notes=["Backtesting is the first integrated workflow for the experiment registry."],
+            provenance=build_provenance(
+                clock=self.clock,
+                transformation_name="day8_backtest_run_context",
+                workflow_run_id=workflow_run_id,
+                notes=[f"requested_by={requested_by}"],
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _build_experiment_artifacts(
+        self,
+        *,
+        experiment: Experiment,
+        backtest_run: BacktestRun,
+        snapshots: list[DataSnapshot],
+        performance_summary: PerformanceSummary,
+        benchmark_references: list[BenchmarkReference],
+        storage_by_artifact_id: dict[str, ArtifactStorageLocation],
+        workflow_run_id: str,
+    ) -> list[ExperimentArtifact]:
+        """Build artifact registry rows for the backtest outputs and snapshots."""
+
+        now = self.clock.now()
+        artifacts: list[ExperimentArtifact] = []
+        backtest_artifacts: list[tuple[str, str, ExperimentArtifactRole]] = [
+            (backtest_run.backtest_run_id, "BacktestRun", ExperimentArtifactRole.OUTPUT),
+            (
+                performance_summary.performance_summary_id,
+                "PerformanceSummary",
+                ExperimentArtifactRole.SUMMARY,
+            ),
+            *[
+                (snapshot.data_snapshot_id, "DataSnapshot", ExperimentArtifactRole.INPUT_SNAPSHOT)
+                for snapshot in snapshots
+            ],
+            *[
+                (
+                    benchmark.benchmark_reference_id,
+                    "BenchmarkReference",
+                    ExperimentArtifactRole.BENCHMARK,
+                )
+                for benchmark in benchmark_references
+            ],
+        ]
+        for artifact_id, artifact_type, artifact_role in backtest_artifacts:
+            storage_location = storage_by_artifact_id.get(artifact_id)
+            artifacts.append(
+                ExperimentArtifact(
+                    experiment_artifact_id=make_canonical_id(
+                        "eart",
+                        experiment.experiment_id,
+                        artifact_role.value,
+                        artifact_id,
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    artifact_id=artifact_id,
+                    artifact_type=artifact_type,
+                    artifact_role=artifact_role,
+                    artifact_storage_location_id=(
+                        storage_location.artifact_storage_location_id
+                        if storage_location is not None
+                        else None
+                    ),
+                    uri=(
+                        storage_location.uri
+                        if storage_location is not None
+                        else f"artifact://{artifact_type.lower()}/{artifact_id}"
+                    ),
+                    produced_at=now,
+                    provenance=build_provenance(
+                        clock=self.clock,
+                        transformation_name="day8_experiment_artifact_from_backtest",
+                        upstream_artifact_ids=[artifact_id, experiment.experiment_id],
+                        workflow_run_id=workflow_run_id,
+                        experiment_id=experiment.experiment_id,
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return artifacts
+
+    def _build_experiment_metrics(
+        self,
+        *,
+        experiment: Experiment,
+        performance_summary: PerformanceSummary,
+        benchmark_references: list[BenchmarkReference],
+        workflow_run_id: str,
+    ) -> list[ExperimentMetric]:
+        """Build numeric experiment metrics from the mechanical backtest summary."""
+
+        now = self.clock.now()
+        metrics: list[ExperimentMetric] = []
+        summary_metrics: list[tuple[str, float, str | None]] = [
+            ("gross_pnl", performance_summary.gross_pnl, "usd"),
+            ("net_pnl", performance_summary.net_pnl, "usd"),
+            ("trade_count", float(performance_summary.trade_count), "count"),
+            ("turnover_notional", performance_summary.turnover_notional, "usd"),
+        ]
+        for metric_name, numeric_value, unit in summary_metrics:
+            metrics.append(
+                ExperimentMetric(
+                    experiment_metric_id=make_canonical_id(
+                        "emetric",
+                        experiment.experiment_id,
+                        metric_name,
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    metric_name=metric_name,
+                    numeric_value=numeric_value,
+                    unit=unit,
+                    source_artifact_id=performance_summary.performance_summary_id,
+                    recorded_at=now,
+                    provenance=build_provenance(
+                        clock=self.clock,
+                        transformation_name="day8_experiment_metric_from_backtest_summary",
+                        upstream_artifact_ids=[
+                            performance_summary.performance_summary_id,
+                            experiment.experiment_id,
+                        ],
+                        workflow_run_id=workflow_run_id,
+                        experiment_id=experiment.experiment_id,
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        for benchmark in benchmark_references:
+            metrics.append(
+                ExperimentMetric(
+                    experiment_metric_id=make_canonical_id(
+                        "emetric",
+                        experiment.experiment_id,
+                        benchmark.benchmark_reference_id,
+                        "simple_return",
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    metric_name=f"benchmark_simple_return:{benchmark.benchmark_kind.value}",
+                    numeric_value=benchmark.simple_return,
+                    unit="ratio",
+                    source_artifact_id=benchmark.benchmark_reference_id,
+                    recorded_at=now,
+                    provenance=build_provenance(
+                        clock=self.clock,
+                        transformation_name="day8_experiment_metric_from_benchmark",
+                        upstream_artifact_ids=[
+                            benchmark.benchmark_reference_id,
+                            experiment.experiment_id,
+                        ],
+                        workflow_run_id=workflow_run_id,
+                        experiment_id=experiment.experiment_id,
+                    ),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return metrics
+
 
 class _ProvenancedModel(Protocol):
     provenance: ProvenanceRecord
@@ -277,3 +1008,11 @@ def _artifact_id(*, model: StrictModel) -> str:
     if hasattr(model, "data_snapshot_id"):
         return cast(str, model.data_snapshot_id)
     raise ValueError(f"Could not resolve artifact ID for model type `{type(model).__name__}`.")
+
+
+def _value_repr(value: object) -> str:
+    """Return a stable string representation for recorded experiment parameters."""
+
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)

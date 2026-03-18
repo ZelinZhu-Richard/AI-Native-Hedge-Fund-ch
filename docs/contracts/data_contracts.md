@@ -31,6 +31,16 @@ All first-class entities use explicit prefixed IDs. Examples:
 - `memo_...` for `Memo`
 - `audit_...` for `AuditLog`
 - `snap_...` for `DataSnapshot`
+- `exp_...` for `Experiment`
+- `ecfg_...` for `ExperimentConfig`
+- `eparam_...` for `ExperimentParameter`
+- `rctx_...` for `RunContext`
+- `eart_...` for `ExperimentArtifact`
+- `emetric_...` for `ExperimentMetric`
+- `dman_...` for `DatasetManifest`
+- `dpart_...` for `DatasetPartition`
+- `dref_...` for `DatasetReference`
+- `sver_...` for `SourceVersion`
 - `pxmeta_...` for `PriceSeriesMetadata`
 - `store_...` for `ArtifactStorageLocation`
 - `pdoc_...` for `ParsedDocumentText`
@@ -56,8 +66,10 @@ Every timestamp must be timezone-aware UTC at rest.
 The canonical timestamp types are:
 
 - `event_time`: when the real-world event happened
+- `event_time_start`: earliest event time represented by a snapshot or partition
 - `published_at`: when a source was made available upstream
 - `retrieved_at` or `ingested_at`: when the platform first retrieved or registered the source
+- `ingestion_cutoff_time`: latest ingestion boundary included in a snapshot or partition
 - `processing_time` or `processed_at`: when a transformation completed
 - `effective_at`: when an artifact should be considered actionable for research or simulation
 - `available_at`: when a feature or derived signal becomes legally and operationally available for downstream use
@@ -185,6 +197,14 @@ A future research artifact should be reproducible from:
 - model or prompt version where AI was involved
 
 Reproducibility does not require bit-for-bit deterministic language output on Day 1, but it does require enough metadata to explain how the artifact was produced.
+
+Current Day 8 experiment recording requires:
+
+- `ExperimentConfig` with explicit parameter rows and a stable `parameter_hash`
+- `RunContext` with workflow run ID, requester, environment, and artifact root
+- `DatasetReference` records pointing to workflow-owned `DataSnapshot` artifacts
+- `ExperimentArtifact` rows for produced outputs and referenced snapshots
+- `ExperimentMetric` rows for recorded numeric results
 
 ## Future Dataset Partitioning Rules
 

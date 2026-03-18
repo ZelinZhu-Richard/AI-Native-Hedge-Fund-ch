@@ -477,7 +477,10 @@ def _build_signal_snapshot(
     """Build the signal snapshot metadata for the exploratory run."""
 
     now = clock.now()
+    event_time_start = min(signal.effective_at for signal in inputs.signals)
     cutoff_time = max(signal.effective_at for signal in inputs.signals)
+    ingestion_cutoff_time = max(signal.created_at for signal in inputs.signals)
+    snapshot_time = max(now, cutoff_time)
     return DataSnapshot(
         data_snapshot_id=make_canonical_id(
             "snap",
@@ -489,8 +492,10 @@ def _build_signal_snapshot(
         dataset_version=config.backtest_config_id,
         dataset_manifest_id=None,
         data_layer=DataLayer.DERIVED,
-        snapshot_time=now,
+        snapshot_time=snapshot_time,
+        event_time_start=event_time_start,
         watermark_time=cutoff_time,
+        ingestion_cutoff_time=ingestion_cutoff_time,
         information_cutoff_time=cutoff_time,
         storage_uri=inputs.signal_root.resolve().as_uri(),
         row_count=len(inputs.signals),
@@ -504,6 +509,7 @@ def _build_signal_snapshot(
             }
         ),
         completeness_ratio=1.0,
+        source_families=["candidate_signals"],
         created_by_process="day6_backtesting_signal_snapshot",
         provenance=build_provenance(
             clock=clock,
@@ -528,7 +534,9 @@ def _build_price_snapshot(
     """Build the synthetic price snapshot metadata for the exploratory run."""
 
     now = clock.now()
+    event_time_start = min(bar.timestamp_dt for bar in inputs.price_fixture.bars)
     cutoff_time = max(bar.timestamp_dt for bar in inputs.price_fixture.bars)
+    snapshot_time = max(now, cutoff_time)
     return DataSnapshot(
         data_snapshot_id=make_canonical_id(
             "snap",
@@ -540,8 +548,10 @@ def _build_price_snapshot(
         dataset_version=config.backtest_config_id,
         dataset_manifest_id=None,
         data_layer=DataLayer.NORMALIZED,
-        snapshot_time=now,
+        snapshot_time=snapshot_time,
+        event_time_start=event_time_start,
         watermark_time=cutoff_time,
+        ingestion_cutoff_time=None,
         information_cutoff_time=cutoff_time,
         storage_uri=inputs.price_fixture_path.resolve().as_uri(),
         row_count=len(inputs.price_fixture.bars),
@@ -549,6 +559,7 @@ def _build_price_snapshot(
         partition_key=inputs.company_id,
         source_count=1,
         completeness_ratio=1.0,
+        source_families=["synthetic_price_fixture"],
         created_by_process="day6_backtesting_price_snapshot",
         provenance=build_provenance(
             clock=clock,

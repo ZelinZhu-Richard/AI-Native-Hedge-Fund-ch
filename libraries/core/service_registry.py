@@ -4,6 +4,7 @@ from libraries.core.service_framework import BaseService
 from libraries.time import Clock
 from services.audit import AuditLoggingService
 from services.backtesting import BacktestingService
+from services.experiment_registry import ExperimentRegistryService
 from services.feature_store import FeatureStoreService
 from services.ingestion import IngestionService
 from services.memo import MemoGenerationService
@@ -25,6 +26,7 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         FeatureStoreService(clock=clock),
         SignalGenerationService(clock=clock),
         BacktestingService(clock=clock),
+        ExperimentRegistryService(clock=clock),
         RiskEngineService(clock=clock),
         PortfolioConstructionService(clock=clock),
         PaperExecutionService(clock=clock),

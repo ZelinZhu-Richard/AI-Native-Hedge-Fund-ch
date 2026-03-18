@@ -979,6 +979,171 @@ class BacktestRun(TimestampedModel):
         return self
 
 
+class ExperimentParameterValueType(StrEnum):
+    """Typed value families supported by experiment parameter recording."""
+
+    STRING = "string"
+    INTEGER = "integer"
+    FLOAT = "float"
+    BOOLEAN = "boolean"
+    DATE = "date"
+    DATETIME = "datetime"
+    ENUM = "enum"
+    PATH = "path"
+
+
+class ExperimentArtifactRole(StrEnum):
+    """Role an artifact plays inside an experiment record."""
+
+    INPUT_SNAPSHOT = "input_snapshot"
+    OUTPUT = "output"
+    SUMMARY = "summary"
+    DIAGNOSTIC = "diagnostic"
+    BENCHMARK = "benchmark"
+
+
+class ExperimentParameter(TimestampedModel):
+    """One explicitly recorded parameter used to configure an experiment run."""
+
+    experiment_parameter_id: str = Field(description="Canonical experiment-parameter identifier.")
+    key: str = Field(description="Stable parameter name.")
+    value_repr: str = Field(description="String representation of the parameter value.")
+    value_type: ExperimentParameterValueType = Field(
+        description="Declared parameter value type."
+    )
+    redacted: bool = Field(
+        default=False,
+        description="Whether the parameter value was intentionally redacted.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the parameter record.")
+
+    @model_validator(mode="after")
+    def validate_value_repr(self) -> ExperimentParameter:
+        """Require a stable string representation for every parameter."""
+
+        if not self.value_repr:
+            raise ValueError("value_repr must be non-empty.")
+        return self
+
+
+class ModelReference(TimestampedModel):
+    """Minimal future-facing reference to a model and prompt configuration."""
+
+    model_reference_id: str = Field(description="Canonical model-reference identifier.")
+    provider: str = Field(description="Model provider or internal registry owner.")
+    model_name: str = Field(description="Model name used by the workflow.")
+    model_version: str | None = Field(default=None, description="Optional model version label.")
+    prompt_version: str | None = Field(default=None, description="Optional prompt version label.")
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Important caveats about the model or prompt reference.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the model reference.")
+
+
+class ExperimentConfig(TimestampedModel):
+    """Stable, reproducible configuration metadata for one experiment."""
+
+    experiment_config_id: str = Field(description="Canonical experiment-config identifier.")
+    workflow_name: str = Field(description="Workflow family the experiment config applies to.")
+    workflow_version: str = Field(description="Workflow or application version label.")
+    parameter_hash: str = Field(description="Stable hash of the recorded parameters.")
+    parameters: list[ExperimentParameter] = Field(
+        default_factory=list,
+        description="Explicit parameter rows describing the recorded configuration.",
+    )
+    source_config_artifact_id: str | None = Field(
+        default=None,
+        description="Primary upstream config artifact identifier when one exists.",
+    )
+    model_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Optional model references attached to the configuration.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the experiment config.")
+
+    @model_validator(mode="after")
+    def validate_config(self) -> ExperimentConfig:
+        """Require a stable parameter hash and at least one recorded parameter."""
+
+        if not self.parameter_hash:
+            raise ValueError("parameter_hash must be non-empty.")
+        if not self.parameters:
+            raise ValueError("parameters must contain at least one parameter.")
+        return self
+
+
+class RunContext(TimestampedModel):
+    """Operational context for the workflow run that owns an experiment."""
+
+    run_context_id: str = Field(description="Canonical run-context identifier.")
+    workflow_name: str = Field(description="Workflow family that produced the run.")
+    workflow_run_id: str = Field(description="Concrete workflow run identifier.")
+    requested_by: str = Field(description="Requester or operator who launched the run.")
+    environment: str = Field(description="Runtime environment name.")
+    artifact_root_uri: str = Field(description="Artifact root used by the run.")
+    as_of_time: datetime | None = Field(
+        default=None,
+        description="Optional information boundary applied to the run.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Operational notes or context attached to the run.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the run context.")
+
+    @model_validator(mode="after")
+    def validate_artifact_root(self) -> RunContext:
+        """Require a stable artifact root URI for replayability."""
+
+        if not self.artifact_root_uri:
+            raise ValueError("artifact_root_uri must be non-empty.")
+        return self
+
+
+class ExperimentArtifact(TimestampedModel):
+    """Structured reference to an artifact produced or consumed by an experiment."""
+
+    experiment_artifact_id: str = Field(description="Canonical experiment-artifact identifier.")
+    experiment_id: str = Field(description="Owning experiment identifier.")
+    artifact_id: str = Field(description="Referenced artifact identifier.")
+    artifact_type: str = Field(description="Artifact model or category name.")
+    artifact_role: ExperimentArtifactRole = Field(description="Role the artifact plays.")
+    artifact_storage_location_id: str | None = Field(
+        default=None,
+        description="Artifact storage-location identifier when a local write was persisted.",
+    )
+    uri: str | None = Field(default=None, description="Direct URI when no storage record exists.")
+    produced_at: datetime = Field(description="UTC timestamp when the artifact was produced.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the experiment artifact.")
+
+    @model_validator(mode="after")
+    def validate_location(self) -> ExperimentArtifact:
+        """Require either a storage-location ID or a URI for the referenced artifact."""
+
+        if self.artifact_storage_location_id is None and self.uri is None:
+            raise ValueError(
+                "ExperimentArtifact requires artifact_storage_location_id or uri."
+            )
+        return self
+
+
+class ExperimentMetric(TimestampedModel):
+    """Structured numeric metric recorded for an experiment."""
+
+    experiment_metric_id: str = Field(description="Canonical experiment-metric identifier.")
+    experiment_id: str = Field(description="Owning experiment identifier.")
+    metric_name: str = Field(description="Stable metric name.")
+    numeric_value: float = Field(description="Numeric metric value.")
+    unit: str | None = Field(default=None, description="Optional metric unit label.")
+    source_artifact_id: str | None = Field(
+        default=None,
+        description="Artifact identifier that produced or summarized the metric.",
+    )
+    recorded_at: datetime = Field(description="UTC timestamp when the metric was recorded.")
+    provenance: ProvenanceRecord = Field(description="Traceability for the metric.")
+
+
 class Experiment(TimestampedModel):
     """Track a research experiment, including datasets, hypotheses, and runs."""
 
@@ -987,9 +1152,15 @@ class Experiment(TimestampedModel):
     objective: str = Field(description="Research objective or question under study.")
     created_by: str = Field(description="Analyst or workflow that created the experiment.")
     status: ExperimentStatus = Field(description="Experiment lifecycle status.")
-    dataset_snapshot_id: str | None = Field(
-        default=None,
-        description="Point-in-time dataset snapshot used by the experiment.",
+    experiment_config_id: str = Field(description="Experiment-config identifier.")
+    run_context_id: str = Field(description="Run-context identifier for the owning workflow.")
+    dataset_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Dataset references that define the experiment input boundary.",
+    )
+    model_reference_ids: list[str] = Field(
+        default_factory=list,
+        description="Optional model references attached to the experiment.",
     )
     hypothesis_ids: list[str] = Field(
         default_factory=list,
@@ -999,10 +1170,36 @@ class Experiment(TimestampedModel):
         default_factory=list,
         description="Backtest runs associated with the experiment.",
     )
+    experiment_artifact_ids: list[str] = Field(
+        default_factory=list,
+        description="Recorded experiment-artifact identifiers.",
+    )
+    experiment_metric_ids: list[str] = Field(
+        default_factory=list,
+        description="Recorded experiment-metric identifiers.",
+    )
+    started_at: datetime = Field(description="UTC timestamp when the experiment started.")
+    completed_at: datetime | None = Field(
+        default=None,
+        description="UTC timestamp when the experiment completed or failed.",
+    )
     notes: list[str] = Field(
         default_factory=list, description="Operational notes for the experiment."
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the experiment.")
+
+    @model_validator(mode="after")
+    def validate_experiment(self) -> Experiment:
+        """Require explicit reproducibility links and ordered experiment timestamps."""
+
+        if not self.dataset_reference_ids:
+            raise ValueError("dataset_reference_ids must contain at least one dataset reference.")
+        if self.completed_at is not None and self.completed_at < self.started_at:
+            raise ValueError("completed_at must be greater than or equal to started_at.")
+        if self.status in {ExperimentStatus.COMPLETED, ExperimentStatus.FAILED}:
+            if self.completed_at is None:
+                raise ValueError("completed_at is required when the experiment is finished.")
+        return self
 
 
 class Memo(TimestampedModel):

@@ -57,6 +57,78 @@ def test_backtesting_workflow_generates_run_events_and_benchmarks(tmp_path: Path
     }
 
 
+def test_backtesting_workflow_records_experiment_registry(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+
+    response = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        output_root=artifact_root / "backtesting",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert response.experiment is not None
+    assert response.experiment_config is not None
+    assert response.backtest_run.experiment_id == response.experiment.experiment_id
+    assert len(response.dataset_references) == 2
+    assert response.experiment_artifacts
+    assert response.experiment_metrics
+    assert {reference.data_snapshot_id for reference in response.dataset_references} == {
+        snapshot.data_snapshot_id for snapshot in response.data_snapshots
+    }
+    assert (
+        artifact_root
+        / "experiments"
+        / "experiments"
+        / f"{response.experiment.experiment_id}.json"
+    ).exists()
+    assert (
+        artifact_root
+        / "experiments"
+        / "experiment_configs"
+        / f"{response.experiment_config.experiment_config_id}.json"
+    ).exists()
+
+    metric_source_ids = {metric.source_artifact_id for metric in response.experiment_metrics}
+    assert response.performance_summary.performance_summary_id in metric_source_ids
+    assert {
+        benchmark.benchmark_reference_id for benchmark in response.benchmark_references
+    }.issubset(metric_source_ids)
+
+
+def test_backtesting_experiment_config_is_stable_for_identical_runs(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+    config = _backtest_config()
+
+    first = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        output_root=artifact_root / "backtesting_one",
+        experiment_root=artifact_root / "experiments_one",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=config,
+        clock=FrozenClock(FIXED_NOW),
+    )
+    second = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        output_root=artifact_root / "backtesting_two",
+        experiment_root=artifact_root / "experiments_two",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=config,
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert first.experiment_config is not None
+    assert second.experiment_config is not None
+    assert first.experiment_config.parameter_hash == second.experiment_config.parameter_hash
+    assert first.experiment_config.experiment_config_id == second.experiment_config.experiment_config_id
+
+
 def test_future_feature_availability_blocks_signal_use(tmp_path: Path) -> None:
     artifact_root = tmp_path / "artifacts"
     signal_root = _build_signal_artifacts(artifact_root=artifact_root)

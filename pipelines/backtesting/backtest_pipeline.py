@@ -20,6 +20,10 @@ def run_backtest_pipeline(
     feature_root: Path | None = None,
     output_root: Path | None = None,
     company_id: str | None = None,
+    record_experiment: bool = True,
+    experiment_name: str | None = None,
+    experiment_objective: str | None = None,
+    experiment_root: Path | None = None,
     requested_by: str = "pipeline_backtesting",
     clock: Clock | None = None,
 ) -> RunBacktestWorkflowResponse:
@@ -41,6 +45,10 @@ def run_backtest_pipeline(
             output_root=resolved_output_root,
             company_id=company_id,
             backtest_config=backtest_config,
+            record_experiment=record_experiment,
+            experiment_name=experiment_name,
+            experiment_objective=experiment_objective,
+            experiment_root=experiment_root,
             requested_by=requested_by,
         )
     )
