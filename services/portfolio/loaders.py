@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TypeVar
 
@@ -14,8 +15,9 @@ from libraries.schemas import (
     Signal,
     StrictModel,
 )
+from libraries.schemas.base import TimestampedModel
 
-T = TypeVar("T", bound=StrictModel)
+T = TypeVar("T", bound=TimestampedModel)
 
 
 class LoadedPortfolioInputs(StrictModel):
@@ -55,10 +57,14 @@ def load_portfolio_inputs(
     ingestion_root: Path | None,
     backtesting_root: Path | None,
     company_id: str | None = None,
+    as_of_time: datetime | None = None,
 ) -> LoadedPortfolioInputs:
     """Load persisted Day 5 and Day 6 artifacts needed for Day 7 workflows."""
 
-    signals = _load_models(signal_root / "signals", Signal)
+    signals = _apply_signal_cutoff(
+        _load_models(signal_root / "signals", Signal),
+        as_of_time=as_of_time,
+    )
     resolved_company_id = _resolve_company_id(company_id=company_id, signals=signals)
     company_signals = [signal for signal in signals if signal.company_id == resolved_company_id]
     if not company_signals:
@@ -66,17 +72,26 @@ def load_portfolio_inputs(
 
     hypotheses = [
         hypothesis
-        for hypothesis in _load_models(research_root / "hypotheses", Hypothesis)
+        for hypothesis in _apply_created_at_cutoff(
+            _load_models(research_root / "hypotheses", Hypothesis),
+            as_of_time=as_of_time,
+        )
         if hypothesis.company_id == resolved_company_id
     ]
     evidence_assessments = [
         assessment
-        for assessment in _load_models(research_root / "evidence_assessments", EvidenceAssessment)
+        for assessment in _apply_created_at_cutoff(
+            _load_models(research_root / "evidence_assessments", EvidenceAssessment),
+            as_of_time=as_of_time,
+        )
         if assessment.company_id == resolved_company_id
     ]
     research_briefs = [
         brief
-        for brief in _load_models(research_root / "research_briefs", ResearchBrief)
+        for brief in _apply_created_at_cutoff(
+            _load_models(research_root / "research_briefs", ResearchBrief),
+            as_of_time=as_of_time,
+        )
         if brief.company_id == resolved_company_id
     ]
 
@@ -84,13 +99,18 @@ def load_portfolio_inputs(
     if ingestion_root is not None:
         company_path = ingestion_root / "normalized" / "companies" / f"{resolved_company_id}.json"
         if company_path.exists():
-            company = Company.model_validate_json(company_path.read_text(encoding="utf-8"))
+            loaded_company = Company.model_validate_json(company_path.read_text(encoding="utf-8"))
+            if as_of_time is None or loaded_company.created_at <= as_of_time:
+                company = loaded_company
 
     latest_backtest_run = None
     if backtesting_root is not None and (backtesting_root / "runs").exists():
         company_runs = [
             run
-            for run in _load_models(backtesting_root / "runs", BacktestRun)
+            for run in _apply_created_at_cutoff(
+                _load_models(backtesting_root / "runs", BacktestRun),
+                as_of_time=as_of_time,
+            )
             if run.company_id == resolved_company_id
         ]
         if company_runs:
@@ -141,4 +161,32 @@ def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     return [
         model_cls.model_validate_json(path.read_text(encoding="utf-8"))
         for path in sorted(directory.glob("*.json"))
+    ]
+
+
+def _apply_created_at_cutoff(
+    artifacts: list[T],
+    *,
+    as_of_time: datetime | None,
+) -> list[T]:
+    """Apply an optional creation-time cutoff to persisted artifacts."""
+
+    if as_of_time is None:
+        return artifacts
+    return [artifact for artifact in artifacts if artifact.created_at <= as_of_time]
+
+
+def _apply_signal_cutoff(
+    signals: list[Signal],
+    *,
+    as_of_time: datetime | None,
+) -> list[Signal]:
+    """Apply an optional point-in-time cutoff to persisted signals."""
+
+    if as_of_time is None:
+        return signals
+    return [
+        signal
+        for signal in signals
+        if signal.created_at <= as_of_time and signal.effective_at <= as_of_time
     ]

@@ -10,6 +10,7 @@ from libraries.config import get_settings
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
+    AuditOutcome,
     BacktestConfig,
     BacktestRun,
     BenchmarkReference,
@@ -21,6 +22,7 @@ from libraries.schemas import (
 )
 from libraries.schemas.base import ProvenanceRecord
 from libraries.utils import make_prefixed_id
+from services.audit import AuditEventRequest, AuditLoggingService
 from services.backtesting.loaders import load_backtest_inputs
 from services.backtesting.simulation import run_backtest_simulation
 from services.backtesting.storage import LocalBacktestArtifactStore
@@ -158,6 +160,7 @@ class BacktestingService(BaseService):
             backtest_run_id=backtest_run_id,
         )
         output_root = request.output_root or (get_settings().resolved_artifact_root / "backtesting")
+        audit_root = output_root.parent / "audit"
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
 
@@ -202,6 +205,31 @@ class BacktestingService(BaseService):
         storage_locations.append(
             self._persist_model(store=store, category="runs", model=result.backtest_run)
         )
+        notes = [f"requested_by={request.requested_by}", *result.notes]
+        audit_response = AuditLoggingService(clock=self.clock).record_event(
+            AuditEventRequest(
+                event_type="backtest_workflow_completed",
+                actor_type="service",
+                actor_id="backtesting",
+                target_type="backtest_run",
+                target_id=result.backtest_run.backtest_run_id,
+                action="completed",
+                outcome=AuditOutcome.SUCCESS,
+                reason="Exploratory backtest workflow completed.",
+                request_id=result.backtest_run.backtest_run_id,
+                related_artifact_ids=[
+                    request.backtest_config.backtest_config_id,
+                    *[snapshot.data_snapshot_id for snapshot in result.data_snapshots],
+                    *[decision.strategy_decision_id for decision in result.strategy_decisions],
+                    *[event.simulation_event_id for event in result.simulation_events],
+                    result.performance_summary.performance_summary_id,
+                    *[benchmark.benchmark_reference_id for benchmark in result.benchmark_references],
+                ],
+                notes=notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
 
         return RunBacktestWorkflowResponse(
             backtest_run=result.backtest_run,
@@ -212,7 +240,7 @@ class BacktestingService(BaseService):
             performance_summary=result.performance_summary,
             benchmark_references=result.benchmark_references,
             storage_locations=storage_locations,
-            notes=[f"requested_by={request.requested_by}", *result.notes],
+            notes=notes,
         )
 
     def _persist_model(

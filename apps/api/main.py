@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TypeVar
+
 from fastapi import FastAPI
 from pydantic import Field
 
@@ -9,8 +12,11 @@ from libraries.core import AgentDescriptor, ServiceCapability
 from libraries.core.service_registry import build_service_registry
 from libraries.logging import configure_logging
 from libraries.schemas import Hypothesis, PaperTrade, PortfolioProposal, StrictModel
+from libraries.schemas.base import TimestampedModel
 from libraries.time import SystemClock, isoformat_z
 from services.ingestion import DocumentIngestionRequest, DocumentIngestionResponse, IngestionService
+
+T = TypeVar("T", bound=TimestampedModel)
 
 
 class HealthResponse(StrictModel):
@@ -36,7 +42,7 @@ class CapabilityResponse(StrictModel):
 
 
 class HypothesisListResponse(StrictModel):
-    """Placeholder hypothesis listing response."""
+    """Artifact-backed hypothesis listing response."""
 
     items: list[Hypothesis] = Field(
         default_factory=list, description="Hypotheses visible to the caller."
@@ -45,7 +51,7 @@ class HypothesisListResponse(StrictModel):
 
 
 class PortfolioProposalListResponse(StrictModel):
-    """Placeholder portfolio proposal listing response."""
+    """Artifact-backed portfolio proposal listing response."""
 
     items: list[PortfolioProposal] = Field(
         default_factory=list,
@@ -55,7 +61,7 @@ class PortfolioProposalListResponse(StrictModel):
 
 
 class PaperTradeProposalListResponse(StrictModel):
-    """Placeholder paper trade proposal listing response."""
+    """Artifact-backed paper-trade listing response."""
 
     items: list[PaperTrade] = Field(
         default_factory=list,
@@ -71,7 +77,7 @@ service_registry = build_service_registry(clock=api_clock)
 app = FastAPI(
     title=settings.project_name,
     version=settings.app_version,
-    description="Control-plane API for the ANHF Day 1 research platform.",
+    description="Control-plane API for the ANHF Week 1 research, evaluation, and paper-trading scaffold.",
 )
 
 
@@ -86,10 +92,11 @@ def health() -> HealthResponse:
 def version() -> VersionResponse:
     """Return project version metadata."""
 
+    runtime_settings = get_settings()
     return VersionResponse(
-        project_name=settings.project_name,
-        version=settings.app_version,
-        environment=settings.environment,
+        project_name=runtime_settings.project_name,
+        version=runtime_settings.app_version,
+        environment=runtime_settings.environment,
     )
 
 
@@ -119,9 +126,13 @@ def ingest_document(request: DocumentIngestionRequest) -> DocumentIngestionRespo
 
 @app.get("/hypotheses", response_model=HypothesisListResponse, tags=["research"])
 def list_hypotheses() -> HypothesisListResponse:
-    """Return placeholder hypothesis results."""
+    """Return persisted research hypotheses when they exist."""
 
-    return HypothesisListResponse(items=[], total=0)
+    items = _load_persisted_models(
+        _artifact_root() / "research" / "hypotheses",
+        Hypothesis,
+    )
+    return HypothesisListResponse(items=items, total=len(items))
 
 
 @app.get(
@@ -130,9 +141,13 @@ def list_hypotheses() -> HypothesisListResponse:
     tags=["portfolio"],
 )
 def list_portfolio_proposals() -> PortfolioProposalListResponse:
-    """Return placeholder portfolio proposal results."""
+    """Return persisted portfolio proposals when they exist."""
 
-    return PortfolioProposalListResponse(items=[], total=0)
+    items = _load_persisted_models(
+        _artifact_root() / "portfolio" / "portfolio_proposals",
+        PortfolioProposal,
+    )
+    return PortfolioProposalListResponse(items=items, total=len(items))
 
 
 @app.get(
@@ -141,6 +156,28 @@ def list_portfolio_proposals() -> PortfolioProposalListResponse:
     tags=["paper-trading"],
 )
 def list_paper_trade_proposals() -> PaperTradeProposalListResponse:
-    """Return placeholder paper trade proposal results."""
+    """Return persisted paper-trade proposals when they exist."""
 
-    return PaperTradeProposalListResponse(items=[], total=0)
+    items = _load_persisted_models(
+        _artifact_root() / "portfolio" / "paper_trades",
+        PaperTrade,
+    )
+    return PaperTradeProposalListResponse(items=items, total=len(items))
+
+
+def _artifact_root() -> Path:
+    """Resolve the current artifact root from runtime settings."""
+
+    return get_settings().resolved_artifact_root
+
+
+def _load_persisted_models(directory: Path, model_cls: type[T]) -> list[T]:
+    """Load persisted artifacts for API inspection surfaces."""
+
+    if not directory.exists():
+        return []
+    models = [
+        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted(directory.glob("*.json"))
+    ]
+    return sorted(models, key=lambda model: model.created_at, reverse=True)

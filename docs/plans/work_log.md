@@ -322,19 +322,41 @@ Build the first risk-aware downstream proposal layer on top of the current signa
 
 ## Week 1 Review
 
-Status: `Planned`
+Status: `Completed`
 
 ### Goal
 
 Review the full Day 1 through Day 7 foundation as one system before Week 2 work begins.
 
-### Planned Focus
+### Plan Focus
 
 - schema consistency and lifecycle clarity
 - lineage completeness from evidence to paper-trade candidate
 - temporal correctness across downstream proposal layers
 - explicit separation between candidate and validated artifacts
 - remaining review, validation, and risk-control gaps
+
+### Implemented
+
+- reviewed the full Week 1 stack against `AGENTS.md` and `PLAN.md`
+- added explicit `as_of_time` cutoffs to feature, signal, and portfolio workflows
+- made local audit persistence operational and wired audit events into major workflows
+- replaced placeholder API listing endpoints with artifact-backed inspection reads
+- clarified the meaning of `artifacts/`, `storage/`, and `research_artifacts/`
+- updated stale docs and metadata to match the actual Week 1 repo state
+
+### Key Decisions
+
+- fix honesty gaps before adding new capability
+- keep latest-artifact loading only as an explicit local-dev convenience
+- defer instrument mastering, duplication cleanup, and trade-level approvals rather than patching them badly
+
+### Carry-Forward
+
+- explicit snapshot selection across the research-to-portfolio chain
+- real review-state persistence and promotion gates
+- first-class instrument/reference contracts
+- harder adversarial replay tests
 
 ## Maintenance Rule
 

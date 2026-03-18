@@ -16,6 +16,6 @@ def test_build_provenance_captures_versions_and_clock() -> None:
     )
 
     assert provenance.processing_time == fixed_now
-    assert provenance.config_version == "day1"
+    assert provenance.config_version == "week1"
     assert provenance.agent_run_id == "agent_run_test"
     assert provenance.upstream_artifact_ids == ["hyp_test"]

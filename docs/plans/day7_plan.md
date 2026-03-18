@@ -1,57 +1,35 @@
 # Day 7 Plan
 
+Status: `Implemented`
+
 ## Goal
 
-Build the first reviewed signal-evaluation and promotion layer on top of the new Day 6 exploratory backtesting boundary.
+Build the first risk-aware portfolio proposal and paper-trade review flow on top of the candidate signal and exploratory backtesting foundation.
 
-## Priority 1: Signal Evaluation Artifacts
+## What Was Implemented
 
-- define typed evaluation outputs for candidate signals and exploratory backtest runs
-- record:
-  - lineage completeness
-  - ablation slice
-  - snapshot coverage
-  - failure modes
-  - review state
-- keep these artifacts separate from `Signal` and `BacktestRun`
+- signal-to-position mapping into typed `PositionIdea`
+- explicit `PortfolioProposal` construction with embedded constraints, exposure summary, and risk checks
+- deterministic risk review rules under `services/risk_engine/`
+- portfolio-level human review hooks through `ReviewDecision`
+- paper-trade candidate creation that remains explicitly `paper_only`
+- local artifact persistence under `artifacts/portfolio/`
 
-## Priority 2: Snapshot-Aware Replay Checks
+## What Day 7 Did Not Do
 
-- replay candidate signals against explicit signal and feature snapshots
-- prove that feature availability and signal eligibility checks remain stable under replay
-- add regression fixtures for timestamp edge cases
-
-## Priority 3: Promotion Gate
-
-- define the first explicit gate between:
-  - candidate signals
-  - exploratory backtest artifacts
-  - reviewed validation work
-- require human-visible review and validation state before anything can move downstream
-
-## Priority 4: Ablation Coverage
-
-- compare current `text_only` signals against future:
-  - `price_only`
-  - `fundamentals_only`
-  - `combined`
-- keep absent slices explicit instead of silently dropping them
-
-## Non-Goals
-
-Day 7 should not build:
-
+- live trading
+- broker connectivity
+- autonomous execution
 - portfolio optimization
-- live execution
-- hidden promotion paths
-- performance marketing metrics
+- holdings-aware turnover or realistic transaction scheduling
 
-## Exact Target
+## Carry-Forward
 
-Implement a typed signal-evaluation and promotion workflow that can say:
+Day 7 completed the Week 1 downstream control surface.
 
-- what was tested
-- with which snapshots
-- under which ablation slice
-- with which failure modes
-- and whether the artifact is still only exploratory or is ready for deeper validation work
+The next work is tracked in:
+
+- `docs/reviews/week1_review.md`
+- `docs/plans/week2_plan.md`
+
+Those documents now replace this plan file as the active source of truth for what comes next.

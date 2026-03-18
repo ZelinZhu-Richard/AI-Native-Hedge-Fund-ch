@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     artifact_root: Path = Field(
         default=Path("artifacts"),
         validation_alias="ARTIFACT_ROOT",
-        description="Base directory for local artifacts and future persisted outputs.",
+        description="Base directory for local runtime materialized artifacts.",
     )
     enable_paper_trading: bool = Field(
         default=False,
@@ -60,10 +60,10 @@ class Settings(BaseSettings):
     allow_live_trading: bool = Field(
         default=False,
         validation_alias="ALLOW_LIVE_TRADING",
-        description="Must remain false on Day 1.",
+        description="Must remain false for the local research platform.",
     )
     model_registry_version: str = Field(
-        default="day1",
+        default="week1",
         validation_alias="MODEL_REGISTRY_VERSION",
         description="Registry version for prompt/model configs.",
     )

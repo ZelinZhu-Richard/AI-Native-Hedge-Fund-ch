@@ -60,6 +60,7 @@ def test_candidate_signal_creates_300bps_position_and_review_ready_paper_trade(
     assert response.paper_trades
     assert response.paper_trades[0].status.value == "proposed"
     assert response.paper_trades[0].execution_mode == "paper_only"
+    assert any("not replay-safe" in note for note in response.portfolio_workflow.notes)
 
 
 def test_approved_validated_signal_creates_500bps_position(tmp_path: Path) -> None:

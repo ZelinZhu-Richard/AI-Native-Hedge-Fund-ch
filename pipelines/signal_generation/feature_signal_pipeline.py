@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import Field
@@ -36,6 +37,7 @@ def run_feature_signal_pipeline(
     parsing_root: Path | None = None,
     output_root: Path | None = None,
     company_id: str | None = None,
+    as_of_time: datetime | None = None,
     ablation_view: AblationView = AblationView.TEXT_ONLY,
     requested_by: str = "pipeline_feature_signal_generation",
     clock: Clock | None = None,
@@ -57,6 +59,7 @@ def run_feature_signal_pipeline(
             parsing_root=resolved_parsing_root,
             output_root=resolved_output_root,
             company_id=company_id,
+            as_of_time=as_of_time,
             ablation_view=ablation_view,
             requested_by=requested_by,
         )
@@ -67,6 +70,7 @@ def run_feature_signal_pipeline(
             research_root=resolved_research_root,
             output_root=resolved_output_root,
             company_id=feature_mapping.company_id,
+            as_of_time=as_of_time,
             ablation_view=ablation_view,
             requested_by=requested_by,
         )

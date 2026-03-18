@@ -99,13 +99,19 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
     paper_trade_path = (
         artifact_root / "portfolio" / "paper_trades" / f"{paper_trade.paper_trade_id}.json"
     )
+    audit_directory = artifact_root / "audit" / "audit_logs"
     assert position_idea_path.exists()
     assert proposal_path.exists()
     assert paper_trade_path.exists()
+    assert audit_directory.exists()
 
     position_payload = json.loads(position_idea_path.read_text(encoding="utf-8"))
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
     paper_trade_payload = json.loads(paper_trade_path.read_text(encoding="utf-8"))
+    audit_event_payloads = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(audit_directory.glob("*.json"))
+    ]
 
     signal_payload = json.loads(
         next((artifact_root / "signal_generation" / "signals").glob("*.json")).read_text(
@@ -125,6 +131,14 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
     assert "live" not in "".join(paper_trade_payload["execution_notes"]).lower().replace(
         "no live routing", ""
     )
+    assert {
+        "research_workflow_completed",
+        "feature_mapping_completed",
+        "signal_generation_completed",
+        "backtest_workflow_completed",
+        "paper_trade_candidates_created",
+        "portfolio_review_pipeline_completed",
+    }.issubset({payload["event_type"] for payload in audit_event_payloads})
 
 
 def _backtest_config() -> BacktestConfig:

@@ -1,6 +1,6 @@
 # ANHF Research OS
 
-Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended through the first candidate feature and signal pipeline.
+Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended through the first full Week 1 stack: ingestion, evidence, research, candidate features, candidate signals, exploratory backtesting, risk-aware portfolio proposals, and paper-trade candidates.
 
 This repository is the operating system for future research workflows, not a toy demo and not a live-trading system. The current scope is deliberately narrow: establish the architecture, typed contracts, service boundaries, safety controls, local development workflow, and documentation needed to build quickly without sacrificing rigor.
 
@@ -12,34 +12,40 @@ Rolling implementation history is tracked in `docs/plans/work_log.md`.
 The repository currently includes:
 
 - a disciplined Python monorepo scaffold
-- typed Pydantic contracts for core research, portfolio, risk, memo, and audit entities
-- service interfaces and stub implementations for each major platform boundary
-- a minimal FastAPI control-plane API
-- an initial agent framework and agent registry
-- a local fixture-backed ingestion and normalization pipeline for filings, transcripts, news, company metadata, and price-series metadata
-- a deterministic evidence-first research workflow that produces hypotheses, critiques, support grades, research briefs, and draft memo skeletons
-- a deterministic Day 5 bridge from research artifacts into typed candidate features and candidate signals with explicit lineage
-- documentation for architecture, temporal contracts, risk controls, eval philosophy, and Day 2 execution
+- typed Pydantic contracts across ingestion, evidence, research, features, signals, backtesting, portfolio, paper-trading, memo, and audit layers
+- deterministic local workflows for:
+  - ingestion and normalization
+  - evidence extraction
+  - hypothesis and critique generation
+  - candidate feature mapping
+  - candidate signal generation
+  - exploratory backtesting and simulation
+  - risk-aware portfolio proposal construction
+  - paper-trade candidate creation
+- a thin FastAPI control-plane API with artifact-backed inspection endpoints
+- fixture-backed local datasets for repeatable development and tests
+- explicit temporal contracts, provenance, risk docs, and review plans
 - local quality tooling: `ruff`, `mypy`, `pytest`, `pre-commit`, and `Makefile`
 
 The repository still does **not** include:
 
 - live brokerage connectivity
 - autonomous execution
-- real alpha claims
-- backtest performance claims
 - production data connectors beyond local fixture-backed loaders
-- validated feature promotion gates or backtested signal evaluation
-- persistent storage or deployment infrastructure
+- validated signal-promotion gates
+- snapshot-native replay across the full research-to-portfolio chain
+- realistic market data, execution simulation, or portfolio optimization
+- persistent infra beyond the local filesystem artifact model
 
 ## Immediate Goal
 
-The immediate goal is to harden the candidate feature and signal bridge before any evaluation or portfolio logic begins:
+The immediate goal is Week 2 hardening, not breadth:
 
-- preserve exact evidence linkage from research artifacts back to source spans
-- keep candidate features definition-backed, lineaged, and point-in-time aware
-- keep candidate signals explicitly provisional, unvalidated, and non-portfolio-facing
-- preserve point-in-time and provenance discipline ahead of future ablation and backtesting work
+- replace implicit latest-artifact selection with explicit snapshot or cutoff selection
+- make audit and review-state persistence operational rather than mostly structural
+- introduce a first-class instrument and reference-data bridge instead of leaning on ticker strings
+- tighten replay, leakage, and multi-generation artifact tests
+- preserve the distinction between candidate artifacts and validated artifacts all the way downstream
 
 ## Design Intent
 
@@ -71,20 +77,27 @@ The repo is organized as a Python monorepo with explicit top-level boundaries:
 - `libraries/`: shared contracts, utilities, config, logging, and time primitives
 - `pipelines/`: orchestration entrypoints for scheduled or event-driven workflows
 - `data_contracts/`: future machine-readable data contract artifacts
-- `research_artifacts/`: reviewable research outputs and templates that are not raw source data
-- `storage/`: storage layout and dataset metadata conventions
+- `artifacts/`: current local runtime materialization root
+- `research_artifacts/`: future review-bundle conventions and templates
+- `storage/`: future persistent storage layout and dataset metadata conventions
 - `docs/`: architecture, safety, contract, and execution plans
 - `tests/`: unit and integration checks
 
-At the repository level, the intended artifact split is:
+At Week 1 there are three different concepts that should not be conflated:
 
-- `storage/raw/` for raw source payloads
-- `storage/normalized/` for normalized documents and parser-friendly text
-- `storage/derived/` for derived machine-readable artifacts
-- `storage/audit/` for durable audit/event storage
-- `research_artifacts/` for human-reviewable outputs such as evidence packs, memos, and proposal bundles
+- `artifacts/` is the current local runtime write path used by tests and deterministic workflows
+- `storage/` describes future durable dataset and storage conventions
+- `research_artifacts/` describes future human-review bundle conventions
 
-The current ingestion slice writes exact raw fixture copies and canonical normalized artifacts so the system has a real local substrate even while provider integrations remain intentionally deferred.
+Current runtime workflows write under:
+
+- `artifacts/ingestion/`
+- `artifacts/parsing/`
+- `artifacts/research/`
+- `artifacts/signal_generation/`
+- `artifacts/backtesting/`
+- `artifacts/portfolio/`
+- `artifacts/audit/`
 
 ## Project Structure
 
@@ -98,7 +111,7 @@ The current ingestion slice writes exact raw fixture copies and canonical normal
 ├── .env.example
 ├── .pre-commit-config.yaml
 ├── apps/
-│   ├── api/                  # FastAPI control plane and placeholder endpoints
+│   ├── api/                  # FastAPI control plane and artifact-backed inspection endpoints
 │   └── research_console/     # Reserved for future analyst-facing application
 ├── services/
 │   ├── ingestion/            # Raw artifact intake and registration
@@ -122,6 +135,7 @@ The current ingestion slice writes exact raw fixture copies and canonical normal
 │   ├── risk_reviewer_agent/
 │   ├── portfolio_agent/
 │   └── memo_writer_agent/
+├── artifacts/                # Current local runtime materialization root
 ├── configs/                  # Versionable local config examples and future profiles
 ├── libraries/
 │   ├── core/                 # Agent/service abstractions and registries
@@ -133,7 +147,9 @@ The current ingestion slice writes exact raw fixture copies and canonical normal
 ├── pipelines/
 │   ├── daily_research/
 │   ├── document_processing/
-│   └── signal_generation/
+│   ├── signal_generation/
+│   ├── backtesting/
+│   └── portfolio/
 ├── data_contracts/           # Reserved for versioned machine-readable contracts
 ├── infra/                    # Reserved for future deployment/IaC assets
 ├── notebooks/                # Ad-hoc research with stricter rules documented
@@ -213,26 +229,24 @@ Open `http://127.0.0.1:8000/docs` for the generated FastAPI docs.
 - Storage and research-artifact directories are intentionally pre-shaped so future persistence work does not blur raw, normalized, derived, and reviewable outputs.
 - The API is a coordination surface, not the core business logic layer.
 
-## Key Day 1 Choices
+## Key Architectural Choices
 
-- `services/signal_generation/` was added beyond the initial sample layout because signal formation is operationally distinct from feature storage and portfolio construction.
-- `services/audit/` exists as a separate boundary because audit concerns must remain independent from business services that emit audit events.
+- `services/signal_generation/` is a distinct boundary because signal formation is operationally different from feature storage, backtesting, and portfolio construction.
+- `services/backtesting/` remains exploratory and evaluation-only; it is not a route to execution.
+- `services/audit/` is a separate boundary because audit concerns must remain independent from the services that emit auditable events.
 - Agent descriptors are represented in code and documentation so both humans and future automation have a shared source of truth.
 - Time, IDs, config, and logging live in `libraries/` to avoid hidden coupling across services.
-- `configs/`, `research_artifacts/`, and `storage/` exist because the operating docs require explicit homes for versioned config, reviewable research outputs, and dataset/storage metadata.
+- `artifacts/`, `research_artifacts/`, and `storage/` are kept distinct on purpose even though only `artifacts/` is operational today.
 
-## Review-Later Topics
+## Week 2 Review Topics
 
-These are deliberate Day 1 deferrals that deserve review before Day 3:
+These are the highest-value structural issues still open after Week 1:
 
-- storage engine choice for raw artifacts, normalized text, and derived research objects
-- event bus vs workflow engine for orchestration
-- schema publication strategy for machine-readable contracts in `data_contracts/`
-- point-in-time feature store implementation
-- vector storage and retrieval policy for evidence search
-- model routing policy and prompt registry versioning
-- authentication, RBAC, and approval workflow persistence
-- persistent audit log storage and tamper-evidence strategy
+- explicit snapshot selection across the research-to-portfolio chain
+- first-class instrument and security reference contracts
+- persisted review-state transitions and promotion gates
+- harder adversarial temporal and replay tests
+- persistent audit storage and tamper-evidence strategy
 
 ## How Future Phases Build On This
 

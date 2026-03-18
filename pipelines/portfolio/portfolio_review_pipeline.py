@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import Field
@@ -8,6 +9,7 @@ from libraries.config import get_settings
 from libraries.core import build_provenance
 from libraries.schemas import (
     ArtifactStorageLocation,
+    AuditOutcome,
     PaperTrade,
     PortfolioConstraint,
     PortfolioProposal,
@@ -23,6 +25,7 @@ from libraries.utils import (
     apply_review_decision_to_position_idea,
     make_prefixed_id,
 )
+from services.audit import AuditEventRequest, AuditLoggingService
 from services.paper_execution import PaperExecutionService, PaperTradeProposalRequest
 from services.portfolio import (
     PortfolioConstructionService,
@@ -75,6 +78,7 @@ def run_portfolio_review_pipeline(
     backtesting_root: Path | None = None,
     output_root: Path | None = None,
     company_id: str | None = None,
+    as_of_time: datetime | None = None,
     constraints: list[PortfolioConstraint] | None = None,
     proposal_review_outcome: ReviewOutcome | None = None,
     reviewer_id: str | None = None,
@@ -95,6 +99,7 @@ def run_portfolio_review_pipeline(
     resolved_ingestion_root = ingestion_root or (resolved_artifact_root / "ingestion")
     resolved_backtesting_root = backtesting_root or (resolved_artifact_root / "backtesting")
     resolved_output_root = output_root or (resolved_artifact_root / "portfolio")
+    audit_root = resolved_output_root.parent / "audit"
     resolved_clock = clock or SystemClock()
     resolved_review_notes = review_notes or []
     resolved_assumed_prices = assumed_reference_prices or {}
@@ -108,6 +113,7 @@ def run_portfolio_review_pipeline(
             backtesting_root=resolved_backtesting_root,
             output_root=resolved_output_root,
             company_id=company_id,
+            as_of_time=as_of_time,
             constraints=constraints or [],
             requested_by=requested_by,
         )
@@ -198,6 +204,30 @@ def run_portfolio_review_pipeline(
             )
         )
         notes.append(f"proposal_review_outcome={proposal_review_outcome.value}")
+        audit_response = AuditLoggingService(clock=resolved_clock).record_event(
+            AuditEventRequest(
+                event_type="review_decision_applied",
+                actor_type="human",
+                actor_id=reviewer_id or "missing_reviewer",
+                target_type="portfolio_proposal",
+                target_id=final_portfolio_proposal.portfolio_proposal_id,
+                action=proposal_review_outcome.value,
+                outcome=(
+                    AuditOutcome.SUCCESS
+                    if proposal_review_outcome is ReviewOutcome.APPROVE
+                    else AuditOutcome.WARNING
+                ),
+                reason=review_decision.rationale,
+                request_id=review_decision.review_decision_id,
+                related_artifact_ids=[
+                    review_decision.review_decision_id,
+                    *[idea.position_idea_id for idea in final_position_ideas],
+                ],
+                notes=resolved_review_notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
 
     paper_execution_service = PaperExecutionService(clock=resolved_clock)
     paper_trade_response = paper_execution_service.propose_trades(
@@ -217,6 +247,63 @@ def run_portfolio_review_pipeline(
                 source_reference_ids=paper_trade.provenance.source_reference_ids,
             )
         )
+    audit_service = AuditLoggingService(clock=resolved_clock)
+    if paper_trade_response.proposed_trades:
+        audit_response = audit_service.record_event(
+            AuditEventRequest(
+                event_type="paper_trade_candidates_created",
+                actor_type="service",
+                actor_id="paper_execution",
+                target_type="portfolio_proposal",
+                target_id=final_portfolio_proposal.portfolio_proposal_id,
+                action="created",
+                outcome=AuditOutcome.SUCCESS,
+                reason="Paper-trade candidates were created from a review-ready portfolio proposal.",
+                request_id=workflow_response.portfolio_workflow_id,
+                related_artifact_ids=[
+                    *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
+                    final_portfolio_proposal.portfolio_proposal_id,
+                ],
+                notes=paper_trade_response.notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
+    pipeline_audit_response = audit_service.record_event(
+        AuditEventRequest(
+            event_type=(
+                "portfolio_review_pipeline_completed"
+                if not final_portfolio_proposal.blocking_issues
+                else "portfolio_review_pipeline_blocked"
+            ),
+            actor_type="service",
+            actor_id="portfolio_review_pipeline",
+            target_type="portfolio_workflow",
+            target_id=workflow_response.portfolio_workflow_id,
+            action="completed" if not final_portfolio_proposal.blocking_issues else "blocked",
+            outcome=(
+                AuditOutcome.SUCCESS
+                if not final_portfolio_proposal.blocking_issues
+                else AuditOutcome.WARNING
+            ),
+            reason=(
+                "Portfolio review pipeline completed without blocking risk issues."
+                if not final_portfolio_proposal.blocking_issues
+                else "Portfolio review pipeline completed with blocking risk issues."
+            ),
+            request_id=workflow_response.portfolio_workflow_id,
+            related_artifact_ids=[
+                final_portfolio_proposal.portfolio_proposal_id,
+                *[idea.position_idea_id for idea in final_position_ideas],
+                *[check.risk_check_id for check in final_portfolio_proposal.risk_checks],
+                *([review_decision.review_decision_id] if review_decision is not None else []),
+                *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
+            ],
+            notes=notes,
+        ),
+        output_root=audit_root,
+    )
+    storage_locations.append(pipeline_audit_response.storage_location)
 
     return PortfolioReviewPipelineResponse(
         portfolio_workflow=workflow_response,

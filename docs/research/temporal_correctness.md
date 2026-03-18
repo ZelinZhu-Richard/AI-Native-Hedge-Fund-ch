@@ -44,6 +44,16 @@ The Day 6 backtesting engine enforces these rules in code:
 
 If a rule fails, the signal is rejected for that decision point and the run records the relevant leakage or integrity check.
 
+## Upstream Workflow Cutoffs
+
+Week 1 hardening added explicit `as_of_time` cutoffs to the upstream local workflows that sit before backtesting:
+
+- feature mapping may now filter research and parsing artifacts by `created_at <= as_of_time`
+- signal generation may now filter features by `FeatureValue.available_at <= as_of_time`
+- portfolio proposal workflows may now filter signals by `effective_at <= as_of_time` and `created_at <= as_of_time`
+
+When `as_of_time` is omitted, the current repo still allows latest-artifact loading for local development convenience. That behavior is intentionally called out in workflow notes as not replay-safe.
+
 ## What Day 6 Explicitly Avoids
 
 The Day 6 engine does not:
@@ -93,12 +103,12 @@ Current risks still to improve:
 - no replay of late corrections or vendor restatements
 - synthetic prices only, not real point-in-time market data
 
-## Day 7 Direction
+## Next Structural Priority
 
-The next step is not portfolio logic.
+The next step is explicit artifact and snapshot selection across the full chain, not more downstream sophistication.
 
-The next step is richer signal-evaluation infrastructure:
+Week 2 should tighten:
 
-- ablation-aware replay
-- snapshot-aware validation artifacts
+- snapshot-aware artifact selection before and after backtesting
 - promotion gates from exploratory candidate signals into reviewed validation work
+- adversarial replay checks over multi-generation artifact sets

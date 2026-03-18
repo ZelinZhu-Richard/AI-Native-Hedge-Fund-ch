@@ -107,6 +107,16 @@ Repository layout should respect the same split:
 - derived machine-readable artifacts belong under `storage/derived/`
 - human-facing review bundles belong under `research_artifacts/`
 
+## Runtime Materialization vs Storage Conventions
+
+Week 1 uses three different top-level concepts:
+
+- `artifacts/`: the current local runtime materialization root used by deterministic workflows and tests
+- `storage/`: future durable dataset-layout and storage conventions
+- `research_artifacts/`: future review-bundle conventions for human-facing packages
+
+Current runtime writes should be interpreted as the local source of truth for generated outputs. `storage/` and `research_artifacts/` remain specification layers, not the active runtime write path.
+
 Current local ingestion runs materialize under `artifacts/ingestion/` using the same layered split:
 
 - `artifacts/ingestion/raw/` for exact fixture payload copies
@@ -119,6 +129,12 @@ Current Day 5 feature and signal runs materialize under `artifacts/signal_genera
 - `features/`
 - `signal_scores/`
 - `signals/`
+
+Current Day 6 and Day 7 runs materialize under:
+
+- `artifacts/backtesting/`
+- `artifacts/portfolio/`
+- `artifacts/audit/`
 
 ## Provenance Requirements
 

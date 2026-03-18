@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TypeVar
 
@@ -43,10 +44,14 @@ def load_signal_generation_inputs(
     feature_root: Path,
     research_root: Path | None,
     company_id: str | None = None,
+    as_of_time: datetime | None = None,
 ) -> LoadedSignalGenerationInputs:
     """Load Day 5 candidate features and optional Day 4 research context for one company."""
 
-    features = _load_models(feature_root / "features", Feature)
+    features = _apply_feature_cutoff(
+        _load_models(feature_root / "features", Feature),
+        as_of_time=as_of_time,
+    )
     resolved_company_id = _resolve_company_id(company_id=company_id, features=features)
     company_features = [feature for feature in features if feature.company_id == resolved_company_id]
     if not company_features:
@@ -56,11 +61,18 @@ def load_signal_generation_inputs(
     evidence_assessment = None
     research_brief = None
     if research_root is not None and research_root.exists():
-        research_briefs = _load_models(research_root / "research_briefs", ResearchBrief)
-        evidence_assessments = _load_models(
-            research_root / "evidence_assessments", EvidenceAssessment
+        research_briefs = _apply_created_at_cutoff(
+            _load_models(research_root / "research_briefs", ResearchBrief),
+            as_of_time=as_of_time,
         )
-        hypotheses = _load_models(research_root / "hypotheses", Hypothesis)
+        evidence_assessments = _apply_created_at_cutoff(
+            _load_models(research_root / "evidence_assessments", EvidenceAssessment),
+            as_of_time=as_of_time,
+        )
+        hypotheses = _apply_created_at_cutoff(
+            _load_models(research_root / "hypotheses", Hypothesis),
+            as_of_time=as_of_time,
+        )
 
         research_brief = _find_latest(
             [brief for brief in research_briefs if brief.company_id == resolved_company_id]
@@ -126,4 +138,32 @@ def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     return [
         model_cls.model_validate_json(path.read_text(encoding="utf-8"))
         for path in sorted(directory.glob("*.json"))
+    ]
+
+
+def _apply_created_at_cutoff(
+    artifacts: list[T],
+    *,
+    as_of_time: datetime | None,
+) -> list[T]:
+    """Apply an optional creation-time cutoff to persisted artifacts."""
+
+    if as_of_time is None:
+        return artifacts
+    return [artifact for artifact in artifacts if artifact.created_at <= as_of_time]
+
+
+def _apply_feature_cutoff(
+    features: list[Feature],
+    *,
+    as_of_time: datetime | None,
+) -> list[Feature]:
+    """Apply an optional point-in-time cutoff to persisted features."""
+
+    if as_of_time is None:
+        return features
+    return [
+        feature
+        for feature in features
+        if feature.created_at <= as_of_time and feature.feature_value.available_at <= as_of_time
     ]

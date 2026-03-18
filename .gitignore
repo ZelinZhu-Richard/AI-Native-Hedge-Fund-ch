@@ -11,7 +11,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-artifacts/
+artifacts/*
+!artifacts/README.md
 .DS_Store
 .coverage
 coverage.xml

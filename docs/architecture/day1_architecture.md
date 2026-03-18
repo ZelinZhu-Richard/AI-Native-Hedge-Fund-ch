@@ -1,5 +1,7 @@
 # Day 1 Architecture
 
+This document describes the Day 1 architectural boundary that was established first and then extended through Week 1. The contracts and service boundaries here are no longer mostly hypothetical: the local fixture-backed stack now runs from ingestion through paper-trade candidate creation.
+
 ## System Purpose
 
 The purpose of this system is to provide a disciplined operating foundation for AI-native hedge fund research and paper trading. Day 1 does not try to produce alpha. It establishes the contracts, control points, and workflow boundaries required so later research can move quickly without losing provenance, temporal hygiene, or human oversight.
@@ -24,18 +26,18 @@ The purpose of this system is to provide a disciplined operating foundation for 
 
 ## Major Components
 
-- `apps/api`: control-plane API for health, discovery, and placeholder workflow entrypoints
+- `apps/api`: control-plane API for health, discovery, and artifact-backed inspection entrypoints
 - `services/ingestion`: registers raw upstream artifacts
 - `services/parsing`: normalizes text and extracts evidence-bearing structures
 - `services/research_orchestrator`: coordinates multi-step research cycles
 - `services/feature_store`: stores and retrieves point-in-time features
 - `services/signal_generation`: turns reviewed research and features into candidate signals
-- `services/backtesting`: future point-in-time strategy evaluation boundary
+- `services/backtesting`: exploratory point-in-time strategy evaluation boundary
 - `services/risk_engine`: pre-portfolio and pre-trade policy checks
 - `services/portfolio`: constructs constrained paper portfolio proposals
 - `services/paper_execution`: creates human-reviewable paper trades only
 - `services/memo`: produces explainable memos from reviewed artifacts
-- `services/audit`: emits immutable audit events
+- `services/audit`: persists local immutable audit events
 - `agents/*`: specialized research agents with explicit tool and action boundaries
 - `libraries/schemas`: canonical typed contracts across the platform
 
@@ -158,12 +160,13 @@ flowchart TD
 2. The document is normalized and parsed into evidence-bearing spans.
 3. The orchestrator launches the relevant research agents.
 4. Agents generate hypotheses and counter-hypotheses using only available evidence.
-5. Features and candidate signals are built with explicit as-of and available-at semantics.
+5. Features and candidate signals are built with explicit `as_of_time`, `available_at`, and lineage semantics.
 6. Signals may lead to position ideas, but only after research review logic says they are eligible.
-7. Risk checks screen ideas and portfolio proposals before any simulated execution path exists.
-8. Human reviewers approve, reject, or revise proposals.
-9. Approved proposals may become paper trade proposals and memos.
-10. Audit logs capture each material action.
+7. Exploratory backtests evaluate candidate signals under explicit temporal cutoffs.
+8. Risk checks screen ideas and portfolio proposals before any simulated execution path exists.
+9. Human reviewers approve, reject, or revise proposals.
+10. Approved or review-ready proposals may become paper-trade candidates and memos.
+11. Audit logs capture each material action.
 
 ## Artifact Flow
 
@@ -187,13 +190,13 @@ The repository-level layout mirrors the artifact model so future persistence wor
 
 ## Memory and State
 
-Day 1 state is intentionally light:
+The runtime remains local and simple, but it is no longer only in-memory:
 
-- service behavior is in-memory and stubbed
-- typed schemas define what persistent state will look like later
-- `DataSnapshot` models define how future reproducible datasets will be referenced
-- `DatasetManifest` and storage metadata reserve the future dataset/storage control plane
-- `AuditLog` defines the event record required for future persistence
+- deterministic workflows persist local artifacts under `artifacts/`
+- typed schemas define what more durable state will look like later
+- `DataSnapshot` models define how reproducible datasets and replay windows should be referenced
+- `DatasetManifest` and storage metadata still reserve the future dataset/storage control plane
+- `AuditLog` is now persisted locally under `artifacts/audit/`
 
 The repository also reserves explicit top-level homes for:
 

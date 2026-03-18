@@ -10,12 +10,14 @@ from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
     ArtifactStorageLocation,
+    AuditOutcome,
     Feature,
     FeatureDefinition,
     FeatureValue,
     StrictModel,
 )
 from libraries.utils import make_canonical_id, make_prefixed_id
+from services.audit import AuditEventRequest, AuditLoggingService
 from services.feature_store.loaders import load_feature_mapping_inputs
 from services.feature_store.mapping import build_feature_candidates
 from services.feature_store.storage import LocalFeatureArtifactStore
@@ -73,6 +75,10 @@ class RunFeatureMappingRequest(StrictModel):
     company_id: str | None = Field(
         default=None,
         description="Covered company identifier. Required when the research root contains multiple companies.",
+    )
+    as_of_time: datetime | None = Field(
+        default=None,
+        description="Optional research cutoff. When omitted, latest-artifact loading is used for local development only.",
     )
     ablation_view: AblationView = Field(
         default=AblationView.TEXT_ONLY,
@@ -184,6 +190,7 @@ class FeatureStoreService(BaseService):
             research_root=request.research_root,
             parsing_root=inferred_parsing_root,
             company_id=request.company_id,
+            as_of_time=request.as_of_time,
         )
         result = build_feature_candidates(
             inputs=inputs,
@@ -194,6 +201,7 @@ class FeatureStoreService(BaseService):
         output_root = request.output_root or (
             get_settings().resolved_artifact_root / "signal_generation"
         )
+        audit_root = output_root.parent / "audit"
         store = LocalFeatureArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
         for feature_definition in result.feature_definitions:
@@ -216,6 +224,42 @@ class FeatureStoreService(BaseService):
             )
         for feature in result.features:
             storage_locations.append(self._persist_feature(store=store, feature=feature))
+        notes = list(result.notes)
+        if request.as_of_time is None:
+            notes.append(
+                "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
+            )
+        else:
+            notes.append(f"as_of_time={request.as_of_time.isoformat()}")
+        audit_response = AuditLoggingService(clock=self.clock).record_event(
+            AuditEventRequest(
+                event_type=(
+                    "feature_mapping_completed"
+                    if result.features
+                    else "feature_mapping_blocked"
+                ),
+                actor_type="service",
+                actor_id="feature_store",
+                target_type="feature_mapping_workflow",
+                target_id=feature_mapping_run_id,
+                action="completed" if result.features else "blocked",
+                outcome=AuditOutcome.SUCCESS if result.features else AuditOutcome.WARNING,
+                reason=(
+                    "Candidate features were materialized from research artifacts."
+                    if result.features
+                    else "No candidate features were materialized for the requested research slice."
+                ),
+                request_id=feature_mapping_run_id,
+                related_artifact_ids=[
+                    *[feature_definition.feature_definition_id for feature_definition in result.feature_definitions],
+                    *[feature_value.feature_value_id for feature_value in result.feature_values],
+                    *[feature.feature_id for feature in result.features],
+                ],
+                notes=notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
         return RunFeatureMappingResponse(
             feature_mapping_run_id=feature_mapping_run_id,
             company_id=inputs.company_id,
@@ -223,7 +267,7 @@ class FeatureStoreService(BaseService):
             feature_values=result.feature_values,
             features=result.features,
             storage_locations=storage_locations,
-            notes=result.notes,
+            notes=notes,
         )
 
     def _persist_feature(

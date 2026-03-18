@@ -12,6 +12,7 @@ from libraries.schemas import (
     AgentRun,
     AgentRunStatus,
     ArtifactStorageLocation,
+    AuditOutcome,
     CounterHypothesis,
     EvidenceAssessment,
     EvidenceGrade,
@@ -21,6 +22,7 @@ from libraries.schemas import (
     StrictModel,
 )
 from libraries.utils import make_prefixed_id
+from services.audit import AuditEventRequest, AuditLoggingService
 from services.memo import MemoGenerationRequest, MemoGenerationService
 from services.research_orchestrator.briefs import build_research_brief
 from services.research_orchestrator.critique import generate_counter_hypothesis
@@ -168,6 +170,8 @@ class ResearchOrchestrationService(BaseService):
         """Execute the deterministic Day 4 hypothesis and critique workflow."""
 
         research_workflow_id = make_prefixed_id("rflow")
+        resolved_output_root = request.output_root or (get_settings().resolved_artifact_root / "research")
+        audit_root = resolved_output_root.parent / "audit"
         inputs = load_research_artifacts(
             parsing_root=request.parsing_root,
             ingestion_root=request.ingestion_root,
@@ -225,11 +229,31 @@ class ResearchOrchestrationService(BaseService):
 
         if hypothesis is None or evidence_assessment.grade == EvidenceGrade.INSUFFICIENT:
             storage_locations = self._persist_partial_workflow(
-                output_root=request.output_root,
+                output_root=resolved_output_root,
                 inputs=inputs,
                 evidence_assessment=evidence_assessment,
                 agent_runs=agent_runs,
             )
+            audit_response = AuditLoggingService(clock=self.clock).record_event(
+                AuditEventRequest(
+                    event_type="research_workflow_insufficient",
+                    actor_type="service",
+                    actor_id="research_orchestrator",
+                    target_type="research_workflow",
+                    target_id=research_workflow_id,
+                    action="insufficient_evidence",
+                    outcome=AuditOutcome.WARNING,
+                    reason="Deterministic research workflow ended without a thesis due to insufficient support.",
+                    request_id=research_workflow_id,
+                    related_artifact_ids=[
+                        evidence_assessment.evidence_assessment_id,
+                        *[agent_run.agent_run_id for agent_run in agent_runs],
+                    ],
+                    notes=notes,
+                ),
+                output_root=audit_root,
+            )
+            storage_locations.append(audit_response.storage_location)
             return RunResearchWorkflowResponse(
                 research_workflow_id=research_workflow_id,
                 status="insufficient_evidence",
@@ -312,7 +336,7 @@ class ResearchOrchestrationService(BaseService):
             ).memo
 
         storage_locations = self._persist_completed_workflow(
-            output_root=request.output_root,
+            output_root=resolved_output_root,
             inputs=inputs,
             hypothesis=hypothesis,
             evidence_assessment=evidence_assessment,
@@ -321,6 +345,30 @@ class ResearchOrchestrationService(BaseService):
             memo=memo,
             agent_runs=agent_runs,
         )
+        audit_response = AuditLoggingService(clock=self.clock).record_event(
+            AuditEventRequest(
+                event_type="research_workflow_completed",
+                actor_type="service",
+                actor_id="research_orchestrator",
+                target_type="research_workflow",
+                target_id=research_workflow_id,
+                action="completed",
+                outcome=AuditOutcome.SUCCESS,
+                reason="Deterministic research workflow completed.",
+                request_id=research_workflow_id,
+                related_artifact_ids=[
+                    hypothesis.hypothesis_id,
+                    evidence_assessment.evidence_assessment_id,
+                    counter_hypothesis.counter_hypothesis_id,
+                    research_brief.research_brief_id,
+                    *([memo.memo_id] if memo is not None else []),
+                    *[agent_run.agent_run_id for agent_run in agent_runs],
+                ],
+                notes=notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
         return RunResearchWorkflowResponse(
             research_workflow_id=research_workflow_id,
             status="completed",
@@ -338,7 +386,7 @@ class ResearchOrchestrationService(BaseService):
     def _persist_partial_workflow(
         self,
         *,
-        output_root: Path | None,
+        output_root: Path,
         inputs: LoadedResearchArtifacts,
         evidence_assessment: EvidenceAssessment,
         agent_runs: list[AgentRun],
@@ -346,7 +394,7 @@ class ResearchOrchestrationService(BaseService):
         """Persist assessment and agent runs when support is insufficient."""
 
         store = LocalResearchArtifactStore(
-            root=output_root or (get_settings().resolved_artifact_root / "research"),
+            root=output_root,
             clock=self.clock,
         )
         storage_locations = [
@@ -363,7 +411,7 @@ class ResearchOrchestrationService(BaseService):
     def _persist_completed_workflow(
         self,
         *,
-        output_root: Path | None,
+        output_root: Path,
         inputs: LoadedResearchArtifacts,
         hypothesis: Hypothesis,
         evidence_assessment: EvidenceAssessment,
@@ -375,7 +423,7 @@ class ResearchOrchestrationService(BaseService):
         """Persist all completed research workflow artifacts."""
 
         store = LocalResearchArtifactStore(
-            root=output_root or (get_settings().resolved_artifact_root / "research"),
+            root=output_root,
             clock=self.clock,
         )
         storage_locations = [

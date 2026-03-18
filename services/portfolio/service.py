@@ -69,6 +69,10 @@ class RunPortfolioWorkflowRequest(StrictModel):
         default=None,
         description="Covered company identifier. Required when the signal root contains multiple companies.",
     )
+    as_of_time: datetime | None = Field(
+        default=None,
+        description="Optional signal cutoff. When omitted, latest-artifact loading is used for local development only.",
+    )
     constraints: list[PortfolioConstraint] = Field(
         default_factory=list,
         description="Optional explicit constraints. Defaults are used when omitted.",
@@ -174,8 +178,15 @@ class PortfolioConstructionService(BaseService):
             ingestion_root=request.ingestion_root,
             backtesting_root=request.backtesting_root,
             company_id=request.company_id,
+            as_of_time=request.as_of_time,
         )
         notes = [f"requested_by={request.requested_by}"]
+        if request.as_of_time is None:
+            notes.append(
+                "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
+            )
+        else:
+            notes.append(f"as_of_time={request.as_of_time.isoformat()}")
         if inputs.latest_backtest_run is not None:
             notes.append(
                 "latest_backtest_run="
@@ -183,7 +194,7 @@ class PortfolioConstructionService(BaseService):
                 f"(exploratory_only={inputs.latest_backtest_run.exploratory_only})"
             )
 
-        as_of_time = (
+        as_of_time = request.as_of_time or (
             max(signal.effective_at for signal in inputs.signals)
             if inputs.signals
             else self.clock.now()

@@ -64,6 +64,8 @@ def test_feature_mapping_produces_initial_text_feature_set(tmp_path: Path) -> No
         for feature in response.feature_mapping.features
     )
     assert all(feature.lineage.supporting_evidence_link_ids for feature in response.feature_mapping.features)
+    assert any("not replay-safe" in note for note in response.feature_mapping.notes)
+    assert any("not replay-safe" in note for note in response.signal_generation.notes)
 
 
 def test_signal_generation_produces_candidate_signal_and_point_in_time_query(

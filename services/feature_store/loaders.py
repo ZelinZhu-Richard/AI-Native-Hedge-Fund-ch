@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TypeVar
 
@@ -15,8 +16,9 @@ from libraries.schemas import (
     StrictModel,
     ToneMarker,
 )
+from libraries.schemas.base import TimestampedModel
 
-T = TypeVar("T", bound=StrictModel)
+T = TypeVar("T", bound=TimestampedModel)
 
 
 class LoadedFeatureMappingInputs(StrictModel):
@@ -54,16 +56,25 @@ def load_feature_mapping_inputs(
     research_root: Path,
     parsing_root: Path | None,
     company_id: str | None = None,
+    as_of_time: datetime | None = None,
 ) -> LoadedFeatureMappingInputs:
     """Load the best available research slice and optional parsing context for one company."""
 
-    research_briefs = _load_models(research_root / "research_briefs", ResearchBrief)
-    evidence_assessments = _load_models(
-        research_root / "evidence_assessments", EvidenceAssessment
+    research_briefs = _apply_created_at_cutoff(
+        _load_models(research_root / "research_briefs", ResearchBrief),
+        as_of_time=as_of_time,
     )
-    hypotheses = _load_models(research_root / "hypotheses", Hypothesis)
-    counter_hypotheses = _load_models(
-        research_root / "counter_hypotheses", CounterHypothesis
+    evidence_assessments = _apply_created_at_cutoff(
+        _load_models(research_root / "evidence_assessments", EvidenceAssessment),
+        as_of_time=as_of_time,
+    )
+    hypotheses = _apply_created_at_cutoff(
+        _load_models(research_root / "hypotheses", Hypothesis),
+        as_of_time=as_of_time,
+    )
+    counter_hypotheses = _apply_created_at_cutoff(
+        _load_models(research_root / "counter_hypotheses", CounterHypothesis),
+        as_of_time=as_of_time,
     )
 
     resolved_company_id = _resolve_company_id(
@@ -81,9 +92,10 @@ def load_feature_mapping_inputs(
         if assessment.company_id == resolved_company_id
     ]
     if not company_assessments:
-        raise ValueError(
-            f"Feature mapping requires at least one evidence assessment for `{resolved_company_id}`."
-        )
+        message = f"Feature mapping requires at least one evidence assessment for `{resolved_company_id}`."
+        if as_of_time is not None:
+            message += f" No assessment was available at `{as_of_time.isoformat()}`."
+        raise ValueError(message)
 
     latest_brief = max(company_briefs, key=lambda brief: brief.created_at) if company_briefs else None
     if latest_brief is not None:
@@ -113,17 +125,26 @@ def load_feature_mapping_inputs(
     if parsing_root is not None and parsing_root.exists():
         guidance_changes = [
             change
-            for change in _load_models(parsing_root / "guidance_changes", GuidanceChange)
+            for change in _apply_created_at_cutoff(
+                _load_models(parsing_root / "guidance_changes", GuidanceChange),
+                as_of_time=as_of_time,
+            )
             if change.company_id == resolved_company_id
         ]
         risk_factors = [
             risk_factor
-            for risk_factor in _load_models(parsing_root / "risk_factors", ExtractedRiskFactor)
+            for risk_factor in _apply_created_at_cutoff(
+                _load_models(parsing_root / "risk_factors", ExtractedRiskFactor),
+                as_of_time=as_of_time,
+            )
             if risk_factor.company_id == resolved_company_id
         ]
         tone_markers = [
             tone_marker
-            for tone_marker in _load_models(parsing_root / "tone_markers", ToneMarker)
+            for tone_marker in _apply_created_at_cutoff(
+                _load_models(parsing_root / "tone_markers", ToneMarker),
+                as_of_time=as_of_time,
+            )
             if tone_marker.company_id == resolved_company_id
         ]
 
@@ -190,3 +211,15 @@ def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
         model_cls.model_validate_json(path.read_text(encoding="utf-8"))
         for path in sorted(directory.glob("*.json"))
     ]
+
+
+def _apply_created_at_cutoff(
+    artifacts: list[T],
+    *,
+    as_of_time: datetime | None,
+) -> list[T]:
+    """Apply an optional creation-time cutoff to persisted artifacts."""
+
+    if as_of_time is None:
+        return artifacts
+    return [artifact for artifact in artifacts if artifact.created_at <= as_of_time]

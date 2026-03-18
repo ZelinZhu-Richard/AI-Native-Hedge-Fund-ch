@@ -10,11 +10,13 @@ from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
     ArtifactStorageLocation,
+    AuditOutcome,
     Signal,
     SignalScore,
     StrictModel,
 )
 from libraries.utils import make_prefixed_id
+from services.audit import AuditEventRequest, AuditLoggingService
 from services.signal_generation.loaders import load_signal_generation_inputs
 from services.signal_generation.scoring import build_candidate_signals
 from services.signal_generation.storage import LocalSignalArtifactStore
@@ -59,6 +61,10 @@ class RunSignalGenerationWorkflowRequest(StrictModel):
     company_id: str | None = Field(
         default=None,
         description="Covered company identifier. Required when the feature root contains multiple companies.",
+    )
+    as_of_time: datetime | None = Field(
+        default=None,
+        description="Optional feature cutoff. When omitted, latest-artifact loading is used for local development only.",
     )
     ablation_view: AblationView = Field(
         default=AblationView.TEXT_ONLY,
@@ -134,6 +140,7 @@ class SignalGenerationService(BaseService):
             feature_root=request.feature_root,
             research_root=inferred_research_root,
             company_id=request.company_id,
+            as_of_time=request.as_of_time,
         )
         result = build_candidate_signals(
             inputs=inputs,
@@ -144,6 +151,7 @@ class SignalGenerationService(BaseService):
         output_root = request.output_root or (
             get_settings().resolved_artifact_root / "signal_generation"
         )
+        audit_root = output_root.parent / "audit"
         store = LocalSignalArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
         for signal_score in result.signal_scores:
@@ -164,11 +172,46 @@ class SignalGenerationService(BaseService):
                     source_reference_ids=signal.provenance.source_reference_ids,
                 )
             )
+        notes = list(result.notes)
+        if request.as_of_time is None:
+            notes.append(
+                "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
+            )
+        else:
+            notes.append(f"as_of_time={request.as_of_time.isoformat()}")
+        audit_response = AuditLoggingService(clock=self.clock).record_event(
+            AuditEventRequest(
+                event_type=(
+                    "signal_generation_completed"
+                    if result.signals
+                    else "signal_generation_blocked"
+                ),
+                actor_type="service",
+                actor_id="signal_generation",
+                target_type="signal_generation_workflow",
+                target_id=signal_generation_run_id,
+                action="completed" if result.signals else "blocked",
+                outcome=AuditOutcome.SUCCESS if result.signals else AuditOutcome.WARNING,
+                reason=(
+                    "Candidate signals were materialized from candidate features."
+                    if result.signals
+                    else "No candidate signals were emitted for the requested ablation view."
+                ),
+                request_id=signal_generation_run_id,
+                related_artifact_ids=[
+                    *[signal_score.signal_score_id for signal_score in result.signal_scores],
+                    *[signal.signal_id for signal in result.signals],
+                ],
+                notes=notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(audit_response.storage_location)
         return RunSignalGenerationWorkflowResponse(
             signal_generation_run_id=signal_generation_run_id,
             company_id=inputs.company_id,
             signals=result.signals,
             signal_scores=result.signal_scores,
             storage_locations=storage_locations,
-            notes=result.notes,
+            notes=notes,
         )

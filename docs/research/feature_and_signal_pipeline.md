@@ -23,6 +23,15 @@ It may also reload exact parsing artifacts from `artifacts/parsing/` when needed
 
 This keeps the research layer upstream of features while still allowing the feature layer to use exact extracted context instead of memo prose.
 
+## Current Selection Semantics
+
+Week 1 hardening added optional `as_of_time` cutoffs to both feature mapping and signal generation workflows.
+
+- feature mapping may filter research and parsing artifacts by `created_at <= as_of_time`
+- signal generation may filter features by `FeatureValue.available_at <= as_of_time`
+
+When `as_of_time` is omitted, latest-artifact loading is still allowed for local development. That path is explicitly noted in workflow outputs as not replay-safe.
+
 ## Day 5 Feature Artifacts
 
 The feature layer now uses three typed objects:
@@ -101,7 +110,6 @@ Day 5 does not yet provide:
 - promotion gates from review decisions
 - price-only or fundamentals-only feature sets
 - ablation reporting
-- backtests
-- portfolio construction
+- snapshot-native replay selection across the full chain
 
-Those are downstream phases.
+Backtesting, portfolio proposals, and paper-trade candidates now exist downstream, but they still consume candidate-only artifacts and remain explicitly review-bound.
