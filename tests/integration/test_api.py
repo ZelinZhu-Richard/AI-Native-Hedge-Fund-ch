@@ -43,6 +43,38 @@ def test_api_health_and_version() -> None:
     assert version_response.json()["version"] == "0.1.0"
 
 
+def test_monitoring_api_endpoints_return_structured_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setenv("ARTIFACT_ROOT", str(artifact_root))
+    get_settings.cache_clear()
+    try:
+        _build_full_stack(artifact_root=artifact_root)
+
+        health_details_response = client.get("/health/details")
+        run_summaries_response = client.get("/monitoring/run-summaries/recent")
+        failure_summaries_response = client.get("/monitoring/failures/recent")
+        service_status_response = client.get("/monitoring/services")
+
+        assert health_details_response.status_code == 200
+        assert health_details_response.json()["health_checks"]
+        assert service_status_response.status_code == 200
+        assert service_status_response.json()["total"] >= 1
+        assert any(
+            item["service_name"] == "monitoring"
+            for item in service_status_response.json()["items"]
+        )
+        assert run_summaries_response.status_code == 200
+        assert run_summaries_response.json()["total"] >= 1
+        assert failure_summaries_response.status_code == 200
+        assert "run_summaries" in failure_summaries_response.json()
+        assert "alert_records" in failure_summaries_response.json()
+    finally:
+        get_settings.cache_clear()
+
+
 def test_capabilities_and_document_ingestion_placeholder() -> None:
     capabilities_response = client.get("/capabilities")
     ingest_response = client.post(

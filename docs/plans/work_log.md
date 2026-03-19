@@ -565,6 +565,63 @@ Formalize the human operator workflow so research briefs, signals, portfolio pro
 - downstream enforcement for portfolio proposal and paper-trade eligibility
 - snapshot-native input selection for stricter downstream workflows
 
+## Day 12: Monitoring And Run-Summary Layer
+
+Status: `Completed`
+
+### Goal
+
+Add a small but serious monitoring layer that makes key workflows inspectable without pretending the repo already has a full observability stack.
+
+### Plan Focus
+
+- operational monitoring contracts
+- persisted run summaries
+- local health and readiness checks
+- explicit alert records
+- API visibility for recent runs and failures
+
+### Implemented
+
+- extended `libraries/schemas/system.py` with:
+  - `WorkflowStatus`
+  - `HealthCheckStatus`
+  - `PipelineEventType`
+  - `AlertState`
+  - `PipelineEvent`
+  - `RunSummary`
+  - `HealthCheck`
+  - `AlertCondition`
+  - `AlertRecord`
+  - `ServiceStatus`
+- added `services/monitoring/` with local storage under `artifacts/monitoring/`
+- added monitoring integration for:
+  - fixture ingestion
+  - evidence extraction
+  - strategy ablation
+  - operator review actions
+- added API endpoints for:
+  - `GET /health/details`
+  - `GET /monitoring/run-summaries/recent`
+  - `GET /monitoring/failures/recent`
+  - `GET /monitoring/services`
+- added schema, service, API, and integration tests for the new monitoring layer
+- added Day 12 monitoring and run-summary docs
+
+### Key Decisions
+
+- `RunSummary` is the primary monitoring artifact
+- monitoring stays summary-oriented rather than becoming a noisy event stream
+- `ServiceStatus` is derived on demand and not persisted
+- health checks remain local and structural; there are no fake external dependency probes
+
+### Carry-Forward
+
+- operator-facing attention queues
+- downstream enforcement based on reviewed, evaluated, and monitored state
+- richer monitoring around stale workflows and blocked eligibility
+- explicit snapshot selection tied into the monitoring surface
+
 ## Maintenance Rule
 
 When future work is completed:

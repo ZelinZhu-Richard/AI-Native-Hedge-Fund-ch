@@ -13,12 +13,19 @@ from libraries.schemas import (
     EarningsCall,
     Filing,
     NewsItem,
+    PipelineEventType,
     StrictModel,
+    WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
 from services.ingestion.fixture_loader import load_fixture_record
 from services.ingestion.normalization import FixtureNormalizationResult, normalize_raw_fixture
 from services.ingestion.storage import LocalArtifactStore
+from services.monitoring import (
+    MonitoringService,
+    RecordPipelineEventRequest,
+    RecordRunSummaryRequest,
+)
 
 
 class DocumentIngestionRequest(StrictModel):
@@ -121,41 +128,155 @@ class IngestionService(BaseService):
     def ingest_fixture(self, request: FixtureIngestionRequest) -> FixtureIngestionResponse:
         """Load, normalize, and optionally persist a local fixture-backed source payload."""
 
-        fixture_record = load_fixture_record(request.fixture_path)
-        normalized = normalize_raw_fixture(
-            fixture_record.payload,
-            clock=self.clock,
-            fixture_path=str(request.fixture_path),
-        )
-        storage_locations: list[ArtifactStorageLocation] = []
         artifact_root = request.output_root
         if artifact_root is None:
             artifact_root = get_settings().resolved_artifact_root / "ingestion"
-        store = LocalArtifactStore(root=artifact_root, clock=self.clock)
-        if request.persist_raw:
-            storage_locations.append(
-                store.persist_raw_fixture(
-                    source_reference_id=normalized.source_reference.source_reference_id,
-                    fixture_type=normalized.fixture_type,
-                    raw_text=fixture_record.raw_text,
-                )
-            )
-        if request.persist_normalized:
-            storage_locations.extend(self._persist_normalized_artifacts(store=store, normalized=normalized))
-
-        return FixtureIngestionResponse(
-            ingestion_job_id=make_prefixed_id("ingest"),
-            fixture_name=normalized.fixture_name,
-            fixture_type=normalized.fixture_type,
-            ingested_at=normalized.ingested_at,
-            source_reference=normalized.source_reference,
-            company=normalized.company,
-            filing=normalized.filing,
-            earnings_call=normalized.earnings_call,
-            news_item=normalized.news_item,
-            price_series_metadata=normalized.price_series_metadata,
-            storage_locations=storage_locations,
+        monitoring_root = artifact_root.parent / "monitoring"
+        monitoring_service = MonitoringService(clock=self.clock)
+        ingestion_job_id = make_prefixed_id("ingest")
+        started_at = self.clock.now()
+        start_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="fixture_ingestion",
+                workflow_run_id=ingestion_job_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_STARTED,
+                status=WorkflowStatus.RUNNING,
+                message=f"Fixture ingestion started for `{request.fixture_path.name}`.",
+                related_artifact_ids=[str(request.fixture_path)],
+                notes=[f"requested_by={request.requested_by}"],
+            ),
+            output_root=monitoring_root,
         )
+        try:
+            fixture_record = load_fixture_record(request.fixture_path)
+            normalized = normalize_raw_fixture(
+                fixture_record.payload,
+                clock=self.clock,
+                fixture_path=str(request.fixture_path),
+            )
+            storage_locations: list[ArtifactStorageLocation] = []
+            store = LocalArtifactStore(root=artifact_root, clock=self.clock)
+            if request.persist_raw:
+                storage_locations.append(
+                    store.persist_raw_fixture(
+                        source_reference_id=normalized.source_reference.source_reference_id,
+                        fixture_type=normalized.fixture_type,
+                        raw_text=fixture_record.raw_text,
+                    )
+                )
+            if request.persist_normalized:
+                storage_locations.extend(
+                    self._persist_normalized_artifacts(store=store, normalized=normalized)
+                )
+
+            response = FixtureIngestionResponse(
+                ingestion_job_id=ingestion_job_id,
+                fixture_name=normalized.fixture_name,
+                fixture_type=normalized.fixture_type,
+                ingested_at=normalized.ingested_at,
+                source_reference=normalized.source_reference,
+                company=normalized.company,
+                filing=normalized.filing,
+                earnings_call=normalized.earnings_call,
+                news_item=normalized.news_item,
+                price_series_metadata=normalized.price_series_metadata,
+                storage_locations=storage_locations,
+            )
+            completed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="fixture_ingestion",
+                    workflow_run_id=ingestion_job_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_COMPLETED,
+                    status=WorkflowStatus.SUCCEEDED,
+                    message=(
+                        f"Fixture ingestion completed for `{request.fixture_path.name}` "
+                        f"with {len(storage_locations)} persisted artifacts."
+                    ),
+                    related_artifact_ids=[
+                        response.source_reference.source_reference_id,
+                        *[location.artifact_id for location in storage_locations],
+                    ],
+                    notes=[f"requested_by={request.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="fixture_ingestion",
+                    workflow_run_id=ingestion_job_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.SUCCEEDED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=storage_locations,
+                    produced_artifact_ids=[
+                        response.source_reference.source_reference_id,
+                        *( [response.company.company_id] if response.company is not None else [] ),
+                        *( [response.filing.document_id] if response.filing is not None else [] ),
+                        *(
+                            [response.earnings_call.document_id]
+                            if response.earnings_call is not None
+                            else []
+                        ),
+                        *( [response.news_item.document_id] if response.news_item is not None else [] ),
+                        *(
+                            [response.price_series_metadata.price_series_metadata_id]
+                            if response.price_series_metadata is not None
+                            else []
+                        ),
+                    ],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        completed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    notes=[
+                        f"fixture_path={request.fixture_path}",
+                        f"persist_raw={request.persist_raw}",
+                        f"persist_normalized={request.persist_normalized}",
+                    ],
+                    outputs_expected=request.persist_raw or request.persist_normalized,
+                ),
+                output_root=monitoring_root,
+            )
+            return response
+        except Exception as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="fixture_ingestion",
+                    workflow_run_id=ingestion_job_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=f"Fixture ingestion failed for `{request.fixture_path.name}`: {exc}",
+                    related_artifact_ids=[str(request.fixture_path)],
+                    notes=[f"requested_by={request.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="fixture_ingestion",
+                    workflow_run_id=ingestion_job_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[f"fixture_path={request.fixture_path}"],
+                    outputs_expected=request.persist_raw or request.persist_normalized,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
 
     def _persist_normalized_artifacts(
         self,

@@ -17,6 +17,7 @@ from libraries.schemas import (
     EvidenceGrade,
     PaperTrade,
     PaperTradeStatus,
+    PipelineEventType,
     PortfolioProposal,
     PortfolioProposalStatus,
     PositionIdea,
@@ -35,6 +36,7 @@ from libraries.schemas import (
     SignalStatus,
     StrictModel,
     SupportingEvidenceLink,
+    WorkflowStatus,
 )
 from libraries.utils import (
     apply_review_decision_to_paper_trade,
@@ -42,6 +44,11 @@ from libraries.utils import (
     make_prefixed_id,
 )
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.monitoring import (
+    MonitoringService,
+    RecordPipelineEventRequest,
+    RecordRunSummaryRequest,
+)
 from services.operator_review.loaders import (
     LoadedReviewWorkspace,
     load_review_queue_items,
@@ -722,6 +729,133 @@ class OperatorReviewService(BaseService):
     def apply_review_action(self, request: ApplyReviewActionRequest) -> ApplyReviewActionResponse:
         """Create a review decision, update the target, and record audit state."""
 
+        workflow_run_id = make_prefixed_id("reviewflow")
+        monitoring_root = (
+            request.review_root.parent / "monitoring"
+            if request.review_root is not None
+            else get_settings().resolved_artifact_root / "monitoring"
+        )
+        monitoring_service = MonitoringService(clock=self.clock)
+        started_at = self.clock.now()
+        start_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="review_action",
+                workflow_run_id=workflow_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_STARTED,
+                status=WorkflowStatus.RUNNING,
+                message=(
+                    f"Review action started for `{request.target_type.value}:{request.target_id}`."
+                ),
+                related_artifact_ids=[request.target_id],
+                notes=[f"reviewer_id={request.reviewer_id}"],
+            ),
+            output_root=monitoring_root,
+        )
+        try:
+            response = self._apply_review_action_impl(
+                request,
+                workflow_run_id=workflow_run_id,
+            )
+        except Exception as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="review_action",
+                    workflow_run_id=workflow_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=(
+                        "Review action failed for "
+                        f"`{request.target_type.value}:{request.target_id}`: {exc}"
+                    ),
+                    related_artifact_ids=[request.target_id],
+                    notes=[f"reviewer_id={request.reviewer_id}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="review_action",
+                    workflow_run_id=workflow_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.reviewer_id,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[],
+                    produced_artifact_ids=[request.target_id],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[f"target_type={request.target_type.value}"],
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
+
+        review_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="review_action",
+                workflow_run_id=workflow_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.REVIEW_ACTION,
+                status=WorkflowStatus.SUCCEEDED,
+                message=(
+                    f"Review action `{request.outcome.value}` completed for "
+                    f"`{request.target_type.value}:{request.target_id}`."
+                ),
+                related_artifact_ids=[
+                    request.target_id,
+                    response.review_decision.review_decision_id,
+                    response.queue_item.review_queue_item_id,
+                    response.audit_log.audit_log_id,
+                ],
+                notes=[f"reviewer_id={request.reviewer_id}"],
+            ),
+            output_root=monitoring_root,
+        )
+        monitoring_service.record_run_summary(
+            RecordRunSummaryRequest(
+                workflow_name="review_action",
+                workflow_run_id=workflow_run_id,
+                service_name=self.capability_name,
+                requested_by=request.reviewer_id,
+                status=WorkflowStatus.SUCCEEDED,
+                started_at=started_at,
+                completed_at=self.clock.now(),
+                storage_locations=response.storage_locations,
+                produced_artifact_ids=[
+                    request.target_id,
+                    response.review_decision.review_decision_id,
+                    response.queue_item.review_queue_item_id,
+                    response.audit_log.audit_log_id,
+                ],
+                pipeline_event_ids=[
+                    start_event.pipeline_event.pipeline_event_id,
+                    review_event.pipeline_event.pipeline_event_id,
+                ],
+                notes=[
+                    f"target_type={request.target_type.value}",
+                    f"outcome={request.outcome.value}",
+                ],
+                outputs_expected=True,
+            ),
+            output_root=monitoring_root,
+        )
+        return response
+
+    def _apply_review_action_impl(
+        self,
+        request: ApplyReviewActionRequest,
+        *,
+        workflow_run_id: str,
+    ) -> ApplyReviewActionResponse:
+        """Create a review decision, update the target, and record audit state."""
+
         research_root, signal_root, portfolio_root, review_root, audit_root = self._resolve_roots(
             research_root=request.research_root,
             signal_root=request.signal_root,
@@ -779,6 +913,7 @@ class OperatorReviewService(BaseService):
                 clock=self.clock,
                 transformation_name="operator_review_action",
                 upstream_artifact_ids=[request.target_id, queue_item.review_queue_item_id],
+                workflow_run_id=workflow_run_id,
                 notes=[f"outcome={request.outcome.value}"],
             ),
             created_at=now,
@@ -845,7 +980,7 @@ class OperatorReviewService(BaseService):
                     else AuditOutcome.WARNING
                 ),
                 reason=request.rationale,
-                request_id=review_decision.review_decision_id,
+                request_id=workflow_run_id,
                 status_before=status_before,
                 status_after=status_after,
                 related_artifact_ids=[

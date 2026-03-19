@@ -11,9 +11,16 @@ from libraries.schemas import (
     ArtifactStorageLocation,
     DataLayer,
     DocumentEvidenceBundle,
+    PipelineEventType,
     StrictModel,
+    WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
+from services.monitoring import (
+    MonitoringService,
+    RecordPipelineEventRequest,
+    RecordRunSummaryRequest,
+)
 from services.parsing.extraction import build_document_evidence_bundle
 from services.parsing.loaders import load_parsing_inputs
 from services.parsing.segmentation import build_parsed_document_text, segment_document
@@ -112,59 +119,167 @@ class ParsingService(BaseService):
         """Execute deterministic evidence extraction from explicit local artifacts."""
 
         extraction_run_id = make_prefixed_id("parse")
-        notes = [
+        started_at = self.clock.now()
+        monitoring_notes = [
             f"document_path={request.document_path}",
             f"source_reference_path={request.source_reference_path}",
             f"raw_payload_path={request.raw_payload_path}",
         ]
-        inputs = load_parsing_inputs(
-            document_path=request.document_path,
-            source_reference_path=request.source_reference_path,
-            raw_payload_path=request.raw_payload_path,
-        )
-        parsed_document_text = build_parsed_document_text(
-            inputs=inputs,
-            clock=self.clock,
-            workflow_run_id=extraction_run_id,
-            notes=notes,
-        )
-        segments = segment_document(
-            parsed_document_text=parsed_document_text,
-            inputs=inputs,
-            clock=self.clock,
-            workflow_run_id=extraction_run_id,
-            notes=notes,
-        )
-        bundle = build_document_evidence_bundle(
-            parsed_document_text=parsed_document_text,
-            segments=segments,
-            inputs=inputs,
-            clock=self.clock,
-            workflow_run_id=extraction_run_id,
-            notes=notes,
-        )
-
         output_root = request.output_root
         if output_root is None:
             output_root = get_settings().resolved_artifact_root / "parsing"
-        store = LocalParsingArtifactStore(root=output_root, clock=self.clock)
-        storage_locations = self._persist_bundle(store=store, bundle=bundle)
-        return ExtractDocumentEvidenceResponse(
-            extraction_run_id=extraction_run_id,
-            storage_locations=storage_locations,
-            document_id=bundle.document_id,
-            source_reference_id=bundle.source_reference_id,
-            company_id=bundle.company_id,
-            document_kind=bundle.document_kind,
-            parsed_document_text=bundle.parsed_document_text,
-            segments=bundle.segments,
-            evidence_spans=bundle.evidence_spans,
-            claims=bundle.claims,
-            risk_factors=bundle.risk_factors,
-            guidance_changes=bundle.guidance_changes,
-            tone_markers=bundle.tone_markers,
-            evaluation=bundle.evaluation,
+        monitoring_root = output_root.parent / "monitoring"
+        monitoring_service = MonitoringService(clock=self.clock)
+        start_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="evidence_extraction",
+                workflow_run_id=extraction_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_STARTED,
+                status=WorkflowStatus.RUNNING,
+                message=f"Evidence extraction started for `{request.document_path.name}`.",
+                related_artifact_ids=[str(request.document_path)],
+                notes=[f"requested_by={request.requested_by}"],
+            ),
+            output_root=monitoring_root,
         )
+        try:
+            inputs = load_parsing_inputs(
+                document_path=request.document_path,
+                source_reference_path=request.source_reference_path,
+                raw_payload_path=request.raw_payload_path,
+            )
+            parsed_document_text = build_parsed_document_text(
+                inputs=inputs,
+                clock=self.clock,
+                workflow_run_id=extraction_run_id,
+                notes=monitoring_notes,
+            )
+            segments = segment_document(
+                parsed_document_text=parsed_document_text,
+                inputs=inputs,
+                clock=self.clock,
+                workflow_run_id=extraction_run_id,
+                notes=monitoring_notes,
+            )
+            bundle = build_document_evidence_bundle(
+                parsed_document_text=parsed_document_text,
+                segments=segments,
+                inputs=inputs,
+                clock=self.clock,
+                workflow_run_id=extraction_run_id,
+                notes=monitoring_notes,
+            )
+
+            store = LocalParsingArtifactStore(root=output_root, clock=self.clock)
+            storage_locations = self._persist_bundle(store=store, bundle=bundle)
+            response = ExtractDocumentEvidenceResponse(
+                extraction_run_id=extraction_run_id,
+                storage_locations=storage_locations,
+                document_id=bundle.document_id,
+                source_reference_id=bundle.source_reference_id,
+                company_id=bundle.company_id,
+                document_kind=bundle.document_kind,
+                parsed_document_text=bundle.parsed_document_text,
+                segments=bundle.segments,
+                evidence_spans=bundle.evidence_spans,
+                claims=bundle.claims,
+                risk_factors=bundle.risk_factors,
+                guidance_changes=bundle.guidance_changes,
+                tone_markers=bundle.tone_markers,
+                evaluation=bundle.evaluation,
+            )
+            completed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="evidence_extraction",
+                    workflow_run_id=extraction_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_COMPLETED,
+                    status=WorkflowStatus.SUCCEEDED,
+                    message=(
+                        f"Evidence extraction completed for `{request.document_path.name}` "
+                        f"with {len(storage_locations)} persisted artifacts."
+                    ),
+                    related_artifact_ids=[
+                        response.document_id,
+                        response.source_reference_id,
+                        *[location.artifact_id for location in storage_locations],
+                    ],
+                    notes=[f"requested_by={request.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="evidence_extraction",
+                    workflow_run_id=extraction_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.SUCCEEDED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=storage_locations,
+                    produced_artifact_ids=[
+                        response.document_id,
+                        response.source_reference_id,
+                        response.parsed_document_text.parsed_document_text_id,
+                        *[segment.document_segment_id for segment in response.segments],
+                        *[evidence_span.evidence_span_id for evidence_span in response.evidence_spans],
+                        *[claim.extracted_claim_id for claim in response.claims],
+                        *[risk_factor.risk_factor_id for risk_factor in response.risk_factors],
+                        *[
+                            guidance_change.guidance_change_id
+                            for guidance_change in response.guidance_changes
+                        ],
+                        *[tone_marker.tone_marker_id for tone_marker in response.tone_markers],
+                    ],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        completed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    notes=monitoring_notes,
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            return response
+        except Exception as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="evidence_extraction",
+                    workflow_run_id=extraction_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=(
+                        f"Evidence extraction failed for `{request.document_path.name}`: {exc}"
+                    ),
+                    related_artifact_ids=[str(request.document_path)],
+                    notes=[f"requested_by={request.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="evidence_extraction",
+                    workflow_run_id=extraction_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=monitoring_notes,
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
 
     def _persist_bundle(
         self,

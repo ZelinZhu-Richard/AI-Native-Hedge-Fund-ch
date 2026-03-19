@@ -9,6 +9,7 @@ from services.experiment_registry import ExperimentRegistryService
 from services.feature_store import FeatureStoreService
 from services.ingestion import IngestionService
 from services.memo import MemoGenerationService
+from services.monitoring import MonitoringService
 from services.operator_review import OperatorReviewService
 from services.paper_execution import PaperExecutionService
 from services.parsing import ParsingService
@@ -36,5 +37,6 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         OperatorReviewService(clock=clock),
         MemoGenerationService(clock=clock),
         AuditLoggingService(clock=clock),
+        MonitoringService(clock=clock),
     ]
     return {service.capability_name: service for service in services}

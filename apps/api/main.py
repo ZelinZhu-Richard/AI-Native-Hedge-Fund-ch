@@ -12,17 +12,28 @@ from libraries.core import AgentDescriptor, ServiceCapability
 from libraries.core.service_registry import build_service_registry
 from libraries.logging import configure_logging
 from libraries.schemas import (
+    AlertRecord,
+    HealthCheck,
     Hypothesis,
     PaperTrade,
     PortfolioProposal,
     ReviewContext,
     ReviewQueueItem,
     ReviewTargetType,
+    RunSummary,
+    ServiceStatus,
     StrictModel,
 )
 from libraries.schemas.base import TimestampedModel
 from libraries.time import SystemClock, isoformat_z
 from services.ingestion import DocumentIngestionRequest, DocumentIngestionResponse, IngestionService
+from services.monitoring import (
+    GetServiceStatusesRequest,
+    ListRecentFailureSummariesRequest,
+    ListRecentRunSummariesRequest,
+    MonitoringService,
+    RunHealthChecksRequest,
+)
 from services.operator_review import (
     AddReviewNoteRequest,
     AddReviewNoteResponse,
@@ -97,6 +108,43 @@ class ReviewQueueApiResponse(StrictModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class HealthDetailsResponse(StrictModel):
+    """Structured health and readiness response."""
+
+    status: str = Field(description="Overall health status.")
+    timestamp: str = Field(description="UTC timestamp in ISO-8601 format.")
+    health_checks: list[HealthCheck] = Field(default_factory=list)
+    service_statuses: list[ServiceStatus] = Field(default_factory=list)
+    open_alert_count: int = Field(description="Count of currently open alerts.")
+    notes: list[str] = Field(default_factory=list)
+
+
+class RunSummaryListResponse(StrictModel):
+    """Recent monitoring run summaries."""
+
+    items: list[RunSummary] = Field(default_factory=list)
+    total: int = Field(description="Count of run summaries returned.")
+    notes: list[str] = Field(default_factory=list)
+
+
+class FailureSummaryApiResponse(StrictModel):
+    """Recent failed or attention-required run summaries."""
+
+    run_summaries: list[RunSummary] = Field(default_factory=list)
+    alert_records: list[AlertRecord] = Field(default_factory=list)
+    total_runs: int = Field(description="Count of returned run summaries.")
+    total_alerts: int = Field(description="Count of returned alert records.")
+    notes: list[str] = Field(default_factory=list)
+
+
+class ServiceStatusApiResponse(StrictModel):
+    """Derived current service statuses."""
+
+    items: list[ServiceStatus] = Field(default_factory=list)
+    total: int = Field(description="Count of returned service statuses.")
+    notes: list[str] = Field(default_factory=list)
+
+
 settings = get_settings()
 api_clock = SystemClock()
 configure_logging(settings.log_level)
@@ -113,6 +161,28 @@ def health() -> HealthResponse:
     """Return a simple health response."""
 
     return HealthResponse(status="ok", timestamp=isoformat_z(api_clock.now()))
+
+
+@app.get("/health/details", response_model=HealthDetailsResponse, tags=["system"])
+def health_details() -> HealthDetailsResponse:
+    """Return structured local health and readiness information."""
+
+    service = service_registry["monitoring"]
+    assert isinstance(service, MonitoringService)
+    response = service.run_health_checks(RunHealthChecksRequest())
+    status = (
+        "fail"
+        if any(check.status.value == "fail" for check in response.health_checks)
+        else ("warn" if any(check.status.value == "warn" for check in response.health_checks) else "ok")
+    )
+    return HealthDetailsResponse(
+        status=status,
+        timestamp=isoformat_z(api_clock.now()),
+        health_checks=response.health_checks,
+        service_statuses=response.service_statuses,
+        open_alert_count=sum(item.open_alert_count for item in response.service_statuses),
+        notes=response.notes,
+    )
 
 
 @app.get("/version", response_model=VersionResponse, tags=["system"])
@@ -136,6 +206,68 @@ def capabilities() -> CapabilityResponse:
         services=service_capabilities,
         agents=list_agent_descriptors(),
     )
+
+
+@app.get(
+    "/monitoring/run-summaries/recent",
+    response_model=RunSummaryListResponse,
+    tags=["monitoring"],
+)
+def list_recent_run_summaries(
+    service_name: str | None = None,
+    workflow_name: str | None = None,
+    limit: int = 20,
+) -> RunSummaryListResponse:
+    """Return recent persisted monitoring run summaries."""
+
+    service = service_registry["monitoring"]
+    assert isinstance(service, MonitoringService)
+    response = service.list_recent_run_summaries(
+        ListRecentRunSummariesRequest(
+            service_name=service_name,
+            workflow_name=workflow_name,
+            limit=limit,
+        )
+    )
+    return RunSummaryListResponse(items=response.items, total=response.total, notes=response.notes)
+
+
+@app.get(
+    "/monitoring/failures/recent",
+    response_model=FailureSummaryApiResponse,
+    tags=["monitoring"],
+)
+def list_recent_failure_summaries(
+    service_name: str | None = None,
+    limit: int = 20,
+) -> FailureSummaryApiResponse:
+    """Return recent failed or attention-required runs and open alerts."""
+
+    service = service_registry["monitoring"]
+    assert isinstance(service, MonitoringService)
+    response = service.list_recent_failure_summaries(
+        ListRecentFailureSummariesRequest(
+            service_name=service_name,
+            limit=limit,
+        )
+    )
+    return FailureSummaryApiResponse(
+        run_summaries=response.run_summaries,
+        alert_records=response.alert_records,
+        total_runs=response.total_runs,
+        total_alerts=response.total_alerts,
+        notes=response.notes,
+    )
+
+
+@app.get("/monitoring/services", response_model=ServiceStatusApiResponse, tags=["monitoring"])
+def list_service_statuses() -> ServiceStatusApiResponse:
+    """Return derived current statuses for registered services."""
+
+    service = service_registry["monitoring"]
+    assert isinstance(service, MonitoringService)
+    response = service.get_service_statuses(GetServiceStatusesRequest())
+    return ServiceStatusApiResponse(items=response.items, total=response.total, notes=response.notes)
 
 
 @app.post(

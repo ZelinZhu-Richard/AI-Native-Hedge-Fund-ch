@@ -39,6 +39,7 @@ from libraries.schemas import (
     ExperimentStatus,
     FailureCase,
     PerformanceSummary,
+    PipelineEventType,
     RobustnessCheck,
     RunContext,
     SimulationEvent,
@@ -47,6 +48,7 @@ from libraries.schemas import (
     StrategySpec,
     StrategyVariant,
     StrictModel,
+    WorkflowStatus,
 )
 from libraries.schemas.base import ProvenanceRecord
 from libraries.utils import make_canonical_id, make_prefixed_id
@@ -76,6 +78,11 @@ from services.experiment_registry import (
     BeginExperimentRequest,
     ExperimentRegistryService,
     FinalizeExperimentRequest,
+)
+from services.monitoring import (
+    MonitoringService,
+    RecordPipelineEventRequest,
+    RecordRunSummaryRequest,
 )
 
 
@@ -583,6 +590,202 @@ class BacktestingService(BaseService):
         experiment_root = request.experiment_root or (output_root.parent / "experiments")
         evaluation_root = request.evaluation_root or (output_root.parent / "evaluation")
         audit_root = output_root.parent / "audit"
+        monitoring_root = output_root.parent / "monitoring"
+        monitoring_service = MonitoringService(clock=self.clock)
+        started_at = self.clock.now()
+        start_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="strategy_ablation",
+                workflow_run_id=ablation_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_STARTED,
+                status=WorkflowStatus.RUNNING,
+                message=(
+                    f"Strategy ablation started for `{request.ablation_config.name}`."
+                ),
+                related_artifact_ids=[
+                    request.ablation_config.ablation_config_id,
+                    request.ablation_config.evaluation_slice.evaluation_slice_id,
+                ],
+                notes=[f"requested_by={request.ablation_config.requested_by}"],
+            ),
+            output_root=monitoring_root,
+        )
+        try:
+            response = self._run_strategy_ablation_workflow_impl(
+                request,
+                ablation_run_id=ablation_run_id,
+                output_root=output_root,
+                experiment_root=experiment_root,
+                evaluation_root=evaluation_root,
+                audit_root=audit_root,
+            )
+        except Exception as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="strategy_ablation",
+                    workflow_run_id=ablation_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=(
+                        f"Strategy ablation failed for `{request.ablation_config.name}`: {exc}"
+                    ),
+                    related_artifact_ids=[
+                        request.ablation_config.ablation_config_id,
+                        request.ablation_config.evaluation_slice.evaluation_slice_id,
+                    ],
+                    notes=[f"requested_by={request.ablation_config.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="strategy_ablation",
+                    workflow_run_id=ablation_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.ablation_config.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[],
+                    produced_artifact_ids=[
+                        request.ablation_config.ablation_config_id,
+                        request.ablation_config.evaluation_slice.evaluation_slice_id,
+                    ],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[
+                        "Strategy ablation failed before a complete comparison result was persisted."
+                    ],
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
+
+        summary_status, attention_reasons = monitoring_service.summarize_ablation_monitoring(
+            evaluation_report=response.evaluation_report,
+            failure_cases=response.failure_cases,
+            robustness_checks=response.robustness_checks,
+        )
+        completed_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="strategy_ablation",
+                workflow_run_id=ablation_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_COMPLETED,
+                status=WorkflowStatus.SUCCEEDED,
+                message=(
+                    f"Strategy ablation completed for `{request.ablation_config.name}` "
+                    f"across {len(response.variant_backtest_runs)} variants."
+                ),
+                related_artifact_ids=[
+                    response.ablation_result.ablation_result_id,
+                    *[run.backtest_run_id for run in response.variant_backtest_runs],
+                    *(
+                        [response.experiment.experiment_id]
+                        if response.experiment is not None
+                        else []
+                    ),
+                    *(
+                        [response.evaluation_report.evaluation_report_id]
+                        if response.evaluation_report is not None
+                        else []
+                    ),
+                ],
+                notes=[f"requested_by={request.ablation_config.requested_by}"],
+            ),
+            output_root=monitoring_root,
+        )
+        pipeline_event_ids = [
+            start_event.pipeline_event.pipeline_event_id,
+            completed_event.pipeline_event.pipeline_event_id,
+        ]
+        if summary_status is WorkflowStatus.ATTENTION_REQUIRED:
+            attention_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="strategy_ablation",
+                    workflow_run_id=ablation_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.ATTENTION_REQUIRED,
+                    status=WorkflowStatus.ATTENTION_REQUIRED,
+                    message=(
+                        attention_reasons[0]
+                        if attention_reasons
+                        else "Ablation completed with warnings or failures that require review."
+                    ),
+                    related_artifact_ids=[
+                        response.ablation_result.ablation_result_id,
+                        *(
+                            [response.evaluation_report.evaluation_report_id]
+                            if response.evaluation_report is not None
+                            else []
+                        ),
+                    ],
+                    notes=[f"requested_by={request.ablation_config.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            pipeline_event_ids.append(attention_event.pipeline_event.pipeline_event_id)
+        monitoring_service.record_run_summary(
+            RecordRunSummaryRequest(
+                workflow_name="strategy_ablation",
+                workflow_run_id=ablation_run_id,
+                service_name=self.capability_name,
+                requested_by=request.ablation_config.requested_by,
+                status=summary_status,
+                started_at=started_at,
+                completed_at=self.clock.now(),
+                storage_locations=response.storage_locations,
+                produced_artifact_ids=[
+                    response.ablation_result.ablation_result_id,
+                    *[spec.strategy_spec_id for spec in response.strategy_specs],
+                    *[
+                        strategy_variant.strategy_variant_id
+                        for strategy_variant in response.strategy_variants
+                    ],
+                    *[run.backtest_run_id for run in response.variant_backtest_runs],
+                    *(
+                        [response.experiment.experiment_id]
+                        if response.experiment is not None
+                        else []
+                    ),
+                    *(
+                        [response.evaluation_report.evaluation_report_id]
+                        if response.evaluation_report is not None
+                        else []
+                    ),
+                    *(
+                        [response.comparison_summary.comparison_summary_id]
+                        if response.comparison_summary is not None
+                        else []
+                    ),
+                ],
+                pipeline_event_ids=pipeline_event_ids,
+                attention_reasons=attention_reasons,
+                notes=response.notes,
+                outputs_expected=True,
+            ),
+            output_root=monitoring_root,
+        )
+        return response
+
+    def _run_strategy_ablation_workflow_impl(
+        self,
+        request: RunStrategyAblationWorkflowRequest,
+        *,
+        ablation_run_id: str,
+        output_root: Path,
+        experiment_root: Path,
+        evaluation_root: Path,
+        audit_root: Path,
+    ) -> RunStrategyAblationWorkflowResponse:
+        """Execute the deterministic Day 9 baseline and ablation workflow."""
+
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
         notes: list[str] = [
