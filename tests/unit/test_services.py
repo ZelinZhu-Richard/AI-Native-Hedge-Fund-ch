@@ -86,7 +86,7 @@ def test_paper_execution_ignores_flat_position_ideas() -> None:
         blocking_issues=[],
         review_decision_ids=[],
         review_required=True,
-        status=PortfolioProposalStatus.PENDING_REVIEW,
+        status=PortfolioProposalStatus.APPROVED,
         summary="Flat-only proposal for unit testing.",
         provenance=ProvenanceRecord(processing_time=fixed_now),
         created_at=fixed_now,

@@ -39,7 +39,7 @@ PRICE_FIXTURE_PATH = (
 FIXED_NOW = datetime(2026, 3, 17, 11, 0, tzinfo=UTC)
 
 
-def test_candidate_signal_creates_300bps_position_and_review_ready_paper_trade(
+def test_candidate_signal_creates_300bps_position_and_review_bound_proposal(
     tmp_path: Path,
 ) -> None:
     artifact_root = _build_full_stack(artifact_root=tmp_path / "artifacts")
@@ -57,9 +57,8 @@ def test_candidate_signal_creates_300bps_position_and_review_ready_paper_trade(
     assert len(response.final_position_ideas) == 1
     assert response.final_position_ideas[0].proposed_weight_bps == 300
     assert response.final_portfolio_proposal.status.value == "pending_review"
-    assert response.paper_trades
-    assert response.paper_trades[0].status.value == "proposed"
-    assert response.paper_trades[0].execution_mode == "paper_only"
+    assert response.paper_trades == []
+    assert any("approved parent portfolio proposal" in note for note in response.notes)
     assert any("not replay-safe" in note for note in response.portfolio_workflow.notes)
 
 

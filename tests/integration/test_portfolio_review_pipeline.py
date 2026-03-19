@@ -9,6 +9,7 @@ from libraries.schemas import (
     BacktestConfig,
     BenchmarkKind,
     ExecutionAssumption,
+    ReviewOutcome,
     SignalStatus,
 )
 from libraries.schemas.base import ProvenanceRecord
@@ -81,11 +82,10 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
 
     assert response.final_position_ideas
     assert response.final_portfolio_proposal.risk_checks
-    assert response.paper_trades
+    assert response.paper_trades == []
 
     position_idea = response.final_position_ideas[0]
     proposal = response.final_portfolio_proposal
-    paper_trade = response.paper_trades[0]
 
     position_idea_path = (
         artifact_root / "portfolio" / "position_ideas" / f"{position_idea.position_idea_id}.json"
@@ -96,18 +96,13 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
         / "portfolio_proposals"
         / f"{proposal.portfolio_proposal_id}.json"
     )
-    paper_trade_path = (
-        artifact_root / "portfolio" / "paper_trades" / f"{paper_trade.paper_trade_id}.json"
-    )
     audit_directory = artifact_root / "audit" / "audit_logs"
     assert position_idea_path.exists()
     assert proposal_path.exists()
-    assert paper_trade_path.exists()
     assert audit_directory.exists()
 
     position_payload = json.loads(position_idea_path.read_text(encoding="utf-8"))
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
-    paper_trade_payload = json.loads(paper_trade_path.read_text(encoding="utf-8"))
     audit_event_payloads = [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(audit_directory.glob("*.json"))
@@ -126,19 +121,77 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
         proposal_payload["position_ideas"]
     )
     assert proposal_payload["risk_checks"]
-    assert paper_trade_payload["portfolio_proposal_id"] == proposal.portfolio_proposal_id
-    assert paper_trade_payload["execution_mode"] == "paper_only"
-    assert "live" not in "".join(paper_trade_payload["execution_notes"]).lower().replace(
-        "no live routing", ""
-    )
     assert {
         "research_workflow_completed",
         "feature_mapping_completed",
         "signal_generation_completed",
         "backtest_workflow_completed",
-        "paper_trade_candidates_created",
         "portfolio_review_pipeline_completed",
     }.issubset({payload["event_type"] for payload in audit_event_payloads})
+
+
+def test_portfolio_review_pipeline_creates_paper_trades_only_after_explicit_approval(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+
+    run_fixture_ingestion_pipeline(
+        fixtures_root=FIXTURE_ROOT,
+        output_root=artifact_root / "ingestion",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_evidence_extraction_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        output_root=artifact_root / "parsing",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_hypothesis_workflow_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "research",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_feature_signal_pipeline(
+        research_root=artifact_root / "research",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "signal_generation",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_backtest_pipeline(
+        signal_root=artifact_root / "signal_generation",
+        feature_root=artifact_root / "signal_generation",
+        output_root=artifact_root / "backtesting",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    response = run_portfolio_review_pipeline(
+        signal_root=artifact_root / "signal_generation",
+        research_root=artifact_root / "research",
+        ingestion_root=artifact_root / "ingestion",
+        backtesting_root=artifact_root / "backtesting",
+        output_root=artifact_root / "portfolio",
+        proposal_review_outcome=ReviewOutcome.APPROVE,
+        reviewer_id="pm_test",
+        review_notes=["Approved for paper-trade candidate creation."],
+        assumed_reference_prices={"APEX": 103.0},
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert response.paper_trades
+    paper_trade = response.paper_trades[0]
+    paper_trade_path = (
+        artifact_root / "portfolio" / "paper_trades" / f"{paper_trade.paper_trade_id}.json"
+    )
+    assert paper_trade_path.exists()
+
+    paper_trade_payload = json.loads(paper_trade_path.read_text(encoding="utf-8"))
+    assert paper_trade_payload["portfolio_proposal_id"] == response.final_portfolio_proposal.portfolio_proposal_id
+    assert paper_trade_payload["execution_mode"] == "paper_only"
+    assert "live" not in "".join(paper_trade_payload["execution_notes"]).lower().replace(
+        "no live routing", ""
+    )
 
 
 def _backtest_config() -> BacktestConfig:

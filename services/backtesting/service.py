@@ -370,6 +370,16 @@ class BacktestingService(BaseService):
         )
         data_snapshots = list(result.data_snapshots)
         if request.record_experiment:
+            data_snapshots = self._attach_manifest_ids_to_snapshots(
+                company_id=inputs.company_id,
+                snapshots=data_snapshots,
+            )
+        snapshot_storage_locations: list[ArtifactStorageLocation] = []
+        for snapshot in data_snapshots:
+            location = self._persist_model(store=store, category="snapshots", model=snapshot)
+            snapshot_storage_locations.append(location)
+            storage_locations.append(location)
+        if request.record_experiment:
             (
                 data_snapshots,
                 dataset_manifests,
@@ -383,6 +393,9 @@ class BacktestingService(BaseService):
                 snapshots=data_snapshots,
                 backtest_config=request.backtest_config,
                 workflow_run_id=backtest_run_id,
+                snapshot_storage_locations_by_id={
+                    location.artifact_id: location for location in snapshot_storage_locations
+                },
             )
             experiment_config = self._build_experiment_config(
                 backtest_config=request.backtest_config,
@@ -427,11 +440,6 @@ class BacktestingService(BaseService):
             )
             experiment = begin_response.experiment
             storage_locations.extend(begin_response.storage_locations)
-
-        for snapshot in data_snapshots:
-            storage_locations.append(
-                self._persist_model(store=store, category="snapshots", model=snapshot)
-            )
         for decision in result.strategy_decisions:
             storage_locations.append(
                 self._persist_model(store=store, category="decisions", model=decision)
@@ -1285,6 +1293,7 @@ class BacktestingService(BaseService):
         snapshots: list[DataSnapshot],
         backtest_config: BacktestConfig,
         workflow_run_id: str,
+        snapshot_storage_locations_by_id: dict[str, ArtifactStorageLocation],
     ) -> tuple[
         list[DataSnapshot],
         list[DatasetManifest],
@@ -1302,10 +1311,15 @@ class BacktestingService(BaseService):
         now = self.clock.now()
 
         for snapshot in snapshots:
+            snapshot_location = snapshot_storage_locations_by_id.get(snapshot.data_snapshot_id)
             storage_uri = (
-                signal_root.resolve().as_uri()
-                if snapshot.dataset_name == "candidate_signals"
-                else price_fixture_path.resolve().as_uri()
+                snapshot_location.uri
+                if snapshot_location is not None
+                else (
+                    signal_root.resolve().as_uri()
+                    if snapshot.dataset_name == "candidate_signals"
+                    else price_fixture_path.resolve().as_uri()
+                )
             )
             source_family = (
                 "candidate_signals"
@@ -1363,6 +1377,11 @@ class BacktestingService(BaseService):
                 ingestion_cutoff_time=snapshot.ingestion_cutoff_time,
                 row_count=snapshot.row_count,
                 source_version_ids=[source_version.source_version_id],
+                storage_location_id=(
+                    snapshot_location.artifact_storage_location_id
+                    if snapshot_location is not None
+                    else None
+                ),
                 provenance=build_provenance(
                     clock=self.clock,
                     transformation_name="day8_dataset_partition_from_backtest_snapshot",
@@ -1415,38 +1434,29 @@ class BacktestingService(BaseService):
             )
             manifests.append(manifest)
 
-            updated_snapshot = snapshot.model_copy(
-                update={
-                    "dataset_manifest_id": manifest.dataset_manifest_id,
-                    "updated_at": now,
-                    "provenance": snapshot.provenance.model_copy(update={"processing_time": now}),
-                }
-            )
-            updated_snapshots.append(updated_snapshot)
-
             dataset_references.append(
                 DatasetReference(
                     dataset_reference_id=make_canonical_id(
                         "dref",
-                        updated_snapshot.dataset_name,
-                        updated_snapshot.data_snapshot_id,
+                        snapshot.dataset_name,
+                        snapshot.data_snapshot_id,
                         "input",
                     ),
-                    dataset_name=updated_snapshot.dataset_name,
+                    dataset_name=snapshot.dataset_name,
                     usage_role=DatasetUsageRole.INPUT,
                     dataset_manifest_id=manifest.dataset_manifest_id,
-                    data_snapshot_id=updated_snapshot.data_snapshot_id,
-                    data_layer=updated_snapshot.data_layer,
-                    information_cutoff_time=updated_snapshot.information_cutoff_time,
+                    data_snapshot_id=snapshot.data_snapshot_id,
+                    data_layer=snapshot.data_layer,
+                    information_cutoff_time=snapshot.information_cutoff_time,
                     schema_version=manifest.schema_version,
                     storage_uri=manifest.storage_uri or storage_uri,
                     provenance=build_provenance(
                         clock=self.clock,
                         transformation_name="day8_dataset_reference_from_backtest_snapshot",
-                        source_reference_ids=updated_snapshot.provenance.source_reference_ids,
+                        source_reference_ids=snapshot.provenance.source_reference_ids,
                         upstream_artifact_ids=[
                             manifest.dataset_manifest_id,
-                            updated_snapshot.data_snapshot_id,
+                            snapshot.data_snapshot_id,
                         ],
                         workflow_run_id=workflow_run_id,
                     ),
@@ -1454,8 +1464,36 @@ class BacktestingService(BaseService):
                     updated_at=now,
                 )
             )
+            updated_snapshots.append(snapshot)
 
         return updated_snapshots, manifests, partitions, source_versions, dataset_references
+
+    def _attach_manifest_ids_to_snapshots(
+        self,
+        *,
+        company_id: str,
+        snapshots: list[DataSnapshot],
+    ) -> list[DataSnapshot]:
+        """Attach deterministic dataset-manifest identifiers before snapshot persistence."""
+
+        now = self.clock.now()
+        return [
+            snapshot.model_copy(
+                update={
+                    "dataset_manifest_id": make_canonical_id(
+                        "dman",
+                        snapshot.dataset_name,
+                        snapshot.dataset_version,
+                        company_id,
+                    ),
+                    "updated_at": now,
+                    "provenance": snapshot.provenance.model_copy(
+                        update={"processing_time": now}
+                    ),
+                }
+            )
+            for snapshot in snapshots
+        ]
 
     def _build_experiment_config(
         self,
@@ -1802,13 +1840,13 @@ class _ProvenancedModel(Protocol):
 def _artifact_id(*, model: StrictModel) -> str:
     """Resolve the canonical identifier field for a strict model."""
 
+    if hasattr(model, "data_snapshot_id"):
+        return cast(str, model.data_snapshot_id)
     for field_name in type(model).model_fields:
-        if field_name.endswith("_id") and field_name != "data_snapshot_id":
+        if field_name.endswith("_id"):
             value = getattr(model, field_name, None)
             if isinstance(value, str):
                 return value
-    if hasattr(model, "data_snapshot_id"):
-        return cast(str, model.data_snapshot_id)
     raise ValueError(f"Could not resolve artifact ID for model type `{type(model).__name__}`.")
 
 

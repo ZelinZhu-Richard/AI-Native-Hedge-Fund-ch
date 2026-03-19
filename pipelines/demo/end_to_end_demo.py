@@ -87,7 +87,7 @@ class EndToEndDemoResponse(StrictModel):
     backtest: RunBacktestWorkflowResponse = Field(description="Single-strategy exploratory backtest.")
     ablation: RunStrategyAblationWorkflowResponse = Field(description="Baseline comparison output.")
     portfolio_review: PortfolioReviewPipelineResponse = Field(
-        description="Portfolio proposal and paper-trade candidate output."
+        description="Portfolio proposal output plus any explicitly approval-gated paper-trade candidates."
     )
     review_queue: SyncReviewQueueResponse = Field(description="Review queue snapshot after demo sync.")
     review_note: AddReviewNoteResponse = Field(description="Conservative operator note recorded by the demo.")
@@ -267,11 +267,11 @@ def run_end_to_end_demo(
             reviewer_id="demo_operator",
             outcome=ReviewOutcome.NEEDS_REVISION,
             rationale=(
-                "Demo decision: keep the proposal review-bound pending stricter downstream eligibility gates."
+                "Demo decision: keep the proposal review-bound until downstream eligibility gates are stricter."
             ),
             review_notes=[
                 "The demo intentionally avoids silent approval paths.",
-                "Paper-trade candidates remain paper-only and unapproved.",
+                "No paper-trade candidates are created until a proposal is explicitly approved.",
             ],
             research_root=research_root,
             signal_root=signal_root,
@@ -322,7 +322,7 @@ def run_end_to_end_demo(
         notes=[
             "This demo is fixture-backed, deterministic, and local only.",
             "Backtests and ablations are exploratory comparisons, not validated edge claims.",
-            "Paper-trade candidates remain paper-only and explicitly review-bound.",
+            "The default demo stops at a review-bound portfolio proposal and does not auto-create paper-trade candidates.",
         ],
     )
     manifest_path.write_text(response.model_dump_json(indent=2), encoding="utf-8")

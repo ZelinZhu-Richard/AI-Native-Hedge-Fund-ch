@@ -12,7 +12,7 @@ It is **not** a finished hedge fund platform. It is also not a shallow AI wrappe
 
 What is real now:
 
-- the repo has a genuine end-to-end path from raw fixture data to reviewable paper-trade candidates
+- the repo has a genuine end-to-end path from raw fixture data to review-bound portfolio proposals, plus an explicit approved-only path to paper-trade candidates
 - every major layer has typed artifacts rather than loose text blobs
 - the system already has explicit audit, review, risk, evaluation, monitoring, and red-team surfaces
 - the architecture is intentionally designed to keep human review visible and avoid accidental autonomous trading
@@ -56,14 +56,14 @@ What is credible:
 - backtests are exploratory and documented as such
 - baseline ablations are mechanical comparisons, not winner declarations
 - risk checks and review decisions are explicit artifacts
-- paper trades are clearly paper-only
+- paper trades are clearly paper-only and now require an approved proposal
 
 What is not yet trustworthy enough:
 
 - signal quality is still deterministic and skeletal
 - price fixtures are synthetic
 - there is no realistic transaction model, liquidity model, or portfolio optimizer
-- reviewed state exists but is not yet a full hard eligibility gate
+- reviewed proposal state now gates paper-trade creation, but reviewed and evaluated signal state still is not a full hard eligibility gate
 - there is no basis yet for performance extrapolation
 
 ## Strongest Architectural Decisions
@@ -71,7 +71,7 @@ What is not yet trustworthy enough:
 - typed artifacts over loose text
 - explicit provenance and timestamps
 - separation of candidate, review, and validation semantics
-- paper-trading-only downstream posture
+- paper-trading-only downstream posture with approved-proposal gating
 - monitoring, audit, evaluation, and red-team work added before any live execution idea
 
 ## Weakest Open Gaps

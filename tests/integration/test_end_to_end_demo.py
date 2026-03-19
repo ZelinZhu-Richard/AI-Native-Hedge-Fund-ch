@@ -34,7 +34,7 @@ def test_end_to_end_demo_runs_full_stack_and_persists_manifest(tmp_path: Path) -
     assert response.ablation.ablation_result.ablation_result_id
     assert response.ablation.evaluation_report is not None
     assert response.portfolio_review.final_portfolio_proposal.portfolio_proposal_id
-    assert response.portfolio_review.paper_trades
+    assert response.portfolio_review.paper_trades == []
     assert response.review_queue.queue_items
     assert response.review_note.review_note.review_note_id
     assert response.review_action.review_decision.review_decision_id
@@ -55,7 +55,13 @@ def test_end_to_end_demo_runs_full_stack_and_persists_manifest(tmp_path: Path) -
     assert response.health_checks.health_checks
     assert all(
         forbidden not in "\n".join(response.notes).lower()
-        for forbidden in ["proves alpha", "validated alpha", "live trading enabled", "guaranteed edge"]
+        for forbidden in [
+            "proves alpha",
+            "validated alpha",
+            "live trading enabled",
+            "guaranteed edge",
+            "automatic paper-trade creation",
+        ]
     )
 
 

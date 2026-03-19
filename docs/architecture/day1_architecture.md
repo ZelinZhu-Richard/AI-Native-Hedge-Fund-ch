@@ -1,6 +1,6 @@
 # Day 1 Architecture
 
-This document describes the Day 1 architectural boundary that was established first and then extended through Week 1. The contracts and service boundaries here are no longer mostly hypothetical: the local fixture-backed stack now runs from ingestion through paper-trade candidate creation.
+This document describes the Day 1 architectural boundary that was established first and then extended through Week 2. The contracts and service boundaries here are no longer mostly hypothetical: the local fixture-backed stack now runs from ingestion through review-bound portfolio proposals, with a separate approved-only path to paper-trade candidates.
 
 ## System Purpose
 
@@ -165,7 +165,7 @@ flowchart TD
 7. Exploratory backtests evaluate candidate signals under explicit temporal cutoffs.
 8. Risk checks screen ideas and portfolio proposals before any simulated execution path exists.
 9. Human reviewers approve, reject, or revise proposals.
-10. Approved or review-ready proposals may become paper-trade candidates and memos.
+10. Approved proposals may become paper-trade candidates; review-bound proposals remain non-executable and operator-facing only.
 11. Audit logs capture each material action.
 
 ## Artifact Flow

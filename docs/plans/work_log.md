@@ -710,6 +710,37 @@ Build the first honest end-to-end demonstration of the research OS and document 
 - tighter snapshot-native replay across the full research-to-portfolio chain
 - clearer operator attention handling for failed or stale demo slices
 
+## Week 2 Skeptical Audit And Hardening
+
+Status: `Completed`
+
+### Goal
+
+Audit the Week 2 repo honestly, close the loosest downstream approval gaps, and update the narrative to match the actual system.
+
+### Implemented
+
+- tightened paper-trade creation so only approved proposals can create trade candidates
+- hardened operator review approval checks for research briefs and signals
+- fixed backtest snapshot registry references so experiment dataset records can point to concrete persisted snapshot artifacts
+- updated portfolio, operator review, API, demo, and backtest tests for the stricter gates
+- added `docs/reviews/week2_review.md` and `docs/plans/week3_plan.md`
+- updated product and risk docs so the default demo now stops at a review-bound proposal instead of implying automatic trade-candidate creation
+
+### Key Decisions
+
+- approved proposals are now the only valid parent for paper-trade candidate creation
+- signal approval remains a lifecycle state, but it now requires validated status, complete lineage, and explicit uncertainty
+- Week 2 does not add a security master or full snapshot-native selection; both remain Week 3 priorities
+
+### Carry-Forward
+
+- reviewed-and-evaluated signal eligibility gates
+- snapshot-native selection across research, feature, signal, and portfolio flows
+- first-class instrument and security identity
+- broader evaluation enforcement beyond ablation
+- stronger operator attention handling
+
 ## Maintenance Rule
 
 When future work is completed:

@@ -13,7 +13,7 @@ It is meant to prove that the existing layers connect coherently:
 - exploratory backtesting
 - baseline ablation
 - portfolio proposal and risk checks
-- paper-trade candidate creation
+- operator review and approval-gated paper trading
 - monitoring, audit, and operator review artifacts
 
 It does **not** prove alpha, statistical significance, production readiness, or autonomous execution.
@@ -95,12 +95,13 @@ Useful artifact categories:
 - `ablation/ablation_results/`
 - `evaluation/reports/`
 - `portfolio/portfolio_proposals/`
-- `portfolio/paper_trades/`
 - `review/queue_items/`
 - `review/review_notes/`
 - `review/review_decisions/`
 - `audit/audit_logs/`
 - `monitoring/run_summaries/`
+
+`portfolio/paper_trades/` is only populated on an explicit approved-proposal path. The default demo does not write trade candidates.
 
 Useful API inspection endpoints:
 
@@ -114,7 +115,7 @@ Useful API inspection endpoints:
 ## What The Demo Proves
 
 - the current typed workflow layers connect end to end
-- upstream lineage survives into signals, proposals, and paper trades
+- upstream lineage survives into signals and proposals, with a separate approved-only path to paper trades
 - monitoring, audit, and review artifacts are not just placeholders
 - the system can compare simple baseline variants on the same slice
 - downstream work remains review-bound and paper-only
@@ -127,7 +128,7 @@ Useful API inspection endpoints:
 - no realistic execution simulation
 - no portfolio optimization
 - no multi-user operator console
-- no hard downstream eligibility gates yet
+- no snapshot-native replay across the full chain
 
 ## Current Sharp Edges
 
@@ -135,4 +136,4 @@ Useful API inspection endpoints:
 - pricing is synthetic
 - research, scoring, and ablation logic are still deterministic mechanical baselines
 - some workflow monitoring is still newer than the underlying artifact layers
-- review exists, but downstream enforcement is still incomplete
+- review exists, and proposal approval now gates trade-candidate creation, but broader signal eligibility enforcement is still incomplete

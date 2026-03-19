@@ -1,6 +1,6 @@
 # ANHF Research OS
 
-Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended through the first full Week 1 stack: ingestion, evidence, research, candidate features, candidate signals, exploratory backtesting, risk-aware portfolio proposals, and paper-trade candidates.
+Institutional-grade foundation for an AI-native hedge fund research and paper-trading platform, now extended through the Week 2 stack: ingestion, evidence, research, candidate features, candidate signals, exploratory backtesting, risk-aware portfolio proposals, experiment tracking, evaluation, monitoring, operator review, red-team checks, and approval-gated paper trading.
 
 This repository is the operating system for future research workflows, not a toy demo and not a live-trading system. The current scope is deliberately narrow: establish the architecture, typed contracts, service boundaries, safety controls, local development workflow, and documentation needed to build quickly without sacrificing rigor.
 
@@ -21,7 +21,7 @@ The repository currently includes:
   - candidate signal generation
   - exploratory backtesting and simulation
   - risk-aware portfolio proposal construction
-  - paper-trade candidate creation
+  - approval-gated paper-trade candidate creation
 - a thin FastAPI control-plane API with artifact-backed inspection endpoints
 - fixture-backed local datasets for repeatable development and tests
 - explicit temporal contracts, provenance, risk docs, and review plans
@@ -41,11 +41,11 @@ The repository still does **not** include:
 
 The immediate goal is Week 2 hardening, not breadth:
 
-- replace implicit latest-artifact selection with explicit snapshot or cutoff selection
-- make audit and review-state persistence operational rather than mostly structural
-- introduce a first-class instrument and reference-data bridge instead of leaning on ticker strings
-- tighten replay, leakage, and multi-generation artifact tests
+- restore approved-only paper-trade gating
+- tighten review approval semantics so recommendation and enforcement do not drift
+- make experiment references point to concrete persisted snapshots where possible
 - preserve the distinction between candidate artifacts and validated artifacts all the way downstream
+- document the remaining replay, instrument, and eligibility gaps honestly
 
 ## End-To-End Demo
 
@@ -69,9 +69,11 @@ The demo writes into an isolated artifact root under `artifacts/demo_runs/` and 
 - research briefs, features, and candidate signals
 - one exploratory backtest
 - one four-family baseline ablation
-- one portfolio proposal and paper-trade candidate set
+- one review-bound portfolio proposal
 - review queue, note, and review-decision artifacts
 - monitoring run summaries and audit logs
+
+The default demo does **not** auto-create paper-trade candidates. Those now require an explicitly approved parent proposal.
 
 See:
 

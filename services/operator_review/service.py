@@ -13,6 +13,7 @@ from libraries.schemas import (
     ArtifactStorageLocation,
     AuditLog,
     AuditOutcome,
+    DerivedArtifactValidationStatus,
     EscalationStatus,
     EvidenceGrade,
     PaperTrade,
@@ -1165,32 +1166,36 @@ class OperatorReviewService(BaseService):
         if target_type is ReviewTargetType.SIGNAL:
             signal = target
             assert isinstance(signal, Signal)
-            lineage_complete = bool(
-                signal.feature_ids
-                and signal.lineage.feature_ids
-                and signal.lineage.supporting_evidence_link_ids
-                and signal.lineage.input_families
-            )
+            lineage_complete = self._signal_lineage_complete(signal=signal)
             exposes_uncertainty = bool(signal.uncertainties)
-            if lineage_complete and exposes_uncertainty:
+            if (
+                lineage_complete
+                and exposes_uncertainty
+                and signal.validation_status is DerivedArtifactValidationStatus.VALIDATED
+            ):
                 return ActionRecommendationSummary(
                     recommended_outcome=ReviewOutcome.APPROVE,
-                    summary="Signal lineage and uncertainty are explicit enough for manual approval consideration.",
+                    summary="Signal lineage, uncertainty, and validation are explicit enough for manual approval consideration.",
                     blocking_reasons=[],
-                    warnings=[
-                        "Signal remains candidate or unvalidated until a later promotion gate is implemented."
-                    ],
+                    warnings=[],
                     follow_up_actions=["Confirm the signal still fits the active evaluation slice."],
                 )
+            blocking_reasons: list[str] = []
+            if signal.validation_status is not DerivedArtifactValidationStatus.VALIDATED:
+                blocking_reasons.append(
+                    "Signal is not validated and should not be operator-approved yet."
+                )
+            if not lineage_complete:
+                blocking_reasons.append("Signal lineage is incomplete.")
+            if not exposes_uncertainty:
+                blocking_reasons.append("Signal does not expose uncertainty explicitly.")
             return ActionRecommendationSummary(
                 recommended_outcome=ReviewOutcome.NEEDS_REVISION,
-                summary="Signal review should request revisions because lineage or uncertainty is incomplete.",
-                blocking_reasons=[],
-                warnings=[
-                    "Missing lineage completeness or visible uncertainty limits operator trust."
-                ],
+                summary="Signal review should request revisions because validation, lineage, or uncertainty is incomplete.",
+                blocking_reasons=blocking_reasons,
+                warnings=[],
                 follow_up_actions=[
-                    "Restore missing lineage fields or add explicit uncertainty before approval."
+                    "Complete validation, restore missing lineage, and add explicit uncertainty before approval."
                 ],
             )
         if target_type is ReviewTargetType.PORTFOLIO_PROPOSAL:
@@ -1362,6 +1367,29 @@ class OperatorReviewService(BaseService):
                 proposal.blocking_issues or any(check.blocking for check in proposal.risk_checks)
             ):
                 raise ValueError("Blocking portfolio proposals cannot be approved.")
+        if target_type is ReviewTargetType.RESEARCH_BRIEF:
+            brief = target
+            assert isinstance(brief, ResearchBrief)
+            if outcome is ReviewOutcome.APPROVE:
+                assessment = workspace.evidence_assessments_by_id.get(brief.evidence_assessment_id)
+                if assessment is None or not brief.supporting_evidence_links:
+                    raise ValueError(
+                        "Research briefs require linked evidence support and an evidence assessment before approval."
+                    )
+                if assessment.grade in {EvidenceGrade.WEAK, EvidenceGrade.INSUFFICIENT}:
+                    raise ValueError(
+                        "Research briefs with weak or insufficient support cannot be approved."
+                    )
+        if target_type is ReviewTargetType.SIGNAL:
+            signal = target
+            assert isinstance(signal, Signal)
+            if outcome is ReviewOutcome.APPROVE:
+                if signal.validation_status is not DerivedArtifactValidationStatus.VALIDATED:
+                    raise ValueError("Signals require validated status before approval.")
+                if not self._signal_lineage_complete(signal=signal):
+                    raise ValueError("Signals require complete lineage before approval.")
+                if not signal.uncertainties:
+                    raise ValueError("Signals require explicit uncertainties before approval.")
         if target_type is ReviewTargetType.PAPER_TRADE:
             paper_trade = target
             assert isinstance(paper_trade, PaperTrade)
@@ -1377,6 +1405,16 @@ class OperatorReviewService(BaseService):
                     check.blocking for check in parent_proposal.risk_checks
                 ):
                     raise ValueError("Paper trades cannot be approved while the parent proposal is blocked.")
+
+    def _signal_lineage_complete(self, *, signal: Signal) -> bool:
+        """Return whether the minimum lineage contract for signal approval is present."""
+
+        return bool(
+            signal.feature_ids
+            and signal.lineage.feature_ids
+            and signal.lineage.supporting_evidence_link_ids
+            and signal.lineage.input_families
+        )
 
     def _apply_target_review_action(
         self,

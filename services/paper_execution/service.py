@@ -16,10 +16,10 @@ from libraries.utils import make_canonical_id, make_prefixed_id
 
 
 class PaperTradeProposalRequest(StrictModel):
-    """Request to translate a reviewable portfolio proposal into paper-trade candidates."""
+    """Request to translate an approved portfolio proposal into paper-trade candidates."""
 
     portfolio_proposal: PortfolioProposal = Field(
-        description="Reviewable portfolio proposal to translate into paper trades."
+        description="Approved portfolio proposal to translate into paper trades."
     )
     assumed_reference_prices: dict[str, float] = Field(
         default_factory=dict,
@@ -47,7 +47,7 @@ class PaperExecutionService(BaseService):
     """Create human-reviewable paper trades without any live execution path."""
 
     capability_name = "paper_execution"
-    capability_description = "Translates reviewable portfolio proposals into paper-only trade candidates."
+    capability_description = "Translates approved portfolio proposals into paper-only trade candidates."
 
     def capability(self) -> ServiceCapability:
         """Return capability metadata for service discovery."""
@@ -61,16 +61,14 @@ class PaperExecutionService(BaseService):
         )
 
     def propose_trades(self, request: PaperTradeProposalRequest) -> PaperTradeProposalResponse:
-        """Create Day 7 paper-trade candidates from a reviewable proposal."""
+        """Create Day 7 paper-trade candidates from an approved proposal."""
 
         proposal = request.portfolio_proposal
         notes: list[str] = []
-        if proposal.status not in {
-            PortfolioProposalStatus.PENDING_REVIEW,
-            PortfolioProposalStatus.APPROVED,
-        }:
+        if proposal.status is not PortfolioProposalStatus.APPROVED:
             notes.append(
-                f"Proposal status `{proposal.status.value}` is not eligible for paper-trade creation."
+                "Paper-trade candidates require an approved parent portfolio proposal. "
+                f"Proposal status `{proposal.status.value}` is not eligible."
             )
             return PaperTradeProposalResponse(
                 trade_batch_id=make_prefixed_id("tradebatch"),

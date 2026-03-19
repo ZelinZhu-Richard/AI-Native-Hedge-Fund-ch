@@ -97,6 +97,13 @@ def test_backtesting_workflow_records_experiment_registry(tmp_path: Path) -> Non
     assert {
         benchmark.benchmark_reference_id for benchmark in response.benchmark_references
     }.issubset(metric_source_ids)
+    snapshot_uris = {
+        (artifact_root / "backtesting" / "snapshots" / f"{snapshot.data_snapshot_id}.json")
+        .resolve()
+        .as_uri()
+        for snapshot in response.data_snapshots
+    }
+    assert {reference.storage_uri for reference in response.dataset_references} == snapshot_uris
 
 
 def test_backtesting_experiment_config_is_stable_for_identical_runs(tmp_path: Path) -> None:

@@ -9,7 +9,13 @@ from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from libraries.config import get_settings
-from libraries.schemas import AblationView, BacktestConfig, BenchmarkKind, ExecutionAssumption
+from libraries.schemas import (
+    AblationView,
+    BacktestConfig,
+    BenchmarkKind,
+    ExecutionAssumption,
+    ReviewOutcome,
+)
 from libraries.schemas.base import ProvenanceRecord
 from libraries.time import FrozenClock
 from libraries.utils import make_canonical_id
@@ -104,7 +110,7 @@ def test_artifact_listing_endpoints_return_persisted_objects(
     monkeypatch.setenv("ARTIFACT_ROOT", str(artifact_root))
     get_settings.cache_clear()
     try:
-        _build_full_stack(artifact_root=artifact_root)
+        _build_full_stack(artifact_root=artifact_root, approve_proposal=True)
 
         hypotheses_response = client.get("/hypotheses")
         proposals_response = client.get("/portfolio-proposals")
@@ -132,7 +138,7 @@ def test_operator_review_endpoints_return_queue_context_and_apply_actions(
 
         queue_response = client.get("/reviews/queue")
         assert queue_response.status_code == 200
-        assert queue_response.json()["total"] >= 4
+        assert queue_response.json()["total"] >= 3
 
         research_brief_path = next((artifact_root / "research" / "research_briefs").glob("*.json"))
         brief_id = json.loads(research_brief_path.read_text(encoding="utf-8"))["research_brief_id"]
@@ -163,19 +169,19 @@ def test_operator_review_endpoints_return_queue_context_and_apply_actions(
                 "target_type": "signal",
                 "target_id": signal_id,
                 "reviewer_id": "pm_1",
-                "outcome": "approve",
-                "rationale": "Signal is ready for approved candidate handling.",
+                "outcome": "needs_revision",
+                "rationale": "Signal remains review-bound until it is validated.",
             },
         )
         assert action_response.status_code == 200
-        assert action_response.json()["updated_target"]["status"] == "approved"
+        assert action_response.json()["updated_target"]["status"] == "candidate"
         assert action_response.json()["audit_log"]["status_before"] == "candidate"
-        assert action_response.json()["audit_log"]["status_after"] == "approved"
+        assert action_response.json()["audit_log"]["status_after"] == "candidate"
     finally:
         get_settings.cache_clear()
 
 
-def _build_full_stack(*, artifact_root: Path) -> None:
+def _build_full_stack(*, artifact_root: Path, approve_proposal: bool = False) -> None:
     run_fixture_ingestion_pipeline(
         fixtures_root=FIXTURE_ROOT,
         output_root=artifact_root / "ingestion",
@@ -212,6 +218,9 @@ def _build_full_stack(*, artifact_root: Path) -> None:
         ingestion_root=artifact_root / "ingestion",
         backtesting_root=artifact_root / "backtesting",
         output_root=artifact_root / "portfolio",
+        proposal_review_outcome=(ReviewOutcome.APPROVE if approve_proposal else None),
+        reviewer_id=("api_test_reviewer" if approve_proposal else None),
+        review_notes=(["Approved for paper-trade candidate creation."] if approve_proposal else None),
         assumed_reference_prices={"APEX": 102.0},
         clock=FrozenClock(FIXED_NOW),
     )

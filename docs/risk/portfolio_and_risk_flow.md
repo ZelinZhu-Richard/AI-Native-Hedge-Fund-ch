@@ -18,7 +18,7 @@ This is the first inspectable proposal layer downstream of signals.
 6. Compute a `PortfolioExposureSummary`.
 7. Run explicit `RiskCheck` rules.
 8. Mark the proposal `pending_review`.
-9. Allow downstream paper-trade candidate creation only when blocking issues are absent.
+9. Allow downstream paper-trade candidate creation only after explicit proposal approval and only when blocking issues are absent.
 
 ## Signal To Position Mapping
 

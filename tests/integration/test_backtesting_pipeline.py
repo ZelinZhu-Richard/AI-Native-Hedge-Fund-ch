@@ -124,6 +124,13 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
     assert {reference.data_snapshot_id for reference in response.dataset_references} == {
         snapshot.data_snapshot_id for snapshot in response.data_snapshots
     }
+    expected_snapshot_uris = {
+        (artifact_root / "backtesting" / "snapshots" / f"{snapshot.data_snapshot_id}.json")
+        .resolve()
+        .as_uri()
+        for snapshot in response.data_snapshots
+    }
+    assert {reference.storage_uri for reference in response.dataset_references} == expected_snapshot_uris
     assert all(
         metric.metric_name
         in {
@@ -140,6 +147,12 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
         BenchmarkKind.FLAT_BASELINE,
         BenchmarkKind.BUY_AND_HOLD,
     }
+    partition_payload = json.loads(
+        next((artifact_root / "experiments" / "dataset_partitions").glob("*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert partition_payload["storage_location_id"] is not None
 
 
 def _backtest_config() -> BacktestConfig:

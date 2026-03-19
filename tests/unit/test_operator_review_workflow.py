@@ -10,6 +10,7 @@ from libraries.schemas import (
     AuditLog,
     BacktestConfig,
     BenchmarkKind,
+    DerivedArtifactValidationStatus,
     ExecutionAssumption,
     PaperTrade,
     PortfolioProposal,
@@ -71,8 +72,11 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
         ReviewTargetType.RESEARCH_BRIEF,
         ReviewTargetType.SIGNAL,
         ReviewTargetType.PORTFOLIO_PROPOSAL,
-        ReviewTargetType.PAPER_TRADE,
     }.issubset(target_types)
+    signal_queue_item = next(
+        item for item in sync_response.queue_items if item.target_type is ReviewTargetType.SIGNAL
+    )
+    assert signal_queue_item.action_recommendation.recommended_outcome is ReviewOutcome.NEEDS_REVISION
 
     research_brief = _load_single_model(artifact_root / "research" / "research_briefs", ResearchBrief)
     signal = _load_single_model(artifact_root / "signal_generation" / "signals", Signal)
@@ -80,12 +84,6 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
         artifact_root / "portfolio" / "portfolio_proposals",
         PortfolioProposal,
     )
-    paper_trade_payload = json.loads(
-        next((artifact_root / "portfolio" / "paper_trades").glob("*.json")).read_text(
-            encoding="utf-8"
-        )
-    )
-    paper_trade_id = paper_trade_payload["paper_trade_id"]
 
     note_response = service.add_review_note(
         AddReviewNoteRequest(
@@ -137,13 +135,13 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
     assert approved_brief.audit_log.status_before == "pending_human_review"
     assert approved_brief.audit_log.status_after == "approved_for_feature_work"
 
-    approved_signal = service.apply_review_action(
+    revised_signal = service.apply_review_action(
         ApplyReviewActionRequest(
             target_type=ReviewTargetType.SIGNAL,
             target_id=signal.signal_id,
             reviewer_id="pm_1",
-            outcome=ReviewOutcome.APPROVE,
-            rationale="Lineage and uncertainty are visible enough for approval.",
+            outcome=ReviewOutcome.NEEDS_REVISION,
+            rationale="Signal remains unvalidated and should stay review-bound.",
             review_root=artifact_root / "review",
             audit_root=artifact_root / "audit",
             research_root=artifact_root / "research",
@@ -151,8 +149,8 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
             portfolio_root=artifact_root / "portfolio",
         )
     )
-    assert isinstance(approved_signal.updated_target, Signal)
-    assert approved_signal.updated_target.status is SignalStatus.APPROVED
+    assert isinstance(revised_signal.updated_target, Signal)
+    assert revised_signal.updated_target.status is SignalStatus.CANDIDATE
 
     rejected_proposal = service.apply_review_action(
         ApplyReviewActionRequest(
@@ -171,25 +169,6 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
     assert isinstance(rejected_proposal.updated_target, PortfolioProposal)
     assert rejected_proposal.updated_target.status.value == "rejected"
     assert rejected_proposal.queue_item.queue_status is ReviewQueueStatus.RESOLVED
-
-    escalated_trade = service.apply_review_action(
-        ApplyReviewActionRequest(
-            target_type=ReviewTargetType.PAPER_TRADE,
-            target_id=paper_trade_id,
-            reviewer_id="ops_1",
-            outcome=ReviewOutcome.ESCALATE,
-            rationale="Paper trade requires escalation before approval.",
-            review_root=artifact_root / "review",
-            audit_root=artifact_root / "audit",
-            research_root=artifact_root / "research",
-            signal_root=artifact_root / "signal_generation",
-            portfolio_root=artifact_root / "portfolio",
-        )
-    )
-    assert isinstance(escalated_trade.updated_target, PaperTrade)
-    assert escalated_trade.updated_target.status.value == "proposed"
-    assert escalated_trade.queue_item.queue_status is ReviewQueueStatus.ESCALATED
-    assert escalated_trade.audit_log.action == "escalate"
 
     context = service.get_review_context(
         GetReviewContextRequest(
@@ -211,6 +190,102 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
 
     audit_logs = _load_models(artifact_root / "audit" / "audit_logs", AuditLog)
     assert any(log.status_before and log.status_after for log in audit_logs)
+
+
+def test_operator_review_blocks_unvalidated_signal_approval(tmp_path: Path) -> None:
+    artifact_root = _build_full_stack(artifact_root=tmp_path / "artifacts")
+    service = OperatorReviewService(clock=FrozenClock(FIXED_NOW))
+    signal = _load_single_model(artifact_root / "signal_generation" / "signals", Signal)
+
+    try:
+        service.apply_review_action(
+            ApplyReviewActionRequest(
+                target_type=ReviewTargetType.SIGNAL,
+                target_id=signal.signal_id,
+                reviewer_id="pm_1",
+                outcome=ReviewOutcome.APPROVE,
+                rationale="This should fail because the signal is still unvalidated.",
+                review_root=artifact_root / "review",
+                audit_root=artifact_root / "audit",
+                research_root=artifact_root / "research",
+                signal_root=artifact_root / "signal_generation",
+                portfolio_root=artifact_root / "portfolio",
+            )
+        )
+    except ValueError as exc:
+        assert "validated status" in str(exc)
+    else:
+        raise AssertionError("Expected unvalidated signal approval to be blocked.")
+
+
+def test_operator_review_allows_validated_signal_approval_and_paper_trade_escalation(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    _build_full_stack(artifact_root=artifact_root)
+
+    signal_path = next((artifact_root / "signal_generation" / "signals").glob("*.json"))
+    signal_payload = json.loads(signal_path.read_text(encoding="utf-8"))
+    signal_payload["validation_status"] = DerivedArtifactValidationStatus.VALIDATED.value
+    signal_path.write_text(json.dumps(signal_payload, indent=2), encoding="utf-8")
+
+    run_portfolio_review_pipeline(
+        signal_root=artifact_root / "signal_generation",
+        research_root=artifact_root / "research",
+        ingestion_root=artifact_root / "ingestion",
+        backtesting_root=artifact_root / "backtesting",
+        output_root=artifact_root / "portfolio",
+        proposal_review_outcome=ReviewOutcome.APPROVE,
+        reviewer_id="pm_1",
+        review_notes=["Approved for paper-trade candidate creation."],
+        assumed_reference_prices={"APEX": 102.0},
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    service = OperatorReviewService(clock=FrozenClock(FIXED_NOW))
+    signal = _load_single_model(artifact_root / "signal_generation" / "signals", Signal)
+    paper_trade_payload = json.loads(
+        next((artifact_root / "portfolio" / "paper_trades").glob("*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    paper_trade_id = paper_trade_payload["paper_trade_id"]
+
+    approved_signal = service.apply_review_action(
+        ApplyReviewActionRequest(
+            target_type=ReviewTargetType.SIGNAL,
+            target_id=signal.signal_id,
+            reviewer_id="pm_1",
+            outcome=ReviewOutcome.APPROVE,
+            rationale="Signal is validated and reviewable.",
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+        )
+    )
+    assert isinstance(approved_signal.updated_target, Signal)
+    assert approved_signal.updated_target.status is SignalStatus.APPROVED
+
+    escalated_trade = service.apply_review_action(
+        ApplyReviewActionRequest(
+            target_type=ReviewTargetType.PAPER_TRADE,
+            target_id=paper_trade_id,
+            reviewer_id="ops_1",
+            outcome=ReviewOutcome.ESCALATE,
+            rationale="Paper trade requires escalation before approval.",
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+        )
+    )
+    assert isinstance(escalated_trade.updated_target, PaperTrade)
+    assert escalated_trade.updated_target.status.value == "proposed"
+    assert escalated_trade.queue_item.queue_status is ReviewQueueStatus.ESCALATED
+    assert escalated_trade.audit_log.action == "escalate"
 
 
 def test_operator_review_recommendation_respects_blocking_proposals(tmp_path: Path) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TypeVar, cast
@@ -9,6 +10,7 @@ from libraries.schemas import (
     AuditLog,
     BacktestConfig,
     BenchmarkKind,
+    DerivedArtifactValidationStatus,
     ExecutionAssumption,
     PaperTrade,
     PortfolioProposal,
@@ -69,13 +71,11 @@ def test_operator_review_pipeline_chains_research_signal_portfolio_and_trade_rev
     research_brief = _load_single_model(artifact_root / "research" / "research_briefs", ResearchBrief)
     signal = _load_single_model(artifact_root / "signal_generation" / "signals", Signal)
     proposal = _load_single_model(artifact_root / "portfolio" / "portfolio_proposals", PortfolioProposal)
-    paper_trade = _load_single_model(artifact_root / "portfolio" / "paper_trades", PaperTrade)
 
     assert {
         (ReviewTargetType.RESEARCH_BRIEF, research_brief.research_brief_id),
         (ReviewTargetType.SIGNAL, signal.signal_id),
         (ReviewTargetType.PORTFOLIO_PROPOSAL, proposal.portfolio_proposal_id),
-        (ReviewTargetType.PAPER_TRADE, paper_trade.paper_trade_id),
     }.issubset(queue_targets)
 
     brief_action = service.apply_review_action(
@@ -97,8 +97,8 @@ def test_operator_review_pipeline_chains_research_signal_portfolio_and_trade_rev
             target_type=ReviewTargetType.SIGNAL,
             target_id=signal.signal_id,
             reviewer_id="pm_1",
-            outcome=ReviewOutcome.APPROVE,
-            rationale="Signal is acceptable for the current reviewed candidate set.",
+            outcome=ReviewOutcome.NEEDS_REVISION,
+            rationale="Signal remains review-bound until it is validated.",
             review_root=artifact_root / "review",
             audit_root=artifact_root / "audit",
             research_root=artifact_root / "research",
@@ -120,6 +120,63 @@ def test_operator_review_pipeline_chains_research_signal_portfolio_and_trade_rev
             portfolio_root=artifact_root / "portfolio",
         )
     )
+
+    assert brief_action.queue_item.queue_status is ReviewQueueStatus.RESOLVED
+    assert signal_action.queue_item.queue_status is ReviewQueueStatus.AWAITING_REVISION
+    assert proposal_action.queue_item.queue_status is ReviewQueueStatus.AWAITING_REVISION
+
+    audit_logs = _load_models(artifact_root / "audit" / "audit_logs", AuditLog)
+    review_action_logs = [
+        log
+        for log in audit_logs
+        if log.event_type in {"review_action_applied", "review_escalation_requested"}
+    ]
+    assert review_action_logs
+    assert all(log.status_before is not None and log.status_after is not None for log in review_action_logs)
+    assert any(log.event_type == "review_action_applied" for log in review_action_logs)
+
+
+def test_operator_review_pipeline_handles_paper_trade_after_explicit_approval(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    _build_full_stack(artifact_root=artifact_root)
+
+    signal_path = next((artifact_root / "signal_generation" / "signals").glob("*.json"))
+    signal_payload = Signal.model_validate_json(signal_path.read_text(encoding="utf-8")).model_dump(
+        mode="json"
+    )
+    signal_payload["validation_status"] = DerivedArtifactValidationStatus.VALIDATED.value
+    signal_path.write_text(json.dumps(signal_payload, indent=2), encoding="utf-8")
+
+    run_portfolio_review_pipeline(
+        signal_root=artifact_root / "signal_generation",
+        research_root=artifact_root / "research",
+        ingestion_root=artifact_root / "ingestion",
+        backtesting_root=artifact_root / "backtesting",
+        output_root=artifact_root / "portfolio",
+        proposal_review_outcome=ReviewOutcome.APPROVE,
+        reviewer_id="pm_1",
+        review_notes=["Approved for paper-trade candidate creation."],
+        assumed_reference_prices={"APEX": 102.0},
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    service = OperatorReviewService(clock=FrozenClock(FIXED_NOW))
+    sync_response = service.sync_review_queue(
+        SyncReviewQueueRequest(
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+        )
+    )
+    paper_trade = _load_single_model(artifact_root / "portfolio" / "paper_trades", PaperTrade)
+    assert (ReviewTargetType.PAPER_TRADE, paper_trade.paper_trade_id) in {
+        (item.target_type, item.target_id) for item in sync_response.queue_items
+    }
+
     trade_action = service.apply_review_action(
         ApplyReviewActionRequest(
             target_type=ReviewTargetType.PAPER_TRADE,
@@ -135,23 +192,9 @@ def test_operator_review_pipeline_chains_research_signal_portfolio_and_trade_rev
         )
     )
 
-    assert brief_action.queue_item.queue_status is ReviewQueueStatus.RESOLVED
-    assert signal_action.queue_item.queue_status is ReviewQueueStatus.RESOLVED
-    assert proposal_action.queue_item.queue_status is ReviewQueueStatus.AWAITING_REVISION
     assert trade_action.queue_item.queue_status is ReviewQueueStatus.ESCALATED
     assert isinstance(trade_action.updated_target, PaperTrade)
     assert trade_action.updated_target.status.value == "proposed"
-
-    audit_logs = _load_models(artifact_root / "audit" / "audit_logs", AuditLog)
-    review_action_logs = [
-        log
-        for log in audit_logs
-        if log.event_type in {"review_action_applied", "review_escalation_requested"}
-    ]
-    assert review_action_logs
-    assert all(log.status_before is not None and log.status_after is not None for log in review_action_logs)
-    assert any(log.event_type == "review_action_applied" for log in review_action_logs)
-    assert any(log.event_type == "review_escalation_requested" for log in review_action_logs)
 
 
 def _build_full_stack(*, artifact_root: Path) -> None:

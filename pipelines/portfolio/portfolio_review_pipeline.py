@@ -13,6 +13,7 @@ from libraries.schemas import (
     PipelineEventType,
     PortfolioConstraint,
     PortfolioProposal,
+    PortfolioProposalStatus,
     PositionIdea,
     ReviewDecision,
     ReviewOutcome,
@@ -216,6 +217,11 @@ def run_portfolio_review_pipeline(
             )
         )
         notes.extend(paper_trade_response.notes)
+        proposal_is_approved = final_portfolio_proposal.status is PortfolioProposalStatus.APPROVED
+        if not proposal_is_approved and not paper_trade_response.proposed_trades:
+            notes.append(
+                "Paper-trade creation was skipped because the portfolio proposal remains review-bound."
+            )
         for paper_trade in paper_trade_response.proposed_trades:
             storage_locations.append(
                 store.persist_model(
@@ -306,7 +312,10 @@ def run_portfolio_review_pipeline(
         ]
         summary_status = WorkflowStatus.SUCCEEDED
         attention_reasons: list[str] = []
-        if final_portfolio_proposal.blocking_issues or not paper_trade_response.proposed_trades:
+        requires_attention = bool(final_portfolio_proposal.blocking_issues) or (
+            proposal_is_approved and not paper_trade_response.proposed_trades
+        )
+        if requires_attention:
             attention_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
                     workflow_name="portfolio_review_pipeline",
@@ -317,7 +326,7 @@ def run_portfolio_review_pipeline(
                     message=(
                         final_portfolio_proposal.blocking_issues[0]
                         if final_portfolio_proposal.blocking_issues
-                        else "Portfolio review pipeline produced no paper-trade candidates."
+                        else "Approved portfolio proposal produced no paper-trade candidates."
                     ),
                     related_artifact_ids=[final_portfolio_proposal.portfolio_proposal_id],
                     notes=[f"requested_by={requested_by}"],
@@ -327,7 +336,7 @@ def run_portfolio_review_pipeline(
             pipeline_event_ids.append(attention_event.pipeline_event.pipeline_event_id)
             summary_status = WorkflowStatus.ATTENTION_REQUIRED
             attention_reasons.extend(final_portfolio_proposal.blocking_issues)
-            if not paper_trade_response.proposed_trades:
+            if proposal_is_approved and not paper_trade_response.proposed_trades:
                 attention_reasons.append("no_paper_trade_candidates")
         monitoring_service.record_run_summary(
             RecordRunSummaryRequest(
