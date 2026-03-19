@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install format lint typecheck test api
+.PHONY: install format lint typecheck test api demo
 
 install:
 	$(PYTHON) -m pip install --upgrade pip
@@ -20,3 +20,6 @@ test:
 
 api:
 	$(PYTHON) -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload
+
+demo:
+	$(PYTHON) -m pipelines.demo.end_to_end_demo --frozen-time 2026-04-01T12:00:00Z --base-root artifacts/demo_runs/week2_demo

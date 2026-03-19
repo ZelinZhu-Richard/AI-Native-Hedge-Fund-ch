@@ -14,13 +14,20 @@ from libraries.schemas import (
     Feature,
     FeatureDefinition,
     FeatureValue,
+    PipelineEventType,
     StrictModel,
+    WorkflowStatus,
 )
 from libraries.utils import make_canonical_id, make_prefixed_id
 from services.audit import AuditEventRequest, AuditLoggingService
 from services.feature_store.loaders import load_feature_mapping_inputs
 from services.feature_store.mapping import build_feature_candidates
 from services.feature_store.storage import LocalFeatureArtifactStore
+from services.monitoring import (
+    MonitoringService,
+    RecordPipelineEventRequest,
+    RecordRunSummaryRequest,
+)
 
 
 class FeatureWriteRequest(StrictModel):
@@ -181,94 +188,221 @@ class FeatureStoreService(BaseService):
         """Execute deterministic Day 5 feature mapping from research artifacts."""
 
         feature_mapping_run_id = make_prefixed_id("fmap")
+        output_root = request.output_root or (
+            get_settings().resolved_artifact_root / "signal_generation"
+        )
+        audit_root = output_root.parent / "audit"
+        monitoring_root = output_root.parent / "monitoring"
+        monitoring_service = MonitoringService(clock=self.clock)
+        started_at = self.clock.now()
+        start_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="feature_mapping",
+                workflow_run_id=feature_mapping_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_STARTED,
+                status=WorkflowStatus.RUNNING,
+                message="Feature mapping workflow started.",
+                related_artifact_ids=[],
+                notes=[f"requested_by={request.requested_by}"],
+            ),
+            output_root=monitoring_root,
+        )
         inferred_parsing_root = request.parsing_root
         if inferred_parsing_root is None:
             sibling_parsing_root = request.research_root.parent / "parsing"
             inferred_parsing_root = sibling_parsing_root if sibling_parsing_root.exists() else None
 
-        inputs = load_feature_mapping_inputs(
-            research_root=request.research_root,
-            parsing_root=inferred_parsing_root,
-            company_id=request.company_id,
-            as_of_time=request.as_of_time,
-        )
-        result = build_feature_candidates(
-            inputs=inputs,
-            ablation_view=request.ablation_view,
-            clock=self.clock,
-            workflow_run_id=feature_mapping_run_id,
-        )
-        output_root = request.output_root or (
-            get_settings().resolved_artifact_root / "signal_generation"
-        )
-        audit_root = output_root.parent / "audit"
-        store = LocalFeatureArtifactStore(root=output_root, clock=self.clock)
-        storage_locations: list[ArtifactStorageLocation] = []
-        for feature_definition in result.feature_definitions:
-            storage_locations.append(
-                store.persist_model(
-                    artifact_id=feature_definition.feature_definition_id,
-                    category="feature_definitions",
-                    model=feature_definition,
-                    source_reference_ids=feature_definition.provenance.source_reference_ids,
+        try:
+            inputs = load_feature_mapping_inputs(
+                research_root=request.research_root,
+                parsing_root=inferred_parsing_root,
+                company_id=request.company_id,
+                as_of_time=request.as_of_time,
+            )
+            result = build_feature_candidates(
+                inputs=inputs,
+                ablation_view=request.ablation_view,
+                clock=self.clock,
+                workflow_run_id=feature_mapping_run_id,
+            )
+            store = LocalFeatureArtifactStore(root=output_root, clock=self.clock)
+            storage_locations: list[ArtifactStorageLocation] = []
+            for feature_definition in result.feature_definitions:
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=feature_definition.feature_definition_id,
+                        category="feature_definitions",
+                        model=feature_definition,
+                        source_reference_ids=feature_definition.provenance.source_reference_ids,
+                    )
                 )
-            )
-        for feature_value in result.feature_values:
-            storage_locations.append(
-                store.persist_model(
-                    artifact_id=feature_value.feature_value_id,
-                    category="feature_values",
-                    model=feature_value,
-                    source_reference_ids=feature_value.provenance.source_reference_ids,
+            for feature_value in result.feature_values:
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=feature_value.feature_value_id,
+                        category="feature_values",
+                        model=feature_value,
+                        source_reference_ids=feature_value.provenance.source_reference_ids,
+                    )
                 )
-            )
-        for feature in result.features:
-            storage_locations.append(self._persist_feature(store=store, feature=feature))
-        notes = list(result.notes)
-        if request.as_of_time is None:
-            notes.append(
-                "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
-            )
-        else:
-            notes.append(f"as_of_time={request.as_of_time.isoformat()}")
-        audit_response = AuditLoggingService(clock=self.clock).record_event(
-            AuditEventRequest(
-                event_type=(
-                    "feature_mapping_completed"
-                    if result.features
-                    else "feature_mapping_blocked"
+            for feature in result.features:
+                storage_locations.append(self._persist_feature(store=store, feature=feature))
+            notes = list(result.notes)
+            if request.as_of_time is None:
+                notes.append(
+                    "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
+                )
+            else:
+                notes.append(f"as_of_time={request.as_of_time.isoformat()}")
+            audit_response = AuditLoggingService(clock=self.clock).record_event(
+                AuditEventRequest(
+                    event_type=(
+                        "feature_mapping_completed"
+                        if result.features
+                        else "feature_mapping_blocked"
+                    ),
+                    actor_type="service",
+                    actor_id="feature_store",
+                    target_type="feature_mapping_workflow",
+                    target_id=feature_mapping_run_id,
+                    action="completed" if result.features else "blocked",
+                    outcome=AuditOutcome.SUCCESS if result.features else AuditOutcome.WARNING,
+                    reason=(
+                        "Candidate features were materialized from research artifacts."
+                        if result.features
+                        else "No candidate features were materialized for the requested research slice."
+                    ),
+                    request_id=feature_mapping_run_id,
+                    related_artifact_ids=[
+                        *[
+                            feature_definition.feature_definition_id
+                            for feature_definition in result.feature_definitions
+                        ],
+                        *[feature_value.feature_value_id for feature_value in result.feature_values],
+                        *[feature.feature_id for feature in result.features],
+                    ],
+                    notes=notes,
                 ),
-                actor_type="service",
-                actor_id="feature_store",
-                target_type="feature_mapping_workflow",
-                target_id=feature_mapping_run_id,
-                action="completed" if result.features else "blocked",
-                outcome=AuditOutcome.SUCCESS if result.features else AuditOutcome.WARNING,
-                reason=(
-                    "Candidate features were materialized from research artifacts."
-                    if result.features
-                    else "No candidate features were materialized for the requested research slice."
+                output_root=audit_root,
+            )
+            storage_locations.append(audit_response.storage_location)
+            completed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="feature_mapping",
+                    workflow_run_id=feature_mapping_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_COMPLETED,
+                    status=WorkflowStatus.SUCCEEDED,
+                    message=(
+                        "Feature mapping workflow completed."
+                        if result.features
+                        else "Feature mapping workflow completed without materialized features."
+                    ),
+                    related_artifact_ids=[
+                        *[
+                            feature_definition.feature_definition_id
+                            for feature_definition in result.feature_definitions
+                        ],
+                        *[feature_value.feature_value_id for feature_value in result.feature_values],
+                        *[feature.feature_id for feature in result.features],
+                    ],
+                    notes=[f"requested_by={request.requested_by}"],
                 ),
-                request_id=feature_mapping_run_id,
-                related_artifact_ids=[
-                    *[feature_definition.feature_definition_id for feature_definition in result.feature_definitions],
-                    *[feature_value.feature_value_id for feature_value in result.feature_values],
-                    *[feature.feature_id for feature in result.features],
-                ],
+                output_root=monitoring_root,
+            )
+            pipeline_event_ids = [
+                start_event.pipeline_event.pipeline_event_id,
+                completed_event.pipeline_event.pipeline_event_id,
+            ]
+            summary_status = WorkflowStatus.SUCCEEDED
+            attention_reasons: list[str] = []
+            if not result.features:
+                attention_event = monitoring_service.record_pipeline_event(
+                    RecordPipelineEventRequest(
+                        workflow_name="feature_mapping",
+                        workflow_run_id=feature_mapping_run_id,
+                        service_name=self.capability_name,
+                        event_type=PipelineEventType.ATTENTION_REQUIRED,
+                        status=WorkflowStatus.ATTENTION_REQUIRED,
+                        message="Feature mapping produced no candidate features.",
+                        related_artifact_ids=[],
+                        notes=[f"requested_by={request.requested_by}"],
+                    ),
+                    output_root=monitoring_root,
+                )
+                pipeline_event_ids.append(attention_event.pipeline_event.pipeline_event_id)
+                summary_status = WorkflowStatus.ATTENTION_REQUIRED
+                attention_reasons.append("no_candidate_features")
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="feature_mapping",
+                    workflow_run_id=feature_mapping_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=summary_status,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=storage_locations,
+                    produced_artifact_ids=[
+                        *[
+                            feature_definition.feature_definition_id
+                            for feature_definition in result.feature_definitions
+                        ],
+                        *[feature_value.feature_value_id for feature_value in result.feature_values],
+                        *[feature.feature_id for feature in result.features],
+                    ],
+                    pipeline_event_ids=pipeline_event_ids,
+                    attention_reasons=attention_reasons,
+                    notes=notes,
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            return RunFeatureMappingResponse(
+                feature_mapping_run_id=feature_mapping_run_id,
+                company_id=inputs.company_id,
+                feature_definitions=result.feature_definitions,
+                feature_values=result.feature_values,
+                features=result.features,
+                storage_locations=storage_locations,
                 notes=notes,
-            ),
-            output_root=audit_root,
-        )
-        storage_locations.append(audit_response.storage_location)
-        return RunFeatureMappingResponse(
-            feature_mapping_run_id=feature_mapping_run_id,
-            company_id=inputs.company_id,
-            feature_definitions=result.feature_definitions,
-            feature_values=result.feature_values,
-            features=result.features,
-            storage_locations=storage_locations,
-            notes=notes,
-        )
+            )
+        except Exception as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="feature_mapping",
+                    workflow_run_id=feature_mapping_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=f"Feature mapping workflow failed: {exc}",
+                    related_artifact_ids=[],
+                    notes=[f"requested_by={request.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="feature_mapping",
+                    workflow_run_id=feature_mapping_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[f"requested_by={request.requested_by}"],
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
 
     def _persist_feature(
         self,

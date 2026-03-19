@@ -11,12 +11,19 @@ from libraries.schemas import (
     AblationView,
     ArtifactStorageLocation,
     AuditOutcome,
+    PipelineEventType,
     Signal,
     SignalScore,
     StrictModel,
+    WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.monitoring import (
+    MonitoringService,
+    RecordPipelineEventRequest,
+    RecordRunSummaryRequest,
+)
 from services.signal_generation.loaders import load_signal_generation_inputs
 from services.signal_generation.scoring import build_candidate_signals
 from services.signal_generation.storage import LocalSignalArtifactStore
@@ -131,87 +138,203 @@ class SignalGenerationService(BaseService):
         """Execute deterministic Day 5 signal generation from persisted feature artifacts."""
 
         signal_generation_run_id = make_prefixed_id("sgen")
+        output_root = request.output_root or (
+            get_settings().resolved_artifact_root / "signal_generation"
+        )
+        audit_root = output_root.parent / "audit"
+        monitoring_root = output_root.parent / "monitoring"
+        monitoring_service = MonitoringService(clock=self.clock)
+        started_at = self.clock.now()
+        start_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="signal_generation",
+                workflow_run_id=signal_generation_run_id,
+                service_name=self.capability_name,
+                event_type=PipelineEventType.RUN_STARTED,
+                status=WorkflowStatus.RUNNING,
+                message="Signal generation workflow started.",
+                related_artifact_ids=[],
+                notes=[f"requested_by={request.requested_by}"],
+            ),
+            output_root=monitoring_root,
+        )
         inferred_research_root = request.research_root
         if inferred_research_root is None:
             sibling_research_root = request.feature_root.parent / "research"
             inferred_research_root = sibling_research_root if sibling_research_root.exists() else None
 
-        inputs = load_signal_generation_inputs(
-            feature_root=request.feature_root,
-            research_root=inferred_research_root,
-            company_id=request.company_id,
-            as_of_time=request.as_of_time,
-        )
-        result = build_candidate_signals(
-            inputs=inputs,
-            ablation_view=request.ablation_view,
-            clock=self.clock,
-            workflow_run_id=signal_generation_run_id,
-        )
-        output_root = request.output_root or (
-            get_settings().resolved_artifact_root / "signal_generation"
-        )
-        audit_root = output_root.parent / "audit"
-        store = LocalSignalArtifactStore(root=output_root, clock=self.clock)
-        storage_locations: list[ArtifactStorageLocation] = []
-        for signal_score in result.signal_scores:
-            storage_locations.append(
-                store.persist_model(
-                    artifact_id=signal_score.signal_score_id,
-                    category="signal_scores",
-                    model=signal_score,
-                    source_reference_ids=[],
+        try:
+            inputs = load_signal_generation_inputs(
+                feature_root=request.feature_root,
+                research_root=inferred_research_root,
+                company_id=request.company_id,
+                as_of_time=request.as_of_time,
+            )
+            result = build_candidate_signals(
+                inputs=inputs,
+                ablation_view=request.ablation_view,
+                clock=self.clock,
+                workflow_run_id=signal_generation_run_id,
+            )
+            store = LocalSignalArtifactStore(root=output_root, clock=self.clock)
+            storage_locations: list[ArtifactStorageLocation] = []
+            for signal_score in result.signal_scores:
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=signal_score.signal_score_id,
+                        category="signal_scores",
+                        model=signal_score,
+                        source_reference_ids=[],
+                    )
                 )
-            )
-        for signal in result.signals:
-            storage_locations.append(
-                store.persist_model(
-                    artifact_id=signal.signal_id,
-                    category="signals",
-                    model=signal,
-                    source_reference_ids=signal.provenance.source_reference_ids,
+            for signal in result.signals:
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=signal.signal_id,
+                        category="signals",
+                        model=signal,
+                        source_reference_ids=signal.provenance.source_reference_ids,
+                    )
                 )
-            )
-        notes = list(result.notes)
-        if request.as_of_time is None:
-            notes.append(
-                "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
-            )
-        else:
-            notes.append(f"as_of_time={request.as_of_time.isoformat()}")
-        audit_response = AuditLoggingService(clock=self.clock).record_event(
-            AuditEventRequest(
-                event_type=(
-                    "signal_generation_completed"
-                    if result.signals
-                    else "signal_generation_blocked"
+            notes = list(result.notes)
+            if request.as_of_time is None:
+                notes.append(
+                    "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
+                )
+            else:
+                notes.append(f"as_of_time={request.as_of_time.isoformat()}")
+            audit_response = AuditLoggingService(clock=self.clock).record_event(
+                AuditEventRequest(
+                    event_type=(
+                        "signal_generation_completed"
+                        if result.signals
+                        else "signal_generation_blocked"
+                    ),
+                    actor_type="service",
+                    actor_id="signal_generation",
+                    target_type="signal_generation_workflow",
+                    target_id=signal_generation_run_id,
+                    action="completed" if result.signals else "blocked",
+                    outcome=AuditOutcome.SUCCESS if result.signals else AuditOutcome.WARNING,
+                    reason=(
+                        "Candidate signals were materialized from candidate features."
+                        if result.signals
+                        else "No candidate signals were emitted for the requested ablation view."
+                    ),
+                    request_id=signal_generation_run_id,
+                    related_artifact_ids=[
+                        *[signal_score.signal_score_id for signal_score in result.signal_scores],
+                        *[signal.signal_id for signal in result.signals],
+                    ],
+                    notes=notes,
                 ),
-                actor_type="service",
-                actor_id="signal_generation",
-                target_type="signal_generation_workflow",
-                target_id=signal_generation_run_id,
-                action="completed" if result.signals else "blocked",
-                outcome=AuditOutcome.SUCCESS if result.signals else AuditOutcome.WARNING,
-                reason=(
-                    "Candidate signals were materialized from candidate features."
-                    if result.signals
-                    else "No candidate signals were emitted for the requested ablation view."
+                output_root=audit_root,
+            )
+            storage_locations.append(audit_response.storage_location)
+            completed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="signal_generation",
+                    workflow_run_id=signal_generation_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_COMPLETED,
+                    status=WorkflowStatus.SUCCEEDED,
+                    message=(
+                        "Signal generation workflow completed."
+                        if result.signals
+                        else "Signal generation workflow completed without candidate signals."
+                    ),
+                    related_artifact_ids=[
+                        *[signal_score.signal_score_id for signal_score in result.signal_scores],
+                        *[signal.signal_id for signal in result.signals],
+                    ],
+                    notes=[f"requested_by={request.requested_by}"],
                 ),
-                request_id=signal_generation_run_id,
-                related_artifact_ids=[
-                    *[signal_score.signal_score_id for signal_score in result.signal_scores],
-                    *[signal.signal_id for signal in result.signals],
-                ],
+                output_root=monitoring_root,
+            )
+            pipeline_event_ids = [
+                start_event.pipeline_event.pipeline_event_id,
+                completed_event.pipeline_event.pipeline_event_id,
+            ]
+            summary_status = WorkflowStatus.SUCCEEDED
+            attention_reasons: list[str] = []
+            if not result.signals:
+                attention_event = monitoring_service.record_pipeline_event(
+                    RecordPipelineEventRequest(
+                        workflow_name="signal_generation",
+                        workflow_run_id=signal_generation_run_id,
+                        service_name=self.capability_name,
+                        event_type=PipelineEventType.ATTENTION_REQUIRED,
+                        status=WorkflowStatus.ATTENTION_REQUIRED,
+                        message="Signal generation emitted no candidate signals.",
+                        related_artifact_ids=[],
+                        notes=[f"requested_by={request.requested_by}"],
+                    ),
+                    output_root=monitoring_root,
+                )
+                pipeline_event_ids.append(attention_event.pipeline_event.pipeline_event_id)
+                summary_status = WorkflowStatus.ATTENTION_REQUIRED
+                attention_reasons.append("no_candidate_signals")
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="signal_generation",
+                    workflow_run_id=signal_generation_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=summary_status,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=storage_locations,
+                    produced_artifact_ids=[
+                        *[signal_score.signal_score_id for signal_score in result.signal_scores],
+                        *[signal.signal_id for signal in result.signals],
+                    ],
+                    pipeline_event_ids=pipeline_event_ids,
+                    attention_reasons=attention_reasons,
+                    notes=notes,
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            return RunSignalGenerationWorkflowResponse(
+                signal_generation_run_id=signal_generation_run_id,
+                company_id=inputs.company_id,
+                signals=result.signals,
+                signal_scores=result.signal_scores,
+                storage_locations=storage_locations,
                 notes=notes,
-            ),
-            output_root=audit_root,
-        )
-        storage_locations.append(audit_response.storage_location)
-        return RunSignalGenerationWorkflowResponse(
-            signal_generation_run_id=signal_generation_run_id,
-            company_id=inputs.company_id,
-            signals=result.signals,
-            signal_scores=result.signal_scores,
-            storage_locations=storage_locations,
-            notes=notes,
-        )
+            )
+        except Exception as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="signal_generation",
+                    workflow_run_id=signal_generation_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=f"Signal generation workflow failed: {exc}",
+                    related_artifact_ids=[],
+                    notes=[f"requested_by={request.requested_by}"],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="signal_generation",
+                    workflow_run_id=signal_generation_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[f"requested_by={request.requested_by}"],
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise

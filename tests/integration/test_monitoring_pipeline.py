@@ -152,9 +152,16 @@ def test_monitoring_pipeline_persists_run_summaries_for_target_workflows(tmp_pat
     run_summaries = _load_models(artifact_root / "monitoring" / "run_summaries", RunSummary)
     workflow_names = {summary.workflow_name for summary in run_summaries}
 
-    assert {"fixture_ingestion", "evidence_extraction", "strategy_ablation", "review_action"}.issubset(
-        workflow_names
-    )
+    assert {
+        "fixture_ingestion",
+        "evidence_extraction",
+        "research_workflow",
+        "feature_mapping",
+        "signal_generation",
+        "strategy_ablation",
+        "portfolio_review_pipeline",
+        "review_action",
+    }.issubset(workflow_names)
 
     ablation_summary = next(
         summary for summary in run_summaries if summary.workflow_name == "strategy_ablation"
@@ -181,6 +188,10 @@ def test_monitoring_pipeline_persists_run_summaries_for_target_workflows(tmp_pat
         GetServiceStatusesRequest(monitoring_root=artifact_root / "monitoring")
     )
     assert any(status.service_name == "backtesting" for status in service_statuses.items)
+    assert any(status.service_name == "research_orchestrator" for status in service_statuses.items)
+    assert any(status.service_name == "feature_store" for status in service_statuses.items)
+    assert any(status.service_name == "signal_generation" for status in service_statuses.items)
+    assert any(status.service_name == "portfolio" for status in service_statuses.items)
     assert any(status.service_name == "operator_review" for status in service_statuses.items)
 
     failure_summaries = monitoring_service.list_recent_failure_summaries(

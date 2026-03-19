@@ -47,6 +47,37 @@ The immediate goal is Week 2 hardening, not breadth:
 - tighten replay, leakage, and multi-generation artifact tests
 - preserve the distinction between candidate artifacts and validated artifacts all the way downstream
 
+## End-To-End Demo
+
+The repo now includes one reproducible local end-to-end demo that runs the current stack over the APEX fixtures and synthetic prices without claiming alpha or production readiness.
+
+Run it with:
+
+```bash
+make demo
+```
+
+Or use the module entrypoint directly:
+
+```bash
+python -m pipelines.demo.end_to_end_demo --frozen-time 2026-04-01T12:00:00Z
+```
+
+The demo writes into an isolated artifact root under `artifacts/demo_runs/` and produces:
+
+- ingestion and parsing artifacts
+- research briefs, features, and candidate signals
+- one exploratory backtest
+- one four-family baseline ablation
+- one portfolio proposal and paper-trade candidate set
+- review queue, note, and review-decision artifacts
+- monitoring run summaries and audit logs
+
+See:
+
+- `docs/product/end_to_end_demo.md`
+- `docs/product/system_narrative.md`
+
 ## Design Intent
 
 The platform is structured so future work can separate and audit:

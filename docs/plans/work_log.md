@@ -678,6 +678,38 @@ Add the first explicit adversarial test layer so weak or misleading artifact sta
 - stronger operator-facing attention handling for failed and brittle slices
 - tighter linkage between red-team findings and downstream promotion boundaries
 
+## Day 14: End-To-End Demo And System Narrative
+
+Status: `Completed`
+
+### Goal
+
+Build the first honest end-to-end demonstration of the research OS and document what the system actually does today.
+
+### Implemented
+
+- added `pipelines/demo/run_end_to_end_demo()` plus a CLI module entrypoint
+- added `make demo` for the reproducible local walkthrough
+- built one isolated demo flow spanning ingestion, parsing, research, feature mapping, signal generation, exploratory backtesting, strategy ablation, portfolio proposal, paper-trade candidate creation, monitoring, audit, and operator review artifacts
+- persisted one demo manifest under the demo root that points to the real stage outputs
+- extended monitoring coverage to research, feature mapping, signal generation, and the portfolio review pipeline
+- added demo integration and CLI smoke tests
+- added product docs for the end-to-end demo and the system narrative
+- added `docs/plans/week2_review_plan.md`
+
+### Key Decisions
+
+- the demo remains local, fixture-backed, and synthetic-price-backed
+- the demo includes both a single exploratory backtest and a four-family baseline ablation
+- the demo records a conservative review note and a `needs_revision` decision instead of simulating approval
+- the narrative is explicit about what is real versus still skeletal
+
+### Carry-Forward
+
+- downstream eligibility gates that make reviewed and evaluated state hard requirements
+- tighter snapshot-native replay across the full research-to-portfolio chain
+- clearer operator attention handling for failed or stale demo slices
+
 ## Maintenance Rule
 
 When future work is completed:
