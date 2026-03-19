@@ -622,6 +622,62 @@ Add a small but serious monitoring layer that makes key workflows inspectable wi
 - richer monitoring around stale workflows and blocked eligibility
 - explicit snapshot selection tied into the monitoring surface
 
+## Day 13: Red-Team And Adversarial Guardrail Layer
+
+Status: `Completed`
+
+### Goal
+
+Add the first explicit adversarial test layer so weak or misleading artifact states can be triggered intentionally, detected structurally, and recorded as first-class failures.
+
+### Plan Focus
+
+- dedicated red-team schemas
+- deterministic adversarial scenarios
+- explicit guardrail violations and mitigations
+- monitoring and audit integration for suite runs
+- fixture-backed tests and docs
+
+### Implemented
+
+- added `libraries/schemas/red_team.py` with:
+  - `AdversarialInput`
+  - `RecommendedMitigation`
+  - `GuardrailViolation`
+  - `SafetyFinding`
+  - `RedTeamCase`
+  - `FailureSeverity` as the shared `Severity` scale
+- added `services/red_team/` with:
+  - deterministic scenario execution
+  - local artifact persistence under `artifacts/red_team/`
+  - monitoring integration through `RunSummary` and alerts
+  - audit logging for suite completion
+- implemented explicit guardrails for:
+  - provenance presence
+  - required evidence presence
+  - claim strength versus support
+  - review bypass
+  - paper-trade approval completeness
+  - experiment reference completeness
+  - empty extraction protection
+  - timestamp ordering
+- added fixture-backed unit tests and an end-to-end integration test proving upstream persisted artifacts are not mutated by adversarial execution
+- added Day 13 docs for red-team behavior, adversarial cases, and the Day 14 target
+
+### Key Decisions
+
+- red-team artifacts live in a dedicated schema and service layer rather than being folded into evaluation objects
+- the suite operates on cloned in-memory artifacts only
+- monitoring is the primary operational sink for red-team failures
+- current enforcement is through structured artifacts, tests, alerts, and audit, not automatic runtime blocking
+
+### Carry-Forward
+
+- downstream eligibility gates that make reviewed, evaluated, and red-team-sensitive state matter operationally
+- broader adversarial temporal and stale-slice coverage
+- stronger operator-facing attention handling for failed and brittle slices
+- tighter linkage between red-team findings and downstream promotion boundaries
+
 ## Maintenance Rule
 
 When future work is completed:
