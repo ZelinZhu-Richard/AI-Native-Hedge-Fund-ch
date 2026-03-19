@@ -61,7 +61,6 @@ from libraries.schemas.portfolio import (
     PortfolioExposureSummary,
     PortfolioProposal,
     PositionIdea,
-    ReviewDecision,
     RiskCheck,
 )
 from libraries.schemas.research import (
@@ -128,6 +127,17 @@ from libraries.schemas.research import (
     StrategyVariantSignal,
     SupportingEvidenceLink,
 )
+from libraries.schemas.review import (
+    ActionRecommendationSummary,
+    EscalationStatus,
+    ReviewAssignment,
+    ReviewContext,
+    ReviewDecision,
+    ReviewNote,
+    ReviewQueueItem,
+    ReviewQueueStatus,
+    ReviewTargetType,
+)
 from libraries.schemas.storage import (
     ArtifactStorageLocation,
     DatasetManifest,
@@ -142,6 +152,7 @@ from libraries.schemas.system import AuditLog
 __all__ = [
     "AgentRun",
     "AgentRunStatus",
+    "ActionRecommendationSummary",
     "AuditLog",
     "AuditOutcome",
     "ArtifactStorageLocation",
@@ -178,6 +189,7 @@ __all__ = [
     "DocumentSegment",
     "DocumentStatus",
     "EarningsCall",
+    "EscalationStatus",
     "EvidenceSpan",
     "Experiment",
     "ExperimentStatus",
@@ -237,11 +249,17 @@ __all__ = [
     "ResearchReviewStatus",
     "ResearchStance",
     "ResearchValidationStatus",
+    "ReviewAssignment",
+    "ReviewContext",
+    "ReviewDecision",
+    "ReviewNote",
     "RobustnessCheck",
     "RobustnessCheckKind",
     "RiskCategory",
-    "ReviewDecision",
     "ReviewOutcome",
+    "ReviewQueueItem",
+    "ReviewQueueStatus",
+    "ReviewTargetType",
     "RiskCheck",
     "RiskCheckStatus",
     "Severity",

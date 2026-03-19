@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TypeVar
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import Field
 
 from agents.registry import list_agent_descriptors
@@ -11,10 +11,29 @@ from libraries.config import get_settings
 from libraries.core import AgentDescriptor, ServiceCapability
 from libraries.core.service_registry import build_service_registry
 from libraries.logging import configure_logging
-from libraries.schemas import Hypothesis, PaperTrade, PortfolioProposal, StrictModel
+from libraries.schemas import (
+    Hypothesis,
+    PaperTrade,
+    PortfolioProposal,
+    ReviewContext,
+    ReviewQueueItem,
+    ReviewTargetType,
+    StrictModel,
+)
 from libraries.schemas.base import TimestampedModel
 from libraries.time import SystemClock, isoformat_z
 from services.ingestion import DocumentIngestionRequest, DocumentIngestionResponse, IngestionService
+from services.operator_review import (
+    AddReviewNoteRequest,
+    AddReviewNoteResponse,
+    ApplyReviewActionRequest,
+    ApplyReviewActionResponse,
+    AssignReviewRequest,
+    AssignReviewResponse,
+    GetReviewContextRequest,
+    ListReviewQueueRequest,
+    OperatorReviewService,
+)
 
 T = TypeVar("T", bound=TimestampedModel)
 
@@ -68,6 +87,14 @@ class PaperTradeProposalListResponse(StrictModel):
         description="Paper trade proposals visible to the caller.",
     )
     total: int = Field(description="Count of paper trade proposals returned.")
+
+
+class ReviewQueueApiResponse(StrictModel):
+    """Operator review queue response."""
+
+    items: list[ReviewQueueItem] = Field(default_factory=list)
+    total: int = Field(description="Count of review queue items returned.")
+    notes: list[str] = Field(default_factory=list)
 
 
 settings = get_settings()
@@ -163,6 +190,73 @@ def list_paper_trade_proposals() -> PaperTradeProposalListResponse:
         PaperTrade,
     )
     return PaperTradeProposalListResponse(items=items, total=len(items))
+
+
+@app.get("/reviews/queue", response_model=ReviewQueueApiResponse, tags=["review"])
+def list_review_queue() -> ReviewQueueApiResponse:
+    """Return operator review queue items backed by persisted artifacts."""
+
+    service = service_registry["operator_review"]
+    assert isinstance(service, OperatorReviewService)
+    response = service.list_review_queue(ListReviewQueueRequest())
+    return ReviewQueueApiResponse(items=response.items, total=response.total, notes=response.notes)
+
+
+@app.get(
+    "/reviews/context/{target_type}/{target_id}",
+    response_model=ReviewContext,
+    tags=["review"],
+)
+def get_review_context(target_type: ReviewTargetType, target_id: str) -> ReviewContext:
+    """Return the derived operator-console review context for one target."""
+
+    service = service_registry["operator_review"]
+    assert isinstance(service, OperatorReviewService)
+    try:
+        return service.get_review_context(
+            GetReviewContextRequest(
+                target_type=target_type,
+                target_id=target_id,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/reviews/notes", response_model=AddReviewNoteResponse, tags=["review"])
+def add_review_note(request: AddReviewNoteRequest) -> AddReviewNoteResponse:
+    """Persist one operator review note."""
+
+    service = service_registry["operator_review"]
+    assert isinstance(service, OperatorReviewService)
+    try:
+        return service.add_review_note(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/reviews/assignments", response_model=AssignReviewResponse, tags=["review"])
+def assign_review(request: AssignReviewRequest) -> AssignReviewResponse:
+    """Assign one review queue item to one operator."""
+
+    service = service_registry["operator_review"]
+    assert isinstance(service, OperatorReviewService)
+    try:
+        return service.assign_review(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/reviews/actions", response_model=ApplyReviewActionResponse, tags=["review"])
+def apply_review_action(request: ApplyReviewActionRequest) -> ApplyReviewActionResponse:
+    """Apply one explicit review action to a reviewable target."""
+
+    service = service_registry["operator_review"]
+    assert isinstance(service, OperatorReviewService)
+    try:
+        return service.apply_review_action(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _artifact_root() -> Path:

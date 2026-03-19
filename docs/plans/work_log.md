@@ -504,6 +504,67 @@ Build the first explicit evaluation layer that records structural quality, visib
 - promotion gates from exploratory to downstream-eligible artifacts
 - snapshot-native selection for evaluation and downstream enforcement
 
+## Day 11: Operator Review Workflow And Console Contract
+
+Status: `Completed`
+
+### Goal
+
+Formalize the human operator workflow so research briefs, signals, portfolio proposals, and paper-trade candidates can be reviewed through one explicit contract instead of scattered domain-specific hooks.
+
+### Plan Focus
+
+- generic review-domain schemas
+- persisted review queue, notes, assignments, and decisions
+- console-ready derived review context
+- explicit review actions and status transitions
+- auditability for every review action
+
+### Implemented
+
+- added `libraries/schemas/review.py` with:
+  - `ReviewTargetType`
+  - `EscalationStatus`
+  - `ReviewQueueStatus`
+  - `ActionRecommendationSummary`
+  - `ReviewNote`
+  - `ReviewAssignment`
+  - generic `ReviewDecision`
+  - `ReviewQueueItem`
+  - derived `ReviewContext`
+- moved `ReviewDecision` out of the portfolio-only schema path and kept it exported through `libraries/schemas/__init__.py`
+- added `services/operator_review/` with:
+  - queue sync
+  - queue listing
+  - context assembly
+  - note creation
+  - assignment changes
+  - review action application
+- persisted review artifacts under `artifacts/review/`
+- added operator-console API endpoints:
+  - `GET /reviews/queue`
+  - `GET /reviews/context/{target_type}/{target_id}`
+  - `POST /reviews/notes`
+  - `POST /reviews/assignments`
+  - `POST /reviews/actions`
+- extended audit artifacts with `status_before` and `status_after`
+- routed the existing Day 7 portfolio review path through the generic operator review action flow
+- added schema, service, API, and end-to-end integration tests for the review layer
+- added Day 11 docs for operator workflow and console contract
+
+### Key Decisions
+
+- `ResearchBrief` remains the primary queued research review object
+- `ReviewContext` is rebuilt on demand and is not persisted as a source-of-truth artifact
+- no UI polish was added before the contract and audit path were explicit
+- review state is now structurally real, but downstream gating is still the next step rather than being implied
+
+### Carry-Forward
+
+- reviewed-and-evaluated signal eligibility gates
+- downstream enforcement for portfolio proposal and paper-trade eligibility
+- snapshot-native input selection for stricter downstream workflows
+
 ## Maintenance Rule
 
 When future work is completed:

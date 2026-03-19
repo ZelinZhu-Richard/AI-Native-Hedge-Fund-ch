@@ -21,6 +21,14 @@ class AuditLog(TimestampedModel):
     occurred_at: datetime = Field(description="UTC timestamp when the action occurred.")
     reason: str | None = Field(default=None, description="Optional reason for the action.")
     request_id: str | None = Field(default=None, description="Request or trace identifier.")
+    status_before: str | None = Field(
+        default=None,
+        description="Optional lifecycle status before the action was applied.",
+    )
+    status_after: str | None = Field(
+        default=None,
+        description="Optional lifecycle status after the action was applied.",
+    )
     related_artifact_ids: list[str] = Field(
         default_factory=list,
         description="Artifacts associated with the event.",

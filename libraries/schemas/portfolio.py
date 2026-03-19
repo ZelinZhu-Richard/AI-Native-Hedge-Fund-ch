@@ -13,7 +13,6 @@ from libraries.schemas.base import (
     PositionIdeaStatus,
     PositionSide,
     ProvenanceRecord,
-    ReviewOutcome,
     RiskCheckStatus,
     Severity,
     TimestampedModel,
@@ -243,41 +242,6 @@ class PortfolioProposal(TimestampedModel):
             raise ValueError("blocking_issues must be populated when blocking risk checks exist.")
         if not self.summary:
             raise ValueError("summary must be non-empty.")
-        return self
-
-
-class ReviewDecision(TimestampedModel):
-    """Human review decision attached to a proposal, idea, or paper trade."""
-
-    review_decision_id: str = Field(description="Canonical review decision identifier.")
-    target_type: str = Field(description="Type of entity being reviewed.")
-    target_id: str = Field(description="Identifier of the entity being reviewed.")
-    reviewer_id: str = Field(description="Human reviewer identifier.")
-    outcome: ReviewOutcome = Field(description="Decision outcome.")
-    decided_at: datetime = Field(description="UTC timestamp when the decision was made.")
-    rationale: str = Field(description="Reason for the decision.")
-    blocking_issues: list[str] = Field(
-        default_factory=list,
-        description="Issues preventing approval if the outcome is not approval.",
-    )
-    conditions: list[str] = Field(
-        default_factory=list,
-        description="Conditions attached to the decision.",
-    )
-    review_notes: list[str] = Field(
-        default_factory=list,
-        description="Free-form review notes preserved with the decision.",
-    )
-    provenance: ProvenanceRecord = Field(description="Traceability for the review decision.")
-
-    @model_validator(mode="after")
-    def validate_decision(self) -> ReviewDecision:
-        """Ensure review decisions remain internally coherent."""
-
-        if self.outcome == ReviewOutcome.APPROVE and self.blocking_issues:
-            raise ValueError("Approval decisions must not carry blocking_issues.")
-        if not self.rationale:
-            raise ValueError("rationale must be non-empty.")
         return self
 
 

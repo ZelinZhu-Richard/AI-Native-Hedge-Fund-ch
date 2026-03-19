@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -83,6 +84,61 @@ def test_artifact_listing_endpoints_return_persisted_objects(
         assert proposals_response.json()["total"] >= 1
         assert paper_trades_response.status_code == 200
         assert paper_trades_response.json()["total"] >= 1
+    finally:
+        get_settings.cache_clear()
+
+
+def test_operator_review_endpoints_return_queue_context_and_apply_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setenv("ARTIFACT_ROOT", str(artifact_root))
+    get_settings.cache_clear()
+    try:
+        _build_full_stack(artifact_root=artifact_root)
+
+        queue_response = client.get("/reviews/queue")
+        assert queue_response.status_code == 200
+        assert queue_response.json()["total"] >= 4
+
+        research_brief_path = next((artifact_root / "research" / "research_briefs").glob("*.json"))
+        brief_id = json.loads(research_brief_path.read_text(encoding="utf-8"))["research_brief_id"]
+        signal_path = next((artifact_root / "signal_generation" / "signals").glob("*.json"))
+        signal_id = json.loads(signal_path.read_text(encoding="utf-8"))["signal_id"]
+
+        context_response = client.get(f"/reviews/context/research_brief/{brief_id}")
+        assert context_response.status_code == 200
+        assert context_response.json()["research_brief"]["research_brief_id"] == brief_id
+        assert context_response.json()["hypothesis"] is not None
+        assert context_response.json()["supporting_evidence_links"]
+
+        note_response = client.post(
+            "/reviews/notes",
+            json={
+                "target_type": "research_brief",
+                "target_id": brief_id,
+                "author_id": "analyst_1",
+                "body": "Explicitly call out remaining demand uncertainty.",
+            },
+        )
+        assert note_response.status_code == 200
+        assert note_response.json()["review_note"]["target_id"] == brief_id
+
+        action_response = client.post(
+            "/reviews/actions",
+            json={
+                "target_type": "signal",
+                "target_id": signal_id,
+                "reviewer_id": "pm_1",
+                "outcome": "approve",
+                "rationale": "Signal is ready for approved candidate handling.",
+            },
+        )
+        assert action_response.status_code == 200
+        assert action_response.json()["updated_target"]["status"] == "approved"
+        assert action_response.json()["audit_log"]["status_before"] == "candidate"
+        assert action_response.json()["audit_log"]["status_after"] == "approved"
     finally:
         get_settings.cache_clear()
 

@@ -28,6 +28,14 @@ class AuditEventRequest(StrictModel):
     )
     reason: str | None = Field(default=None, description="Reason for the action if provided.")
     request_id: str | None = Field(default=None, description="Request trace identifier.")
+    status_before: str | None = Field(
+        default=None,
+        description="Optional lifecycle status before the action was applied.",
+    )
+    status_after: str | None = Field(
+        default=None,
+        description="Optional lifecycle status after the action was applied.",
+    )
     related_artifact_ids: list[str] = Field(
         default_factory=list,
         description="Additional artifact identifiers associated with the event.",
@@ -88,6 +96,8 @@ class AuditLoggingService(BaseService):
             occurred_at=now,
             reason=request.reason,
             request_id=request.request_id,
+            status_before=request.status_before,
+            status_after=request.status_after,
             related_artifact_ids=related_artifact_ids,
             provenance=build_provenance(
                 clock=self.clock,

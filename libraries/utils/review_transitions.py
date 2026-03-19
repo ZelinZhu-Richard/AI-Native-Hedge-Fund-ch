@@ -6,7 +6,8 @@ from libraries.schemas.base import (
     PositionIdeaStatus,
     ReviewOutcome,
 )
-from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, ReviewDecision
+from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea
+from libraries.schemas.review import ReviewDecision
 
 
 def position_idea_status_from_review_outcome(outcome: ReviewOutcome) -> PositionIdeaStatus:

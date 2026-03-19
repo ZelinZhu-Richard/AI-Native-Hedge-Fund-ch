@@ -6,7 +6,6 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
-from libraries.core import build_provenance
 from libraries.schemas import (
     ArtifactStorageLocation,
     AuditOutcome,
@@ -16,16 +15,16 @@ from libraries.schemas import (
     PositionIdea,
     ReviewDecision,
     ReviewOutcome,
+    ReviewTargetType,
     RiskCheck,
     StrictModel,
 )
 from libraries.time import Clock, SystemClock
 from libraries.utils import (
-    apply_review_decision_to_portfolio_proposal,
     apply_review_decision_to_position_idea,
-    make_prefixed_id,
 )
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.operator_review import ApplyReviewActionRequest, OperatorReviewService
 from services.paper_execution import PaperExecutionService, PaperTradeProposalRequest
 from services.portfolio import (
     PortfolioConstructionService,
@@ -126,51 +125,31 @@ def run_portfolio_review_pipeline(
 
     review_decision = None
     if proposal_review_outcome is not None:
-        if (
-            proposal_review_outcome is ReviewOutcome.APPROVE
-            and workflow_response.portfolio_proposal.blocking_issues
-        ):
-            raise ValueError("Blocking portfolio proposals cannot be approved.")
-        review_decision = ReviewDecision(
-            review_decision_id=make_prefixed_id("review"),
-            target_type="portfolio_proposal",
-            target_id=workflow_response.portfolio_proposal.portfolio_proposal_id,
-            reviewer_id=reviewer_id or "missing_reviewer",
-            outcome=proposal_review_outcome,
-            decided_at=resolved_clock.now(),
-            rationale=(
-                resolved_review_notes[0]
-                if resolved_review_notes
-                else f"Portfolio review outcome recorded as `{proposal_review_outcome.value}`."
-            ),
-            blocking_issues=(
-                []
-                if proposal_review_outcome is ReviewOutcome.APPROVE
-                else workflow_response.portfolio_proposal.blocking_issues
-            ),
-            conditions=[],
-            review_notes=resolved_review_notes,
-            provenance=build_provenance(
-                clock=resolved_clock,
-                transformation_name="day7_portfolio_review_decision",
-                source_reference_ids=workflow_response.portfolio_proposal.provenance.source_reference_ids,
-                upstream_artifact_ids=[
-                    workflow_response.portfolio_proposal.portfolio_proposal_id,
-                    *[idea.position_idea_id for idea in workflow_response.position_ideas],
-                ],
-                notes=[f"outcome={proposal_review_outcome.value}"],
-            ),
-            created_at=resolved_clock.now(),
-            updated_at=resolved_clock.now(),
-        )
-        storage_locations.append(
-            store.persist_model(
-                artifact_id=review_decision.review_decision_id,
-                category="review_decisions",
-                model=review_decision,
-                source_reference_ids=review_decision.provenance.source_reference_ids,
+        operator_review_response = OperatorReviewService(clock=resolved_clock).apply_review_action(
+            ApplyReviewActionRequest(
+                target_type=ReviewTargetType.PORTFOLIO_PROPOSAL,
+                target_id=workflow_response.portfolio_proposal.portfolio_proposal_id,
+                reviewer_id=reviewer_id or "missing_reviewer",
+                outcome=proposal_review_outcome,
+                rationale=(
+                    resolved_review_notes[0]
+                    if resolved_review_notes
+                    else f"Portfolio review outcome recorded as `{proposal_review_outcome.value}`."
+                ),
+                blocking_issues=(
+                    []
+                    if proposal_review_outcome is ReviewOutcome.APPROVE
+                    else workflow_response.portfolio_proposal.blocking_issues
+                ),
+                conditions=[],
+                review_notes=resolved_review_notes,
+                portfolio_root=resolved_output_root,
+                review_root=resolved_output_root.parent / "review",
+                audit_root=audit_root,
             )
         )
+        review_decision = operator_review_response.review_decision
+        storage_locations.extend(operator_review_response.storage_locations)
         final_position_ideas = [
             apply_review_decision_to_position_idea(
                 position_idea=position_idea,
@@ -178,13 +157,10 @@ def run_portfolio_review_pipeline(
             )
             for position_idea in workflow_response.position_ideas
         ]
-        final_portfolio_proposal = apply_review_decision_to_portfolio_proposal(
-            portfolio_proposal=workflow_response.portfolio_proposal.model_copy(
-                update={
-                    "position_ideas": final_position_ideas,
-                }
-            ),
-            review_decision=review_decision,
+        updated_proposal = operator_review_response.updated_target
+        assert isinstance(updated_proposal, PortfolioProposal)
+        final_portfolio_proposal = updated_proposal.model_copy(
+            update={"position_ideas": final_position_ideas}
         )
         for position_idea in final_position_ideas:
             storage_locations.append(
@@ -204,30 +180,6 @@ def run_portfolio_review_pipeline(
             )
         )
         notes.append(f"proposal_review_outcome={proposal_review_outcome.value}")
-        audit_response = AuditLoggingService(clock=resolved_clock).record_event(
-            AuditEventRequest(
-                event_type="review_decision_applied",
-                actor_type="human",
-                actor_id=reviewer_id or "missing_reviewer",
-                target_type="portfolio_proposal",
-                target_id=final_portfolio_proposal.portfolio_proposal_id,
-                action=proposal_review_outcome.value,
-                outcome=(
-                    AuditOutcome.SUCCESS
-                    if proposal_review_outcome is ReviewOutcome.APPROVE
-                    else AuditOutcome.WARNING
-                ),
-                reason=review_decision.rationale,
-                request_id=review_decision.review_decision_id,
-                related_artifact_ids=[
-                    review_decision.review_decision_id,
-                    *[idea.position_idea_id for idea in final_position_ideas],
-                ],
-                notes=resolved_review_notes,
-            ),
-            output_root=audit_root,
-        )
-        storage_locations.append(audit_response.storage_location)
 
     paper_execution_service = PaperExecutionService(clock=resolved_clock)
     paper_trade_response = paper_execution_service.propose_trades(

@@ -33,6 +33,8 @@ def test_audit_logging_service_persists_artifact(
                 outcome=AuditOutcome.WARNING,
                 reason="Testing audit persistence.",
                 request_id="req_test",
+                status_before="candidate",
+                status_after="approved",
                 related_artifact_ids=["art_1", "art_2"],
                 notes=["note_a", "note_b"],
             )
@@ -41,6 +43,8 @@ def test_audit_logging_service_persists_artifact(
         audit_path = artifact_root / "audit" / "audit_logs" / f"{response.audit_log.audit_log_id}.json"
         assert audit_path.exists()
         assert response.audit_log.outcome == AuditOutcome.WARNING
+        assert response.audit_log.status_before == "candidate"
+        assert response.audit_log.status_after == "approved"
         assert response.audit_log.related_artifact_ids == ["wf_test", "art_1", "art_2"]
         assert response.storage_location.artifact_id == response.audit_log.audit_log_id
     finally:
