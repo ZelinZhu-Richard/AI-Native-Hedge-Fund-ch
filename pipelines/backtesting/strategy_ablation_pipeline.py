@@ -20,6 +20,7 @@ def run_strategy_ablation_pipeline(
     feature_root: Path | None = None,
     output_root: Path | None = None,
     experiment_root: Path | None = None,
+    evaluation_root: Path | None = None,
     company_id: str | None = None,
     clock: Clock | None = None,
 ) -> RunStrategyAblationWorkflowResponse:
@@ -40,6 +41,7 @@ def run_strategy_ablation_pipeline(
             price_fixture_path=price_fixture_path,
             output_root=resolved_output_root,
             experiment_root=experiment_root,
+            evaluation_root=evaluation_root,
             company_id=company_id,
             ablation_config=ablation_config,
         )

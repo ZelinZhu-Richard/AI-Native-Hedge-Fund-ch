@@ -93,6 +93,7 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
         feature_root=artifact_root / "signal_generation",
         output_root=artifact_root / "ablation",
         experiment_root=artifact_root / "experiments",
+        evaluation_root=artifact_root / "evaluation",
         price_fixture_path=PRICE_FIXTURE_PATH,
         ablation_config=_ablation_config(
             strategy_variants=strategy_variants,
@@ -102,6 +103,8 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
     )
 
     assert response.experiment is not None
+    assert response.evaluation_report is not None
+    assert response.comparison_summary is not None
     assert len(response.variant_backtest_runs) == 4
     assert all(run.experiment_id is not None for run in response.variant_backtest_runs)
     assert {spec.family for spec in response.strategy_specs} == {
@@ -129,6 +132,18 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
         / "experiments"
         / f"{response.experiment.experiment_id}.json"
     ).exists()
+    assert (
+        artifact_root
+        / "evaluation"
+        / "reports"
+        / f"{response.evaluation_report.evaluation_report_id}.json"
+    ).exists()
+    assert (
+        artifact_root
+        / "evaluation"
+        / "comparison_summaries"
+        / f"{response.comparison_summary.comparison_summary_id}.json"
+    ).exists()
 
     experiment_payload = json.loads(
         (
@@ -142,6 +157,35 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
     assert experiment_payload["dataset_reference_ids"]
     assert experiment_payload["experiment_artifact_ids"]
     assert experiment_payload["experiment_metric_ids"]
+
+    evaluation_payload = json.loads(
+        (
+            artifact_root
+            / "evaluation"
+            / "reports"
+            / f"{response.evaluation_report.evaluation_report_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert evaluation_payload["target_id"] == response.ablation_result.ablation_result_id
+    assert evaluation_payload["comparison_summary_id"] == response.comparison_summary.comparison_summary_id
+    assert evaluation_payload["metric_ids"]
+    assert evaluation_payload["robustness_check_ids"]
+
+    comparison_payload = json.loads(
+        (
+            artifact_root
+            / "evaluation"
+            / "comparison_summaries"
+            / f"{response.comparison_summary.comparison_summary_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert comparison_payload["expected_family_count"] == 4
+    assert comparison_payload["observed_family_count"] == 4
+    assert comparison_payload["ordered_strategy_variant_ids"] == [
+        result["strategy_variant_id"] for result in response.ablation_result.model_dump()["variant_results"]
+    ]
+    assert comparison_payload["mechanical_order_only"] is True
+    assert all("winner" not in note.lower() for note in comparison_payload["notes"])
 
 
 def _ablation_config(

@@ -20,11 +20,15 @@ from libraries.schemas import (
     BacktestConfig,
     BacktestRun,
     BenchmarkReference,
+    ComparisonSummary,
+    CoverageSummary,
     DatasetManifest,
     DatasetPartition,
     DatasetReference,
     DatasetUsageRole,
     DataSnapshot,
+    EvaluationMetric,
+    EvaluationReport,
     Experiment,
     ExperimentArtifact,
     ExperimentArtifactRole,
@@ -33,7 +37,9 @@ from libraries.schemas import (
     ExperimentParameter,
     ExperimentParameterValueType,
     ExperimentStatus,
+    FailureCase,
     PerformanceSummary,
+    RobustnessCheck,
     RunContext,
     SimulationEvent,
     SourceVersion,
@@ -61,6 +67,11 @@ from services.backtesting.ablation import (
 from services.backtesting.loaders import LoadedBacktestInputs, load_backtest_inputs
 from services.backtesting.simulation import run_backtest_simulation
 from services.backtesting.storage import LocalBacktestArtifactStore
+from services.evaluation import (
+    AblationVariantRunEvaluationInput,
+    EvaluateStrategyAblationRequest,
+    EvaluationService,
+)
 from services.experiment_registry import (
     BeginExperimentRequest,
     ExperimentRegistryService,
@@ -197,6 +208,10 @@ class RunStrategyAblationWorkflowRequest(StrictModel):
         default=None,
         description="Optional root for persisted experiment-registry artifacts.",
     )
+    evaluation_root: Path | None = Field(
+        default=None,
+        description="Optional root for persisted evaluation artifacts.",
+    )
     company_id: str | None = Field(
         default=None,
         description="Covered company identifier. Required when roots contain multiple companies.",
@@ -227,6 +242,30 @@ class RunStrategyAblationWorkflowResponse(StrictModel):
     experiment: Experiment | None = Field(
         default=None,
         description="Optional parent experiment recorded for the ablation harness.",
+    )
+    evaluation_report: EvaluationReport | None = Field(
+        default=None,
+        description="Optional structured evaluation report for the ablation output.",
+    )
+    evaluation_metrics: list[EvaluationMetric] = Field(
+        default_factory=list,
+        description="Evaluation metrics recorded for the ablation output.",
+    )
+    failure_cases: list[FailureCase] = Field(
+        default_factory=list,
+        description="Failure cases recorded for the ablation output.",
+    )
+    robustness_checks: list[RobustnessCheck] = Field(
+        default_factory=list,
+        description="Robustness checks recorded for the ablation output.",
+    )
+    comparison_summary: ComparisonSummary | None = Field(
+        default=None,
+        description="Optional comparison summary recorded for the ablation output.",
+    )
+    coverage_summaries: list[CoverageSummary] = Field(
+        default_factory=list,
+        description="Coverage summaries recorded for the ablation output.",
     )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
@@ -542,6 +581,7 @@ class BacktestingService(BaseService):
         ablation_run_id = make_prefixed_id("ablation")
         output_root = request.output_root or (get_settings().resolved_artifact_root / "ablation")
         experiment_root = request.experiment_root or (output_root.parent / "experiments")
+        evaluation_root = request.evaluation_root or (output_root.parent / "evaluation")
         audit_root = output_root.parent / "audit"
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
@@ -627,6 +667,7 @@ class BacktestingService(BaseService):
         variant_backtest_runs: list[BacktestRun] = []
         child_backtest_responses: list[RunBacktestWorkflowResponse] = []
         child_experiments: list[Experiment] = []
+        variant_run_evaluations: list[AblationVariantRunEvaluationInput] = []
 
         for strategy_variant in request.ablation_config.strategy_variants:
             strategy_spec = spec_by_id[strategy_variant.strategy_spec_id]
@@ -694,6 +735,18 @@ class BacktestingService(BaseService):
             storage_locations.extend(variant_response.storage_locations)
             if variant_response.experiment is not None:
                 child_experiments.append(variant_response.experiment)
+            variant_run_evaluations.append(
+                AblationVariantRunEvaluationInput(
+                    strategy_variant=strategy_variant,
+                    strategy_spec=strategy_spec,
+                    variant_signals=materialized.signals,
+                    backtest_run=variant_response.backtest_run,
+                    performance_summary=variant_response.performance_summary,
+                    benchmark_references=variant_response.benchmark_references,
+                    dataset_references=variant_response.dataset_references,
+                    experiment=variant_response.experiment,
+                )
+            )
             variant_results.append(
                 AblationVariantResult(
                     strategy_variant_id=strategy_variant.strategy_variant_id,
@@ -863,6 +916,25 @@ class BacktestingService(BaseService):
             storage_locations.extend(finalize_response.storage_locations)
             notes.append(f"parent_experiment_id={parent_experiment.experiment_id}")
 
+        evaluation_response = EvaluationService(clock=self.clock).evaluate_strategy_ablation(
+            EvaluateStrategyAblationRequest(
+                ablation_config=request.ablation_config,
+                ablation_result=ablation_result,
+                strategy_specs=strategy_specs,
+                source_snapshots=[
+                    source_snapshots.research_signal_snapshot,
+                    source_snapshots.price_snapshot,
+                ],
+                text_signals=strategy_inputs.text_signals,
+                features=list(strategy_inputs.features_by_id.values()),
+                variant_runs=variant_run_evaluations,
+                requested_by=request.ablation_config.requested_by,
+            ),
+            output_root=evaluation_root,
+        )
+        storage_locations.extend(evaluation_response.storage_locations)
+        notes.extend(evaluation_response.notes)
+
         audit_response = AuditLoggingService(clock=self.clock).record_event(
             AuditEventRequest(
                 event_type="strategy_ablation_completed",
@@ -900,6 +972,48 @@ class BacktestingService(BaseService):
         )
         storage_locations.append(audit_response.storage_location)
 
+        evaluation_audit_response = AuditLoggingService(clock=self.clock).record_event(
+            AuditEventRequest(
+                event_type="evaluation_completed",
+                actor_type="service",
+                actor_id="evaluation",
+                target_type="evaluation_report",
+                target_id=evaluation_response.evaluation_report.evaluation_report_id,
+                action="completed",
+                outcome=AuditOutcome.SUCCESS,
+                reason="Deterministic ablation evaluation completed.",
+                request_id=ablation_run_id,
+                related_artifact_ids=[
+                    evaluation_response.evaluation_report.evaluation_report_id,
+                    *[
+                        metric.evaluation_metric_id
+                        for metric in evaluation_response.evaluation_metrics
+                    ],
+                    *[
+                        failure_case.failure_case_id
+                        for failure_case in evaluation_response.failure_cases
+                    ],
+                    *[
+                        robustness_check.robustness_check_id
+                        for robustness_check in evaluation_response.robustness_checks
+                    ],
+                    *[
+                        coverage_summary.coverage_summary_id
+                        for coverage_summary in evaluation_response.coverage_summaries
+                    ],
+                    *(
+                        [evaluation_response.comparison_summary.comparison_summary_id]
+                        if evaluation_response.comparison_summary is not None
+                        else []
+                    ),
+                    ablation_result.ablation_result_id,
+                ],
+                notes=evaluation_response.notes,
+            ),
+            output_root=audit_root,
+        )
+        storage_locations.append(evaluation_audit_response.storage_location)
+
         if parent_experiment is not None:
             experiment_audit_response = AuditLoggingService(clock=self.clock).record_event(
                 AuditEventRequest(
@@ -931,6 +1045,12 @@ class BacktestingService(BaseService):
             ablation_result=ablation_result,
             variant_backtest_runs=variant_backtest_runs,
             experiment=parent_experiment,
+            evaluation_report=evaluation_response.evaluation_report,
+            evaluation_metrics=evaluation_response.evaluation_metrics,
+            failure_cases=evaluation_response.failure_cases,
+            robustness_checks=evaluation_response.robustness_checks,
+            comparison_summary=evaluation_response.comparison_summary,
+            coverage_summaries=evaluation_response.coverage_summaries,
             storage_locations=storage_locations,
             notes=notes,
         )

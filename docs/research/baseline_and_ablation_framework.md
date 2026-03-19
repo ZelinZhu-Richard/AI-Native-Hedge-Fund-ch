@@ -57,6 +57,7 @@ The Day 9 workflow is:
 6. record child experiments through the Day 8 experiment registry
 7. assemble an `AblationResult`
 8. record one parent ablation experiment that links the comparison run to its child backtests
+9. run the Day 10 structural evaluation layer and persist one `EvaluationReport`
 
 ## Artifact Layout
 
@@ -71,6 +72,7 @@ Day 9 persists local artifacts under `artifacts/ablation/`:
 - `ablation_results/`
 
 Child backtests still persist under `artifacts/backtesting/ablation_runs/`.
+Day 10 evaluation artifacts persist separately under `artifacts/evaluation/`.
 
 ## Experiment Integration
 
@@ -88,6 +90,9 @@ The parent experiment records:
 - the final ablation result
 - child experiment links
 
+Day 10 evaluation stays outside the experiment registry on purpose.
+It is stored as a parallel evaluation artifact set rather than being folded into experiment metadata.
+
 ## What The Framework Supports
 
 The current framework supports:
@@ -96,6 +101,7 @@ The current framework supports:
 - same-window comparisons across multiple variants
 - shared input-slice handling
 - experiment-linked variant backtests
+- structured evaluation reports, failure cases, robustness checks, and coverage summaries for ablation output
 - structured comparison results without hard-coded conclusions
 
 ## What It Does Not Support
@@ -107,6 +113,7 @@ The current framework does **not** support:
 - multi-name portfolio comparisons
 - real market data
 - promotion of a “best” strategy into truth
+- reviewed promotion of an evaluated strategy into stricter downstream eligibility
 - live execution or autonomous strategy selection
 
 ## Honest Interpretation Rule

@@ -15,6 +15,7 @@ from libraries.schemas.base import (
     HypothesisStatus,
     MemoStatus,
     ProvenanceRecord,
+    Severity,
     SignalStatus,
     TimestampedModel,
 )
@@ -111,6 +112,51 @@ class DerivedArtifactValidationStatus(StrEnum):
     PARTIALLY_VALIDATED = "partially_validated"
     VALIDATED = "validated"
     INVALIDATED = "invalidated"
+
+
+class EvaluationStatus(StrEnum):
+    """Outcome classification for deterministic evaluation checks."""
+
+    PASS = "pass"
+    WARN = "warn"
+    FAIL = "fail"
+    NOT_EVALUATED = "not_evaluated"
+
+
+class EvaluationDimension(StrEnum):
+    """Evaluation dimensions the Day 10 layer can judge structurally."""
+
+    PROVENANCE_COMPLETENESS = "provenance_completeness"
+    HYPOTHESIS_SUPPORT_QUALITY = "hypothesis_support_quality"
+    FEATURE_LINEAGE_COMPLETENESS = "feature_lineage_completeness"
+    SIGNAL_GENERATION_VALIDITY = "signal_generation_validity"
+    BACKTEST_ARTIFACT_COMPLETENESS = "backtest_artifact_completeness"
+    STRATEGY_COMPARISON_OUTPUT = "strategy_comparison_output"
+    RISK_REVIEW_COVERAGE = "risk_review_coverage"
+
+
+class FailureCaseKind(StrEnum):
+    """Structured failure classes recorded by the evaluation layer."""
+
+    MISSING_EVIDENCE = "missing_evidence"
+    WEAK_SUPPORT = "weak_support"
+    INVALID_TIMESTAMP = "invalid_timestamp"
+    BROKEN_LINEAGE = "broken_lineage"
+    INCOMPLETE_CONFIG = "incomplete_config"
+    EMPTY_OUTPUT = "empty_output"
+    SUSPICIOUS_ASSUMPTION = "suspicious_assumption"
+    SOURCE_INCONSISTENCY = "source_inconsistency"
+    MISSING_PROVENANCE = "missing_provenance"
+
+
+class RobustnessCheckKind(StrEnum):
+    """Explicit robustness checks supported by the Day 10 layer."""
+
+    MISSING_DATA_SENSITIVITY = "missing_data_sensitivity"
+    TIMESTAMP_ANOMALY = "timestamp_anomaly"
+    SOURCE_INCONSISTENCY = "source_inconsistency"
+    INCOMPLETE_EXTRACTION_ARTIFACT = "incomplete_extraction_artifact"
+    INVALID_STRATEGY_CONFIG = "invalid_strategy_config"
 
 
 class FeatureValueType(StrEnum):
@@ -1465,6 +1511,249 @@ class Experiment(TimestampedModel):
         if self.status in {ExperimentStatus.COMPLETED, ExperimentStatus.FAILED}:
             if self.completed_at is None:
                 raise ValueError("completed_at is required when the experiment is finished.")
+        return self
+
+
+class MetricValue(TimestampedModel):
+    """Typed value payload attached to one evaluation metric."""
+
+    metric_value_id: str = Field(description="Canonical metric-value identifier.")
+    numeric_value: float | None = Field(
+        default=None,
+        description="Numeric metric value when applicable.",
+    )
+    boolean_value: bool | None = Field(
+        default=None,
+        description="Boolean metric value when applicable.",
+    )
+    text_value: str | None = Field(
+        default=None,
+        description="Text metric value when applicable.",
+    )
+    unit: str | None = Field(default=None, description="Optional metric unit label.")
+
+    @model_validator(mode="after")
+    def validate_single_metric_value(self) -> MetricValue:
+        """Require exactly one metric value representation."""
+
+        populated = [
+            self.numeric_value is not None,
+            self.boolean_value is not None,
+            self.text_value is not None,
+        ]
+        if sum(populated) != 1:
+            raise ValueError(
+                "Exactly one of numeric_value, boolean_value, or text_value must be set."
+            )
+        return self
+
+
+class EvaluationMetric(TimestampedModel):
+    """One deterministic metric recorded inside an evaluation report."""
+
+    evaluation_metric_id: str = Field(description="Canonical evaluation-metric identifier.")
+    evaluation_report_id: str = Field(description="Owning evaluation-report identifier.")
+    dimension: EvaluationDimension = Field(description="Evaluation dimension represented.")
+    metric_name: str = Field(description="Stable metric name.")
+    target_type: str = Field(description="Artifact type judged by the metric.")
+    target_id: str = Field(description="Artifact identifier judged by the metric.")
+    status: EvaluationStatus = Field(description="Outcome classification for the metric.")
+    metric_value: MetricValue = Field(description="Typed value payload for the metric.")
+    threshold: float | None = Field(
+        default=None,
+        description="Optional threshold used to interpret the metric mechanically.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Interpretation notes attached to the metric.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the evaluation metric.")
+
+    @model_validator(mode="after")
+    def validate_metric(self) -> EvaluationMetric:
+        """Require explicit metric names and evaluation linkage."""
+
+        if not self.metric_name:
+            raise ValueError("metric_name must be non-empty.")
+        if not self.target_type or not self.target_id:
+            raise ValueError("target_type and target_id must be non-empty.")
+        return self
+
+
+class FailureCase(TimestampedModel):
+    """Structured failure recorded by the evaluation layer."""
+
+    failure_case_id: str = Field(description="Canonical failure-case identifier.")
+    evaluation_report_id: str = Field(description="Owning evaluation-report identifier.")
+    target_type: str = Field(description="Artifact type affected by the failure.")
+    target_id: str = Field(description="Artifact identifier affected by the failure.")
+    failure_kind: FailureCaseKind = Field(description="Failure category.")
+    severity: Severity = Field(description="Severity of the failure.")
+    blocking: bool = Field(description="Whether the failure should block trust progression.")
+    message: str = Field(description="Human-readable failure explanation.")
+    related_artifact_ids: list[str] = Field(
+        default_factory=list,
+        description="Artifacts related to the observed failure.",
+    )
+    suspected_cause: str | None = Field(
+        default=None,
+        description="Optional suspected cause for the failure.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the failure case.")
+
+    @model_validator(mode="after")
+    def validate_failure_case(self) -> FailureCase:
+        """Require explicit failure messages."""
+
+        if not self.message:
+            raise ValueError("message must be non-empty.")
+        return self
+
+
+class RobustnessCheck(TimestampedModel):
+    """Structured robustness result attached to an evaluation report."""
+
+    robustness_check_id: str = Field(description="Canonical robustness-check identifier.")
+    evaluation_report_id: str = Field(description="Owning evaluation-report identifier.")
+    check_kind: RobustnessCheckKind = Field(description="Robustness check category.")
+    target_type: str = Field(description="Artifact type judged by the check.")
+    target_id: str = Field(description="Artifact identifier judged by the check.")
+    status: EvaluationStatus = Field(description="Outcome of the robustness check.")
+    severity: Severity = Field(description="Severity attached to the robustness result.")
+    message: str = Field(description="Human-readable explanation of the robustness result.")
+    related_artifact_ids: list[str] = Field(
+        default_factory=list,
+        description="Artifacts related to the robustness result.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the robustness check.")
+
+    @model_validator(mode="after")
+    def validate_check(self) -> RobustnessCheck:
+        """Require explicit robustness messaging."""
+
+        if not self.message:
+            raise ValueError("message must be non-empty.")
+        return self
+
+
+class ComparisonSummary(TimestampedModel):
+    """Mechanical summary of one multi-variant comparison output."""
+
+    comparison_summary_id: str = Field(description="Canonical comparison-summary identifier.")
+    evaluation_report_id: str = Field(description="Owning evaluation-report identifier.")
+    target_id: str = Field(description="Artifact identifier summarized by the comparison.")
+    comparison_metric_name: str = Field(description="Primary comparison metric name.")
+    expected_family_count: int = Field(ge=0, description="Expected number of strategy families.")
+    observed_family_count: int = Field(ge=0, description="Observed number of strategy families.")
+    ordered_strategy_variant_ids: list[str] = Field(
+        default_factory=list,
+        description="Mechanically ordered strategy-variant identifiers.",
+    )
+    mechanical_order_only: bool = Field(
+        default=True,
+        description="Whether ordering is explicitly mechanical and non-validating.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Important comparison caveats.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the comparison summary.")
+
+    @model_validator(mode="after")
+    def validate_summary(self) -> ComparisonSummary:
+        """Require a declared comparison metric and ordered rows."""
+
+        if not self.comparison_metric_name:
+            raise ValueError("comparison_metric_name must be non-empty.")
+        if not self.ordered_strategy_variant_ids:
+            raise ValueError("ordered_strategy_variant_ids must contain at least one variant.")
+        return self
+
+
+class CoverageSummary(TimestampedModel):
+    """Coverage rollup for one evaluation dimension."""
+
+    coverage_summary_id: str = Field(description="Canonical coverage-summary identifier.")
+    evaluation_report_id: str = Field(description="Owning evaluation-report identifier.")
+    dimension: EvaluationDimension = Field(description="Evaluation dimension summarized.")
+    target_type: str = Field(description="Artifact type covered by the summary.")
+    target_id: str = Field(description="Artifact identifier covered by the summary.")
+    covered_count: int = Field(ge=0, description="Count of artifacts that passed the check.")
+    missing_count: int = Field(ge=0, description="Count of artifacts missing or failing coverage.")
+    total_count: int = Field(ge=0, description="Total number of artifacts evaluated.")
+    coverage_ratio: float = Field(
+        ge=0.0,
+        le=1.0,
+        description="Covered count divided by total count.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Coverage caveats or interpretation notes.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the coverage summary.")
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> CoverageSummary:
+        """Require internally consistent coverage counts and ratios."""
+
+        if self.covered_count + self.missing_count != self.total_count:
+            raise ValueError("covered_count + missing_count must equal total_count.")
+        expected_ratio = 0.0 if self.total_count == 0 else self.covered_count / self.total_count
+        if abs(self.coverage_ratio - expected_ratio) > 1e-9:
+            raise ValueError("coverage_ratio must equal covered_count / total_count.")
+        return self
+
+
+class EvaluationReport(TimestampedModel):
+    """Primary Day 10 evaluation artifact summarizing structural quality and failures."""
+
+    evaluation_report_id: str = Field(description="Canonical evaluation-report identifier.")
+    target_type: str = Field(description="Artifact type evaluated by the report.")
+    target_id: str = Field(description="Artifact identifier evaluated by the report.")
+    generated_at: datetime = Field(description="UTC timestamp when evaluation completed.")
+    overall_status: EvaluationStatus = Field(description="Overall structural evaluation outcome.")
+    metric_ids: list[str] = Field(
+        default_factory=list,
+        description="Evaluation-metric identifiers included in the report.",
+    )
+    failure_case_ids: list[str] = Field(
+        default_factory=list,
+        description="Failure-case identifiers included in the report.",
+    )
+    robustness_check_ids: list[str] = Field(
+        default_factory=list,
+        description="Robustness-check identifiers included in the report.",
+    )
+    comparison_summary_id: str | None = Field(
+        default=None,
+        description="Comparison-summary identifier when one exists.",
+    )
+    coverage_summary_ids: list[str] = Field(
+        default_factory=list,
+        description="Coverage-summary identifiers included in the report.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="High-level evaluation notes and caveats.",
+    )
+    provenance: ProvenanceRecord = Field(description="Traceability for the evaluation report.")
+
+    @model_validator(mode="after")
+    def validate_report(self) -> EvaluationReport:
+        """Require reports to reference at least one structured evaluation output."""
+
+        if not any(
+            [
+                self.metric_ids,
+                self.failure_case_ids,
+                self.robustness_check_ids,
+                self.comparison_summary_id is not None,
+                self.coverage_summary_ids,
+            ]
+        ):
+            raise ValueError(
+                "EvaluationReport must reference at least one metric, failure, robustness check, comparison summary, or coverage summary."
+            )
         return self
 
 

@@ -452,6 +452,58 @@ Build an honest baseline strategy and ablation framework so text-derived candida
 - snapshot-native selection upstream of feature and signal generation
 - downstream enforcement so portfolio and paper-trade flows can reject unreviewed exploratory signals
 
+## Day 10: Evaluation, Failure Analysis, And Robustness Layer
+
+Status: `Completed`
+
+### Goal
+
+Build the first explicit evaluation layer that records structural quality, visible failures, and robustness checks instead of relying on loose summary prose.
+
+### Plan Focus
+
+- typed evaluation artifacts
+- structured failure recording
+- deterministic robustness checks
+- first concrete workflow integration
+- docs that say clearly what is and is not being evaluated
+
+### Implemented
+
+- added `MetricValue`, `EvaluationMetric`, `FailureCase`, `RobustnessCheck`, `ComparisonSummary`, `CoverageSummary`, and `EvaluationReport`
+- added `EvaluationService` plus local storage under `artifacts/evaluation/`
+- implemented deterministic checks for:
+  - provenance completeness
+  - hypothesis support quality
+  - feature lineage completeness
+  - signal generation validity
+  - backtest artifact completeness
+  - strategy comparison output
+  - risk review coverage
+- implemented explicit robustness checks for:
+  - missing data sensitivity
+  - timestamp anomalies
+  - source inconsistency
+  - incomplete extraction artifacts
+  - invalid strategy config combinations
+- integrated the evaluation layer into the Day 9 ablation workflow
+- added schema, evaluation-logic, workflow, and integration tests
+- fixed an evaluation artifact persistence bug where generic ID resolution would have overwritten files across categories
+- added Day 10 docs for evaluation and robustness checks
+
+### Key Decisions
+
+- evaluation is stored as its own artifact layer, not hidden inside experiment metadata
+- failures and robustness results are first-class outputs, not only notes
+- the first integrated target is the Day 9 ablation workflow, not the entire repo
+- passing evaluation checks does not imply validated edge or signal promotion
+
+### Carry-Forward
+
+- reviewed signal-evaluation decisions
+- promotion gates from exploratory to downstream-eligible artifacts
+- snapshot-native selection for evaluation and downstream enforcement
+
 ## Maintenance Rule
 
 When future work is completed:

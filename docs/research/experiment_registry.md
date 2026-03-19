@@ -60,6 +60,10 @@ Day 9 also layers experiment tracking over the baseline and ablation harness by:
 - recording one child experiment per variant backtest
 - recording one parent experiment for the ablation run itself
 
+Day 10 adds a separate evaluation layer on top of those runs.
+That evaluation output is intentionally not stored inside the experiment registry.
+It remains a parallel artifact family under `artifacts/evaluation/` so experiment metadata and structural judgment stay distinct.
+
 For each recorded backtest run, the system:
 
 1. records a stable `ExperimentConfig` derived from `BacktestConfig` and `ExecutionAssumption`
@@ -104,6 +108,7 @@ For each recorded ablation run, the system:
 - there is no cross-run query service yet
 - there is no promotion gate from exploratory experiments to validated experiments yet
 - model references exist in the schema but are not used by the current backtest flow
+- evaluation artifacts are separate from experiment records and are not yet tied into a reviewed promotion decision
 
 ## Next Extension Point
 

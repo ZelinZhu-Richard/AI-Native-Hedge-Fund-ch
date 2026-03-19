@@ -166,6 +166,7 @@ def test_strategy_ablation_workflow_records_child_and_parent_experiments(tmp_pat
         feature_root=signal_root,
         output_root=artifact_root / "ablation",
         experiment_root=artifact_root / "experiments",
+        evaluation_root=artifact_root / "evaluation",
         price_fixture_path=PRICE_FIXTURE_PATH,
         ablation_config=_ablation_config(
             strategy_variants, company_id=strategy_inputs.company_id
@@ -182,6 +183,12 @@ def test_strategy_ablation_workflow_records_child_and_parent_experiments(tmp_pat
     assert len(response.variant_backtest_runs) == 4
     assert all(run.experiment_id is not None for run in response.variant_backtest_runs)
     assert response.experiment is not None
+    assert response.evaluation_report is not None
+    assert response.comparison_summary is not None
+    assert response.comparison_summary.expected_family_count == 4
+    assert response.comparison_summary.observed_family_count == 4
+    assert any(metric.metric_name == "strategy_family_coverage_ratio" for metric in response.evaluation_metrics)
+    assert any(metric.metric_name == "experiment_linkage_ratio" for metric in response.evaluation_metrics)
     assert len(response.ablation_result.variant_results) == 4
     assert {result.backtest_run_id for result in response.ablation_result.variant_results} == {
         run.backtest_run_id for run in response.variant_backtest_runs
@@ -189,6 +196,7 @@ def test_strategy_ablation_workflow_records_child_and_parent_experiments(tmp_pat
     assert all(result.experiment_id is not None for result in response.ablation_result.variant_results)
     assert all("winner" not in note.lower() for note in response.ablation_result.notes)
     assert (artifact_root / "ablation" / "ablation_results").exists()
+    assert (artifact_root / "evaluation" / "reports").exists()
     assert (
         artifact_root / "experiments" / "experiments" / f"{response.experiment.experiment_id}.json"
     ).exists()
