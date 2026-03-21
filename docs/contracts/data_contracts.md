@@ -42,6 +42,13 @@ All first-class entities use explicit prefixed IDs. Examples:
 - `dref_...` for `DatasetReference`
 - `sver_...` for `SourceVersion`
 - `pxmeta_...` for `PriceSeriesMetadata`
+- `eref_...` for `EntityReference`
+- `calias_...` for `CompanyAlias`
+- `talias_...` for `TickerAlias`
+- `dlink_...` for `DocumentEntityLink`
+- `xsrc_...` for `CrossSourceLink`
+- `rdec_...` for `ResolutionDecision`
+- `rconf_...` for `ResolutionConflict`
 - `store_...` for `ArtifactStorageLocation`
 - `pdoc_...` for `ParsedDocumentText`
 - `seg_...` for `DocumentSegment`
@@ -58,6 +65,11 @@ Current Day 2 ID rules:
 - `SourceReference.source_reference_id` is deterministic from source type plus upstream identity and URI
 - `Document.document_id` is deterministic from document kind plus source reference and upstream document identity
 - `PriceSeriesMetadata.price_series_metadata_id` is deterministic from company, dataset name, and symbol
+
+Current Day 16 clarification:
+
+- `company_id` is now the canonical entity-resolution-backed company key used downstream
+- raw tickers, vendor symbols, and source legal-name variants must be preserved as aliases or cross-source links rather than treated as canonical identity
 
 ## Timestamp Semantics
 
@@ -166,6 +178,13 @@ Current normalization also records:
 - transformation name
 - configuration version hooks
 - fixture path notes for local replay and debugging
+
+Current Day 16 entity-resolution records also capture:
+
+- deterministic resolution decisions
+- explicit ambiguity or unresolved conflicts
+- preserved alias provenance
+- document and evidence-to-company links when resolution is safe
 
 If provenance is incomplete, downstream consumers should degrade trust and may require human escalation.
 

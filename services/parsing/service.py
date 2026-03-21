@@ -16,6 +16,10 @@ from libraries.schemas import (
     WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
+from services.entity_resolution import (
+    EntityResolutionService,
+    ResolveEntityWorkspaceRequest,
+)
 from services.monitoring import (
     MonitoringService,
     RecordPipelineEventRequest,
@@ -173,6 +177,19 @@ class ParsingService(BaseService):
 
             store = LocalParsingArtifactStore(root=output_root, clock=self.clock)
             storage_locations = self._persist_bundle(store=store, bundle=bundle)
+            entity_resolution_response = EntityResolutionService(clock=self.clock).resolve_entity_workspace(
+                ResolveEntityWorkspaceRequest(
+                    ingestion_root=_resolve_ingestion_root_from_source_reference_path(
+                        request.source_reference_path
+                    ),
+                    parsing_root=output_root,
+                    company_id=bundle.company_id,
+                    document_ids=[bundle.document_id],
+                    output_root=_default_entity_resolution_root(output_root),
+                    requested_by=request.requested_by,
+                )
+            )
+            storage_locations.extend(entity_resolution_response.storage_locations)
             response = ExtractDocumentEvidenceResponse(
                 extraction_run_id=extraction_run_id,
                 storage_locations=storage_locations,
@@ -232,6 +249,7 @@ class ParsingService(BaseService):
                             for guidance_change in response.guidance_changes
                         ],
                         *[tone_marker.tone_marker_id for tone_marker in response.tone_markers],
+                        *[location.artifact_id for location in storage_locations],
                     ],
                     pipeline_event_ids=[
                         start_event.pipeline_event.pipeline_event_id,
@@ -360,3 +378,17 @@ class ParsingService(BaseService):
                 )
             )
         return storage_locations
+
+
+def _resolve_ingestion_root_from_source_reference_path(source_reference_path: Path) -> Path:
+    """Infer the ingestion root from a normalized source-reference path."""
+
+    return source_reference_path.parents[2]
+
+
+def _default_entity_resolution_root(parsing_root: Path) -> Path:
+    """Choose the default entity-resolution root adjacent to the parsing root when possible."""
+
+    if parsing_root.name == "parsing":
+        return parsing_root.parent / "entity_resolution"
+    return parsing_root / "entity_resolution"

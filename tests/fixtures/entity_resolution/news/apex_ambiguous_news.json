@@ -1,0 +1,19 @@
+{
+  "fixture_type": "news_item",
+  "fixture_name": "apex_ambiguous_news",
+  "source_type": "newswire",
+  "external_id": "news:marketwire:apex-ambiguous-20260510",
+  "uri": "https://news.example.com/apex-ambiguous-20260510",
+  "title": "APEX expands pilot programs in Europe",
+  "published_at": "2026-05-10T08:00:00Z",
+  "retrieved_at": "2026-05-10T08:05:00Z",
+  "effective_at": null,
+  "company": null,
+  "publisher": "MarketWire Financial",
+  "headline": "APEX expands pilot programs in Europe",
+  "summary": "The company name was omitted from the wire copy, leaving only the bare ticker.",
+  "author_names": [
+    "Dana Lee"
+  ],
+  "raw_text": "APEX said the pilot programs will expand across Europe this summer, but the wire copy did not specify the issuer legal name, exchange, or market venue."
+}

@@ -18,6 +18,10 @@ from libraries.schemas import (
     WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
+from services.entity_resolution import (
+    EntityResolutionService,
+    ResolveEntityWorkspaceRequest,
+)
 from services.ingestion.fixture_loader import load_fixture_record
 from services.ingestion.normalization import FixtureNormalizationResult, normalize_raw_fixture
 from services.ingestion.storage import LocalArtifactStore
@@ -169,6 +173,23 @@ class IngestionService(BaseService):
                 storage_locations.extend(
                     self._persist_normalized_artifacts(store=store, normalized=normalized)
                 )
+                entity_resolution_response = EntityResolutionService(
+                    clock=self.clock
+                ).resolve_entity_workspace(
+                    ResolveEntityWorkspaceRequest(
+                        ingestion_root=artifact_root,
+                        parsing_root=None,
+                        company_id=normalized.company.company_id if normalized.company is not None else None,
+                        document_ids=(
+                            [document_artifact[1].document_id]
+                            if (document_artifact := self._document_artifact(normalized)) is not None
+                            else []
+                        ),
+                        output_root=_default_entity_resolution_root(artifact_root),
+                        requested_by=request.requested_by,
+                    )
+                )
+                storage_locations.extend(entity_resolution_response.storage_locations)
 
             response = FixtureIngestionResponse(
                 ingestion_job_id=ingestion_job_id,
@@ -227,6 +248,7 @@ class IngestionService(BaseService):
                             if response.price_series_metadata is not None
                             else []
                         ),
+                        *[location.artifact_id for location in storage_locations],
                     ],
                     pipeline_event_ids=[
                         start_event.pipeline_event.pipeline_event_id,
@@ -338,3 +360,11 @@ class IngestionService(BaseService):
         if normalized.news_item is not None:
             return "news_items", normalized.news_item
         return None
+
+
+def _default_entity_resolution_root(ingestion_root: Path) -> Path:
+    """Choose the default entity-resolution root adjacent to the ingestion root when possible."""
+
+    if ingestion_root.name == "ingestion":
+        return ingestion_root.parent / "entity_resolution"
+    return ingestion_root / "entity_resolution"

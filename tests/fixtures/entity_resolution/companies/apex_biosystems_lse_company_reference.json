@@ -1,0 +1,24 @@
+{
+  "fixture_type": "company",
+  "fixture_name": "apex_biosystems_lse_company_reference",
+  "source_type": "reference_data_vendor",
+  "external_id": "refdata:apex-biosystems-lse",
+  "uri": "refdata://sample_vendor/company/apex-biosystems-plc",
+  "title": "Apex Biosystems plc company reference record",
+  "published_at": null,
+  "retrieved_at": "2026-05-06T13:12:00Z",
+  "effective_at": null,
+  "company": {
+    "legal_name": "Apex Biosystems plc",
+    "ticker": "APEX",
+    "exchange": "LSE",
+    "cik": null,
+    "isin": null,
+    "lei": null,
+    "figi": null,
+    "sector": "Health Care",
+    "industry": "Life Sciences Tools & Services",
+    "country_of_risk": "GB"
+  },
+  "as_of_time": "2026-05-06T00:00:00Z"
+}

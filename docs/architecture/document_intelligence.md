@@ -21,6 +21,11 @@ The parsing boundary currently operates on three explicit artifacts:
 
 This is intentional. Day 2 normalized documents do not yet carry parser-ready body text, so Day 3 creates a parser-owned text artifact without rewriting the ingestion contracts.
 
+Day 16 clarification:
+
+- parsing does not perform free-form company matching of its own
+- instead, parsing refreshes the dedicated entity-resolution layer after evidence extraction persists
+
 ## Current Outputs
 
 Current parser-owned outputs are:
@@ -104,6 +109,8 @@ Local parsing runs write artifacts under `artifacts/parsing/`:
 - `guidance_changes/`
 - `tone_markers/`
 
+Current Day 16 follow-on writes refreshed entity-linking artifacts under the sibling `artifacts/entity_resolution/` root when parsing completes.
+
 ## Eval Hooks
 
 Each `DocumentEvidenceBundle` carries a lightweight evaluation report that checks:
@@ -133,6 +140,7 @@ Later agents may rely on:
 - resolved `segment_id` linkage
 - explicit `source_reference_id` and provenance records
 - sparse but structured claim, guidance, risk, and tone artifacts
+- canonical company links only when entity resolution resolved safely
 
 Later agents must not assume:
 
@@ -140,3 +148,4 @@ Later agents must not assume:
 - financial materiality ranking
 - economic correctness of every extracted sentence
 - that missing guidance, risk, or tone markers imply none exist
+- that parser-owned text mentioning a company name is sufficient to force entity identity when the match is ambiguous

@@ -1,0 +1,19 @@
+{
+  "fixture_type": "news_item",
+  "fixture_name": "industry_roundup_unresolved_news",
+  "source_type": "newswire",
+  "external_id": "news:marketwire:industry-roundup-20260510",
+  "uri": "https://news.example.com/industry-roundup-20260510",
+  "title": "Industrial automation suppliers review second-half demand outlook",
+  "published_at": "2026-05-10T09:30:00Z",
+  "retrieved_at": "2026-05-10T09:35:00Z",
+  "effective_at": null,
+  "company": null,
+  "publisher": "MarketWire Financial",
+  "headline": "Industrial automation suppliers review second-half demand outlook",
+  "summary": "Sector roundup without a company-specific target.",
+  "author_names": [
+    "Mina Brooks"
+  ],
+  "raw_text": "Suppliers across industrial automation, diagnostics, and software discussed second-half demand conditions, but no single issuer was identified in the article."
+}

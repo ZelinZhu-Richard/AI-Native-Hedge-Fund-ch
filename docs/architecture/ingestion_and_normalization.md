@@ -9,6 +9,7 @@ The current scope is deliberately narrow:
 - load a small local fixture set
 - preserve exact raw source payloads
 - normalize those payloads into canonical typed objects
+- run metadata-first entity resolution for the affected workspace slice
 - make timestamp handling explicit
 - persist raw and normalized artifacts separately
 
@@ -46,6 +47,8 @@ flowchart LR
     D --> H[Normalized Artifact Store]
     E --> H
     F --> H
+    H --> I[Entity Resolution Service]
+    I --> J[EntityReference / Alias / CrossSourceLink / ResolutionDecision]
 ```
 
 ## Raw And Normalized Separation
@@ -68,6 +71,16 @@ Current local layout:
 - `normalized/news_items/<document_id>.json`
 - `normalized/price_series_metadata/<price_series_metadata_id>.json`
 
+Current Day 16 sibling layout:
+
+- `../entity_resolution/entity_references/`
+- `../entity_resolution/company_aliases/`
+- `../entity_resolution/ticker_aliases/`
+- `../entity_resolution/document_entity_links/`
+- `../entity_resolution/cross_source_links/`
+- `../entity_resolution/resolution_decisions/`
+- `../entity_resolution/resolution_conflicts/`
+
 ## Canonical Objects Emitted
 
 Each fixture produces a `SourceReference` plus one or more canonical objects:
@@ -79,6 +92,12 @@ Each fixture produces a `SourceReference` plus one or more canonical objects:
 - price metadata fixture: `SourceReference`, `Company`, `PriceSeriesMetadata`
 
 `SourceReference` is the anchor for source identity and upstream timestamps.
+
+Day 16 clarification:
+
+- `Company.company_id` remains the canonical downstream company key
+- alternate source names and ticker variants are preserved separately
+- ingestion does not silently collapse ambiguous entity state
 
 ## Timestamp Handling
 
@@ -124,7 +143,8 @@ This is sufficient for local traceability but not yet a durable audit ledger.
 ## Current Limitations
 
 - no external provider connectors
-- no deduplication or entity-resolution conflict handling beyond deterministic IDs
+- canonical company mastering is still shallow and local-filesystem-backed
+- no manual operator workflow for unresolved or ambiguous entity cases
 - no section extraction or evidence spans
 - no persistent dataset manifests
 - no workflow scheduler or audit-event emission

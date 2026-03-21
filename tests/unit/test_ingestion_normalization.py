@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from libraries.time import FrozenClock
-from libraries.utils import make_company_id
+from libraries.utils import make_canonical_id, make_company_id
 from services.ingestion import FixtureIngestionRequest, IngestionService
 from services.ingestion.fixture_loader import discover_raw_fixture_paths, load_fixture_record
 from services.ingestion.normalization import normalize_raw_fixture
@@ -92,7 +92,7 @@ def test_ingestion_service_persists_raw_and_normalized_artifacts(tmp_path: Path)
 
     assert response.filing is not None
     assert response.company is not None
-    assert len(response.storage_locations) == 4
+    assert len(response.storage_locations) >= 4
 
     raw_path = tmp_path / "raw" / "filing" / f"{response.source_reference.source_reference_id}.json"
     source_reference_path = (
@@ -103,8 +103,15 @@ def test_ingestion_service_persists_raw_and_normalized_artifacts(tmp_path: Path)
     )
     company_path = tmp_path / "normalized" / "companies" / f"{response.company.company_id}.json"
     filing_path = tmp_path / "normalized" / "filings" / f"{response.filing.document_id}.json"
+    entity_reference_path = (
+        tmp_path
+        / "entity_resolution"
+        / "entity_references"
+        / f"{make_canonical_id('eref', response.company.company_id)}.json"
+    )
 
     assert raw_path.read_text(encoding="utf-8") == record.raw_text
     assert source_reference_path.exists()
     assert company_path.exists()
     assert filing_path.exists()
+    assert entity_reference_path.exists()
