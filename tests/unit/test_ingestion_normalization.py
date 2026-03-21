@@ -58,6 +58,12 @@ def test_normalize_filing_fixture_preserves_timestamps_and_provenance() -> None:
     assert normalized.source_reference.provenance.transformation_name == (
         "source_reference_normalization"
     )
+    assert normalized.source_reference.publication_timing is not None
+    assert normalized.filing.publication_timing is not None
+    assert (
+        normalized.filing.publication_timing.internal_available_at
+        == datetime(2026, 5, 8, 13, 30, tzinfo=UTC)
+    )
     assert any(note.startswith("fixture_path=") for note in normalized.filing.provenance.notes)
 
 

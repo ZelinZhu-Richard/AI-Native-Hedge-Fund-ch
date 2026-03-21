@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from pydantic import Field
 
 from libraries.core import build_provenance
 from libraries.schemas import (
+    AvailabilityWindow,
     BacktestConfig,
     BacktestRun,
     BacktestStatus,
@@ -15,7 +16,7 @@ from libraries.schemas import (
     DataLayer,
     DataSnapshot,
     DecisionAction,
-    ExecutionAssumption,
+    DecisionCutoff,
     PerformanceSummary,
     ResearchStance,
     Signal,
@@ -25,6 +26,8 @@ from libraries.schemas import (
     StrategyFamily,
     StrategyVariantSignal,
     StrictModel,
+    TimingAnomaly,
+    TimingAnomalyKind,
 )
 from libraries.time import Clock, ensure_utc
 from libraries.utils import make_canonical_id
@@ -32,6 +35,7 @@ from services.backtesting.loaders import (
     LoadedBacktestInputs,
     SyntheticDailyPriceBar,
 )
+from services.timing import TimingService
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,14 @@ class BacktestComputationResult(StrictModel):
         default_factory=list,
         description="Mechanical benchmark references emitted for the run.",
     )
+    decision_cutoffs: list[DecisionCutoff] = Field(
+        default_factory=list,
+        description="Decision cutoffs used to evaluate signal eligibility during the run.",
+    )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed during the backtest run.",
+    )
     notes: list[str] = Field(
         default_factory=list,
         description="Operational notes, simplifications, and skipped-work explanations.",
@@ -85,17 +97,24 @@ def run_backtest_simulation(
     """Run the deterministic Day 6 exploratory backtest skeleton."""
 
     bars = _bars_in_window(inputs=inputs, config=config)
+    timing_service = TimingService(clock=clock)
+    decision_cutoffs = [
+        timing_service.build_decision_cutoff(decision_time=bar.timestamp_dt) for bar in bars
+    ]
+    timing_anomalies: list[TimingAnomaly] = []
     signal_snapshot = _build_signal_snapshot(
         inputs=inputs,
         config=config,
         clock=clock,
         workflow_run_id=workflow_run_id,
+        decision_cutoffs=decision_cutoffs,
     )
     price_snapshot = _build_price_snapshot(
         inputs=inputs,
         config=config,
         clock=clock,
         workflow_run_id=workflow_run_id,
+        decision_cutoffs=decision_cutoffs,
     )
     leakage_checks: list[str] = []
     notes: list[str] = [
@@ -155,6 +174,7 @@ def run_backtest_simulation(
     pending_fills: dict[int, PendingFill] = {}
 
     source_reference_ids = _source_reference_ids(inputs=inputs)
+    timing_safe_signal_ids: set[str] = set()
     events.append(
         _event(
             backtest_run_id=backtest_run_id,
@@ -174,7 +194,8 @@ def run_backtest_simulation(
     )
 
     for index, bar in enumerate(bars):
-        decision_time = bar.timestamp_dt
+        decision_cutoff = decision_cutoffs[index]
+        decision_time = decision_cutoff.decision_time
 
         if index in pending_fills:
             pending_fill = pending_fills.pop(index)
@@ -216,8 +237,12 @@ def run_backtest_simulation(
         selected_signal = _select_signal_for_decision(
             inputs=inputs,
             config=config,
-            decision_time=decision_time,
+            decision_cutoff=decision_cutoff,
             leakage_checks=leakage_checks,
+            timing_service=timing_service,
+            timing_anomalies=timing_anomalies,
+            timing_safe_signal_ids=timing_safe_signal_ids,
+            clock=clock,
         )
         proposed_target = (
             _target_units_from_stance(selected_signal.stance)
@@ -255,6 +280,7 @@ def run_backtest_simulation(
             signal_id=selected_signal.signal_id if selected_signal is not None else None,
             decision_time=decision_time,
             signal_effective_at=selected_signal.effective_at if selected_signal is not None else None,
+            decision_cutoff=decision_cutoff,
             action=action,
             target_units=target_units,
             decision_snapshot_id=signal_snapshot.data_snapshot_id,
@@ -320,6 +346,11 @@ def run_backtest_simulation(
                 workflow_run_id=workflow_run_id,
                 source_reference_ids=source_reference_ids,
             )
+        )
+
+    if inputs.signals and not timing_safe_signal_ids:
+        raise ValueError(
+            "Backtest run could not establish timing-safe availability for any candidate signals."
         )
 
     ending_value = cash + (float(current_units) * bars[-1].close)
@@ -422,7 +453,7 @@ def run_backtest_simulation(
         benchmark_reference_ids=[
             benchmark.benchmark_reference_id for benchmark in benchmark_references
         ],
-        decision_cutoff_time=bars[-1].timestamp_dt,
+        decision_cutoff_time=decision_cutoffs[-1].decision_time,
         exploratory_only=config.exploratory_only,
         allowed_signal_statuses=config.signal_status_allowlist,
         leakage_checks=leakage_checks,
@@ -451,6 +482,8 @@ def run_backtest_simulation(
         simulation_events=events,
         performance_summary=performance_summary,
         benchmark_references=benchmark_references,
+        decision_cutoffs=decision_cutoffs,
+        timing_anomalies=timing_anomalies,
         notes=notes,
     )
 
@@ -478,15 +511,28 @@ def _build_signal_snapshot(
     config: BacktestConfig,
     clock: Clock,
     workflow_run_id: str,
+    decision_cutoffs: list[DecisionCutoff],
 ) -> DataSnapshot:
     """Build the signal snapshot metadata for the exploratory run."""
 
     now = clock.now()
-    event_time_start = min((signal.effective_at for signal in inputs.signals), default=None)
-    cutoff_time = max((signal.effective_at for signal in inputs.signals), default=None)
+    signal_times = [
+        signal.availability_window.available_from
+        if signal.availability_window is not None
+        else signal.effective_at
+        for signal in inputs.signals
+    ]
+    event_time_start = min(signal_times, default=None)
+    cutoff_time = max(signal_times, default=None)
     ingestion_cutoff_time = max((signal.created_at for signal in inputs.signals), default=None)
     dataset_name = _signal_dataset_name(inputs=inputs)
-    snapshot_time = max(now, cutoff_time) if cutoff_time is not None else now
+    information_cutoff_time = max(
+        cutoff_time or now,
+        decision_cutoffs[-1].eligible_information_time
+        if decision_cutoffs
+        else (cutoff_time or now),
+    )
+    snapshot_time = max(now, information_cutoff_time) if cutoff_time is not None else now
     return DataSnapshot(
         data_snapshot_id=make_canonical_id(
             "snap",
@@ -502,7 +548,7 @@ def _build_signal_snapshot(
         event_time_start=event_time_start,
         watermark_time=cutoff_time,
         ingestion_cutoff_time=ingestion_cutoff_time,
-        information_cutoff_time=cutoff_time or now,
+        information_cutoff_time=information_cutoff_time,
         storage_uri=inputs.signal_root.resolve().as_uri(),
         row_count=len(inputs.signals),
         schema_version="day6_backtesting",
@@ -523,7 +569,10 @@ def _build_signal_snapshot(
             source_reference_ids=_source_reference_ids(inputs=inputs),
             upstream_artifact_ids=[_signal_id(signal) for signal in inputs.signals],
             workflow_run_id=workflow_run_id,
-            notes=[_signal_snapshot_note(inputs=inputs)],
+            notes=[
+                _signal_snapshot_note(inputs=inputs),
+                f"timing_rule={decision_cutoffs[-1].rule_name}" if decision_cutoffs else "timing_rule=unknown",
+            ],
         ),
         created_at=now,
         updated_at=now,
@@ -536,13 +585,18 @@ def _build_price_snapshot(
     config: BacktestConfig,
     clock: Clock,
     workflow_run_id: str,
+    decision_cutoffs: list[DecisionCutoff],
 ) -> DataSnapshot:
     """Build the synthetic price snapshot metadata for the exploratory run."""
 
     now = clock.now()
     event_time_start = min(bar.timestamp_dt for bar in inputs.price_fixture.bars)
     cutoff_time = max(bar.timestamp_dt for bar in inputs.price_fixture.bars)
-    snapshot_time = max(now, cutoff_time)
+    information_cutoff_time = max(
+        cutoff_time,
+        decision_cutoffs[-1].eligible_information_time if decision_cutoffs else cutoff_time,
+    )
+    snapshot_time = max(now, information_cutoff_time)
     return DataSnapshot(
         data_snapshot_id=make_canonical_id(
             "snap",
@@ -558,7 +612,7 @@ def _build_price_snapshot(
         event_time_start=event_time_start,
         watermark_time=cutoff_time,
         ingestion_cutoff_time=None,
-        information_cutoff_time=cutoff_time,
+        information_cutoff_time=information_cutoff_time,
         storage_uri=inputs.price_fixture_path.resolve().as_uri(),
         row_count=len(inputs.price_fixture.bars),
         schema_version="day6_backtesting",
@@ -584,23 +638,43 @@ def _select_signal_for_decision(
     *,
     inputs: LoadedBacktestInputs,
     config: BacktestConfig,
-    decision_time: datetime,
+    decision_cutoff: DecisionCutoff,
     leakage_checks: list[str],
+    timing_service: TimingService,
+    timing_anomalies: list[TimingAnomaly],
+    timing_safe_signal_ids: set[str],
+    clock: Clock,
 ) -> ComparableSignal | None:
     """Return the latest eligible signal that passes temporal and lineage checks."""
 
     eligible: list[ComparableSignal] = []
     feature_availability_passed = False
+    known_anomaly_ids = {anomaly.timing_anomaly_id for anomaly in timing_anomalies}
     for signal in inputs.signals:
         if signal.status not in config.signal_status_allowlist:
             continue
-        eligible_at = _eligible_signal_time(signal=signal, assumption=config.execution_assumption)
-        if eligible_at > decision_time:
+        availability_window, signal_anomalies = _signal_availability_window(
+            signal=signal,
+            clock=clock,
+        )
+        if signal_anomalies:
+            for anomaly in signal_anomalies:
+                if anomaly.timing_anomaly_id not in known_anomaly_ids:
+                    timing_anomalies.append(anomaly)
+                    known_anomaly_ids.add(anomaly.timing_anomaly_id)
+        if availability_window is None:
+            continue
+        timing_safe_signal_ids.add(_signal_id(signal))
+        if not timing_service.is_available_by(
+            availability_window=availability_window,
+            decision_cutoff=decision_cutoff,
+            extra_buffer_minutes=config.execution_assumption.signal_availability_buffer_minutes or 0,
+        ):
             continue
         if not _validate_comparable_signal(
             signal=signal,
             inputs=inputs,
-            decision_time=decision_time,
+            decision_time=decision_cutoff.decision_time,
             leakage_checks=leakage_checks,
         ):
             continue
@@ -621,13 +695,47 @@ def _select_signal_for_decision(
     )[0]
 
 
-def _eligible_signal_time(*, signal: ComparableSignal, assumption: ExecutionAssumption) -> datetime:
-    """Return the earliest decision time when the signal is allowed into simulation."""
+def _signal_availability_window(
+    *,
+    signal: ComparableSignal,
+    clock: Clock,
+) -> tuple[AvailabilityWindow | None, list[TimingAnomaly]]:
+    """Return a comparable signal availability window, blocking missing timing metadata."""
 
-    effective_at = ensure_utc(signal.effective_at)
-    if assumption.signal_availability_buffer_minutes is None:
-        return effective_at
-    return effective_at + timedelta(minutes=assumption.signal_availability_buffer_minutes)
+    if signal.availability_window is not None:
+        return signal.availability_window, []
+    now = clock.now()
+    signal_id = _signal_id(signal)
+    return (
+        None,
+        [
+            TimingAnomaly(
+                timing_anomaly_id=make_canonical_id("tanom", "signal", signal_id, "compatibility"),
+                target_type="signal",
+                target_id=signal_id,
+                anomaly_kind=TimingAnomalyKind.MISSING_UPSTREAM_AVAILABILITY,
+                blocking=True,
+                message=(
+                    "Signal availability window was missing; the signal was excluded from "
+                    "decision eligibility."
+                ),
+                event_time=None,
+                publication_time=None,
+                internal_available_at=ensure_utc(signal.effective_at),
+                decision_time=None,
+                ingested_at=None,
+                retrieved_at=None,
+                provenance=build_provenance(
+                    clock=clock,
+                    transformation_name="day17_signal_availability_guardrail",
+                    source_reference_ids=list(signal.provenance.source_reference_ids),
+                    upstream_artifact_ids=[signal_id],
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+        ],
+    )
 
 
 def _target_units_from_stance(stance: ResearchStance) -> int:

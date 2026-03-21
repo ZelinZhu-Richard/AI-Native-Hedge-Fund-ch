@@ -14,6 +14,7 @@ from libraries.schemas.base import (
     TimestampedModel,
 )
 from libraries.schemas.market import EvidenceSpan
+from libraries.schemas.timing import AvailabilityWindow, PublicationTiming, TimingAnomaly
 
 
 class SegmentKind(StrEnum):
@@ -222,6 +223,14 @@ class DocumentEvidenceBundle(StrictModel):
     company_id: str | None = Field(
         default=None, description="Associated company identifier when applicable."
     )
+    publication_timing: PublicationTiming | None = Field(
+        default=None,
+        description="Document-level publication timing carried forward from normalization.",
+    )
+    availability_window: AvailabilityWindow | None = Field(
+        default=None,
+        description="Document-level availability window used by downstream loaders.",
+    )
     document_kind: DocumentKind = Field(description="Document type represented by the bundle.")
     parsed_document_text: ParsedDocumentText = Field(description="Parser-owned canonical text.")
     segments: list[DocumentSegment] = Field(default_factory=list, description="Document segments.")
@@ -243,4 +252,8 @@ class DocumentEvidenceBundle(StrictModel):
     )
     evaluation: DocumentEvidenceEvaluation = Field(
         description="Lightweight eval report for the evidence bundle."
+    )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed while resolving bundle availability.",
     )

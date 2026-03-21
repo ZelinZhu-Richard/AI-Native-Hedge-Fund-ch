@@ -12,6 +12,10 @@ The repository now distinguishes:
 
 - `published_at`
   - when a source became public
+- `publication_time`
+  - normalized source visibility time used by the timing layer
+- `internal_available_at`
+  - normalized platform-usable time derived from a timing rule
 - `retrieved_at`
   - when the platform pulled the source
 - `effective_at`
@@ -104,6 +108,28 @@ Day 6 records checks for:
 
 These checks are attached to `BacktestRun.leakage_checks`.
 
+## Day 17 Timing Layer
+
+Day 17 adds a first-class timing layer instead of relying only on ad hoc timestamp comparisons.
+
+The repo now carries:
+
+- `PublicationTiming`
+- `AvailabilityWindow`
+- `MarketSession`
+- `DataAvailabilityRule`
+- `DecisionCutoff`
+- `TimingAnomaly`
+
+Current timing policy for public documents is intentionally conservative:
+
+1. documents available before regular market open may influence that trading day's close decision
+2. documents first available during regular trading or after-hours are delayed until the next regular session
+3. price bars become usable at the recorded bar close
+4. signals without resolved availability windows are excluded from backtest eligibility
+
+Derived feature and signal availability is now tied to upstream availability windows where available. When upstream timing metadata is incomplete, the workflow records a `TimingAnomaly` instead of hiding the fallback.
+
 ## Known Remaining Risks
 
 Day 6 is honest, but still simple.
@@ -114,6 +140,8 @@ Current risks still to improve:
 - no corporate-action handling
 - no split-adjustment logic
 - no intraday timestamp granularity
+- no full holiday calendar engine
+- some upstream workflows still depend on compatibility fallbacks when explicit timing metadata is absent
 - no replay of late corrections or vendor restatements
 - synthetic prices only, not real point-in-time market data
 

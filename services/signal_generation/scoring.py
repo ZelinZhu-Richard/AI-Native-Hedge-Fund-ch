@@ -19,10 +19,12 @@ from libraries.schemas import (
     SignalScore,
     SignalStatus,
     StrictModel,
+    TimingAnomaly,
 )
 from libraries.time import Clock
 from libraries.utils import make_canonical_id
 from services.signal_generation.loaders import LoadedSignalGenerationInputs
+from services.timing import TimingService
 
 
 class SignalGenerationResult(StrictModel):
@@ -40,6 +42,10 @@ class SignalGenerationResult(StrictModel):
         default_factory=list,
         description="Operational notes describing skipped work, assumptions, or gaps.",
     )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed while deriving signal availability.",
+    )
 
 
 def build_candidate_signals(
@@ -52,6 +58,7 @@ def build_candidate_signals(
     """Build one deterministic Day 5 candidate signal from eligible candidate features."""
 
     notes: list[str] = []
+    timing_service = TimingService(clock=clock)
     eligible_features = _eligible_features(inputs.features, ablation_view=ablation_view)
     if not eligible_features:
         notes.append(
@@ -96,7 +103,7 @@ def build_candidate_signals(
     )
     stance = _stance_from_score(primary_score)
 
-    effective_at = max(
+    fallback_effective_at = max(
         feature.feature_value.available_at.astimezone(UTC) for feature in eligible_features
     )
     source_reference_ids = sorted(
@@ -140,6 +147,17 @@ def build_candidate_signals(
         {feature.feature_definition.family for feature in eligible_features},
         key=lambda family: family.value,
     )
+    availability_window, timing_anomalies = timing_service.derive_signal_availability(
+        target_id=make_canonical_id("sigavail", inputs.company_id, ablation_view.value),
+        source_reference_ids=source_reference_ids,
+        upstream_windows=[
+            feature.feature_value.availability_window
+            for feature in eligible_features
+            if feature.feature_value.availability_window is not None
+        ],
+        fallback_time=fallback_effective_at,
+    )
+    effective_at = availability_window.available_from
     created_at = clock.now()
     signal_lineage = SignalLineage(
         signal_lineage_id=make_canonical_id(
@@ -267,6 +285,7 @@ def build_candidate_signals(
         component_scores=signal_scores,
         primary_score=primary_score,
         effective_at=effective_at,
+        availability_window=availability_window,
         expires_at=None,
         status=SignalStatus.CANDIDATE,
         validation_status=DerivedArtifactValidationStatus.UNVALIDATED,
@@ -285,7 +304,16 @@ def build_candidate_signals(
         created_at=created_at,
         updated_at=created_at,
     )
-    return SignalGenerationResult(signals=[signal], signal_scores=signal_scores, notes=notes)
+    if timing_anomalies:
+        notes.append(
+            "Signal availability used a compatibility fallback because upstream feature timing metadata was incomplete."
+        )
+    return SignalGenerationResult(
+        signals=[signal],
+        signal_scores=signal_scores,
+        notes=notes,
+        timing_anomalies=timing_anomalies,
+    )
 
 
 def _eligible_features(features: list[Feature], *, ablation_view: AblationView) -> list[Feature]:

@@ -29,6 +29,7 @@ from services.parsing.extraction import build_document_evidence_bundle
 from services.parsing.loaders import load_parsing_inputs
 from services.parsing.segmentation import build_parsed_document_text, segment_document
 from services.parsing.storage import LocalParsingArtifactStore
+from services.timing import TimingService
 
 
 class ParseDocumentRequest(StrictModel):
@@ -133,6 +134,7 @@ class ParsingService(BaseService):
         if output_root is None:
             output_root = get_settings().resolved_artifact_root / "parsing"
         monitoring_root = output_root.parent / "monitoring"
+        timing_root = output_root.parent / "timing"
         monitoring_service = MonitoringService(clock=self.clock)
         start_event = monitoring_service.record_pipeline_event(
             RecordPipelineEventRequest(
@@ -174,9 +176,29 @@ class ParsingService(BaseService):
                 workflow_run_id=extraction_run_id,
                 notes=monitoring_notes,
             )
+            timing_service = TimingService(clock=self.clock)
+            publication_timing, availability_window, timing_anomalies = (
+                timing_service.build_document_timing(
+                    document=inputs.document,
+                    source_reference=inputs.source_reference,
+                )
+            )
+            bundle = bundle.model_copy(
+                update={
+                    "publication_timing": publication_timing,
+                    "availability_window": availability_window,
+                    "timing_anomalies": timing_anomalies,
+                }
+            )
 
             store = LocalParsingArtifactStore(root=output_root, clock=self.clock)
             storage_locations = self._persist_bundle(store=store, bundle=bundle)
+            if bundle.timing_anomalies:
+                timing_response = timing_service.persist_anomalies(
+                    anomalies=bundle.timing_anomalies,
+                    output_root=timing_root,
+                )
+                storage_locations.extend(timing_response.storage_locations)
             entity_resolution_response = EntityResolutionService(clock=self.clock).resolve_entity_workspace(
                 ResolveEntityWorkspaceRequest(
                     ingestion_root=_resolve_ingestion_root_from_source_reference_path(
@@ -196,6 +218,8 @@ class ParsingService(BaseService):
                 document_id=bundle.document_id,
                 source_reference_id=bundle.source_reference_id,
                 company_id=bundle.company_id,
+                publication_timing=bundle.publication_timing,
+                availability_window=bundle.availability_window,
                 document_kind=bundle.document_kind,
                 parsed_document_text=bundle.parsed_document_text,
                 segments=bundle.segments,
@@ -205,6 +229,7 @@ class ParsingService(BaseService):
                 guidance_changes=bundle.guidance_changes,
                 tone_markers=bundle.tone_markers,
                 evaluation=bundle.evaluation,
+                timing_anomalies=bundle.timing_anomalies,
             )
             completed_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
@@ -255,7 +280,10 @@ class ParsingService(BaseService):
                         start_event.pipeline_event.pipeline_event_id,
                         completed_event.pipeline_event.pipeline_event_id,
                     ],
-                    notes=monitoring_notes,
+                    notes=[
+                        *monitoring_notes,
+                        f"timing_anomaly_count={len(response.timing_anomalies)}",
+                    ],
                     outputs_expected=True,
                 ),
                 output_root=monitoring_root,

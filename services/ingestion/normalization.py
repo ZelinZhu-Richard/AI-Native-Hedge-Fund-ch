@@ -7,6 +7,7 @@ from pydantic import Field
 
 from libraries.core import build_provenance
 from libraries.schemas import (
+    AvailabilityWindow,
     Company,
     DataLayer,
     DocumentStatus,
@@ -17,6 +18,7 @@ from libraries.schemas import (
     PriceSeriesStatus,
     SourceReference,
     StrictModel,
+    TimingAnomaly,
 )
 from libraries.time import Clock, parse_datetime_value, resolve_effective_time
 from libraries.utils import (
@@ -34,6 +36,7 @@ from services.ingestion.payloads import (
     RawPriceSeriesMetadataFixture,
     RawTranscriptFixture,
 )
+from services.timing import TimingService
 
 
 class FixtureNormalizationResult(StrictModel):
@@ -43,6 +46,10 @@ class FixtureNormalizationResult(StrictModel):
     fixture_type: str = Field(description="Fixture type processed by the normalization flow.")
     ingested_at: datetime = Field(description="UTC timestamp when the local ingestion ran.")
     source_reference: SourceReference = Field(description="Canonical source reference record.")
+    source_availability_window: AvailabilityWindow | None = Field(
+        default=None,
+        description="Conservative availability window resolved for the source when applicable.",
+    )
     company: Company | None = Field(default=None, description="Canonical company record if created.")
     filing: Filing | None = Field(default=None, description="Canonical filing if created.")
     earnings_call: EarningsCall | None = Field(
@@ -52,6 +59,10 @@ class FixtureNormalizationResult(StrictModel):
     price_series_metadata: PriceSeriesMetadata | None = Field(
         default=None,
         description="Canonical price series metadata record if created.",
+    )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies detected during normalization.",
     )
 
 
@@ -64,12 +75,19 @@ def normalize_raw_fixture(
     """Normalize a raw fixture into canonical typed artifacts."""
 
     ingested_at = clock.now()
+    timing_service = TimingService(clock=clock)
     source_reference = _build_source_reference(
         payload=payload,
         clock=clock,
         ingested_at=ingested_at,
         fixture_path=fixture_path,
     )
+    source_publication_timing, source_timing_anomalies = timing_service.build_source_reference_timing(
+        source_reference=source_reference
+    )
+    source_reference = source_reference.model_copy(update={"publication_timing": source_publication_timing})
+    timing_anomalies = list(source_timing_anomalies)
+    source_availability_window: AvailabilityWindow | None = None
     if isinstance(payload, RawFilingFixture):
         company = _normalize_company(
             raw_company=payload.company,
@@ -116,13 +134,22 @@ def normalize_raw_fixture(
             raw_html_uri=payload.uri,
             normalized_text_uri=None,
         )
+        (
+            document_timing,
+            source_availability_window,
+            document_timing_anomalies,
+        ) = timing_service.build_document_timing(document=filing, source_reference=source_reference)
+        filing = filing.model_copy(update={"publication_timing": document_timing})
+        timing_anomalies.extend(document_timing_anomalies)
         return FixtureNormalizationResult(
             fixture_name=payload.fixture_name,
             fixture_type=payload.fixture_type,
             ingested_at=ingested_at,
             source_reference=source_reference,
+            source_availability_window=source_availability_window,
             company=company,
             filing=filing,
+            timing_anomalies=timing_anomalies,
         )
     if isinstance(payload, RawTranscriptFixture):
         company = _normalize_company(
@@ -168,13 +195,25 @@ def normalize_raw_fixture(
             q_and_a_uri=None,
             participants=payload.participants,
         )
+        (
+            document_timing,
+            source_availability_window,
+            document_timing_anomalies,
+        ) = timing_service.build_document_timing(
+            document=earnings_call,
+            source_reference=source_reference,
+        )
+        earnings_call = earnings_call.model_copy(update={"publication_timing": document_timing})
+        timing_anomalies.extend(document_timing_anomalies)
         return FixtureNormalizationResult(
             fixture_name=payload.fixture_name,
             fixture_type=payload.fixture_type,
             ingested_at=ingested_at,
             source_reference=source_reference,
+            source_availability_window=source_availability_window,
             company=company,
             earnings_call=earnings_call,
+            timing_anomalies=timing_anomalies,
         )
     if isinstance(payload, RawNewsFixture):
         news_company: Company | None = None
@@ -222,13 +261,22 @@ def normalize_raw_fixture(
             relevance_score=None,
             embargo_lifted_at=None,
         )
+        (
+            document_timing,
+            source_availability_window,
+            document_timing_anomalies,
+        ) = timing_service.build_document_timing(document=news_item, source_reference=source_reference)
+        news_item = news_item.model_copy(update={"publication_timing": document_timing})
+        timing_anomalies.extend(document_timing_anomalies)
         return FixtureNormalizationResult(
             fixture_name=payload.fixture_name,
             fixture_type=payload.fixture_type,
             ingested_at=ingested_at,
             source_reference=source_reference,
+            source_availability_window=source_availability_window,
             company=news_company,
             news_item=news_item,
+            timing_anomalies=timing_anomalies,
         )
     if isinstance(payload, RawCompanyFixture):
         company = _normalize_company(
@@ -243,9 +291,12 @@ def normalize_raw_fixture(
             fixture_type=payload.fixture_type,
             ingested_at=ingested_at,
             source_reference=source_reference,
+            source_availability_window=None,
             company=company,
+            timing_anomalies=timing_anomalies,
         )
     assert isinstance(payload, RawPriceSeriesMetadataFixture)
+    timing_anomalies.extend(timing_service.validate_timezone_name(payload.timezone))
     company = _normalize_company(
         raw_company=payload.company,
         source_reference=source_reference,
@@ -287,8 +338,10 @@ def normalize_raw_fixture(
         fixture_type=payload.fixture_type,
         ingested_at=ingested_at,
         source_reference=source_reference,
+        source_availability_window=None,
         company=company,
         price_series_metadata=price_series_metadata,
+        timing_anomalies=timing_anomalies,
     )
 
 

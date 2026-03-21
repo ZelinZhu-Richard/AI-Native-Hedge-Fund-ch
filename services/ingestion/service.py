@@ -30,6 +30,7 @@ from services.monitoring import (
     RecordPipelineEventRequest,
     RecordRunSummaryRequest,
 )
+from services.timing import TimingService
 
 
 class DocumentIngestionRequest(StrictModel):
@@ -136,6 +137,7 @@ class IngestionService(BaseService):
         if artifact_root is None:
             artifact_root = get_settings().resolved_artifact_root / "ingestion"
         monitoring_root = artifact_root.parent / "monitoring"
+        timing_root = artifact_root.parent / "timing"
         monitoring_service = MonitoringService(clock=self.clock)
         ingestion_job_id = make_prefixed_id("ingest")
         started_at = self.clock.now()
@@ -173,6 +175,12 @@ class IngestionService(BaseService):
                 storage_locations.extend(
                     self._persist_normalized_artifacts(store=store, normalized=normalized)
                 )
+                if normalized.timing_anomalies:
+                    timing_response = TimingService(clock=self.clock).persist_anomalies(
+                        anomalies=normalized.timing_anomalies,
+                        output_root=timing_root,
+                    )
+                    storage_locations.extend(timing_response.storage_locations)
                 entity_resolution_response = EntityResolutionService(
                     clock=self.clock
                 ).resolve_entity_workspace(
@@ -197,11 +205,13 @@ class IngestionService(BaseService):
                 fixture_type=normalized.fixture_type,
                 ingested_at=normalized.ingested_at,
                 source_reference=normalized.source_reference,
+                source_availability_window=normalized.source_availability_window,
                 company=normalized.company,
                 filing=normalized.filing,
                 earnings_call=normalized.earnings_call,
                 news_item=normalized.news_item,
                 price_series_metadata=normalized.price_series_metadata,
+                timing_anomalies=normalized.timing_anomalies,
                 storage_locations=storage_locations,
             )
             completed_event = monitoring_service.record_pipeline_event(
@@ -258,6 +268,7 @@ class IngestionService(BaseService):
                         f"fixture_path={request.fixture_path}",
                         f"persist_raw={request.persist_raw}",
                         f"persist_normalized={request.persist_normalized}",
+                        f"timing_anomaly_count={len(response.timing_anomalies)}",
                     ],
                     outputs_expected=request.persist_raw or request.persist_normalized,
                 ),

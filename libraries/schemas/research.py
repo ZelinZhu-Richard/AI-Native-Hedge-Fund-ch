@@ -19,6 +19,7 @@ from libraries.schemas.base import (
     SignalStatus,
     TimestampedModel,
 )
+from libraries.schemas.timing import AvailabilityWindow, DecisionCutoff
 
 
 class ResearchStance(StrEnum):
@@ -454,6 +455,10 @@ class FeatureValue(TimestampedModel):
     available_at: datetime = Field(
         description="UTC time when the feature value becomes available downstream."
     )
+    availability_window: AvailabilityWindow | None = Field(
+        default=None,
+        description="Structured availability window used to derive available_at when present.",
+    )
     numeric_value: float | None = Field(
         default=None, description="Numeric feature value when applicable."
     )
@@ -481,6 +486,13 @@ class FeatureValue(TimestampedModel):
         if sum(populated) != 1:
             raise ValueError(
                 "Exactly one of numeric_value, text_value, or boolean_value must be set."
+            )
+        if (
+            self.availability_window is not None
+            and self.available_at != self.availability_window.available_from
+        ):
+            raise ValueError(
+                "available_at must match availability_window.available_from when an availability window is set."
             )
         return self
 
@@ -661,6 +673,10 @@ class Signal(TimestampedModel):
     )
     primary_score: float = Field(description="Primary normalized score for downstream ranking.")
     effective_at: datetime = Field(description="UTC time when the signal becomes active.")
+    availability_window: AvailabilityWindow | None = Field(
+        default=None,
+        description="Structured availability window used to derive effective_at when present.",
+    )
     expires_at: datetime | None = Field(default=None, description="UTC expiry time for the signal.")
     status: SignalStatus = Field(description="Signal lifecycle status.")
     validation_status: DerivedArtifactValidationStatus = Field(
@@ -687,6 +703,13 @@ class Signal(TimestampedModel):
 
         if not self.feature_ids:
             raise ValueError("feature_ids must contain at least one feature identifier.")
+        if (
+            self.availability_window is not None
+            and self.effective_at != self.availability_window.available_from
+        ):
+            raise ValueError(
+                "effective_at must match availability_window.available_from when an availability window is set."
+            )
         if self.expires_at is not None and self.expires_at < self.effective_at:
             raise ValueError("expires_at must be greater than or equal to effective_at.")
         return self
@@ -836,6 +859,10 @@ class StrategyDecision(TimestampedModel):
         default=None,
         description="UTC signal effective time when a signal drove the decision.",
     )
+    decision_cutoff: DecisionCutoff | None = Field(
+        default=None,
+        description="Structured decision cutoff used to evaluate point-in-time eligibility.",
+    )
     action: DecisionAction = Field(description="Action implied by the decision.")
     target_units: int = Field(
         ge=-1,
@@ -858,6 +885,8 @@ class StrategyDecision(TimestampedModel):
             raise ValueError("signal_effective_at requires a corresponding signal_id.")
         if self.signal_id is not None and self.signal_effective_at is None:
             raise ValueError("signal_effective_at is required when signal_id is set.")
+        if self.decision_cutoff is not None and self.decision_cutoff.decision_time != self.decision_time:
+            raise ValueError("decision_cutoff.decision_time must match decision_time.")
         return self
 
 
@@ -1105,6 +1134,10 @@ class StrategyVariantSignal(TimestampedModel):
     stance: ResearchStance = Field(description="Research-layer stance implied by the signal.")
     primary_score: float = Field(description="Comparable normalized score for the signal.")
     effective_at: datetime = Field(description="UTC time when the signal becomes eligible.")
+    availability_window: AvailabilityWindow | None = Field(
+        default=None,
+        description="Structured availability window used to derive effective_at when present.",
+    )
     expires_at: datetime | None = Field(
         default=None,
         description="UTC expiry time when the signal should no longer be considered.",
@@ -1146,6 +1179,13 @@ class StrategyVariantSignal(TimestampedModel):
             raise ValueError("summary must be non-empty.")
         if not self.source_snapshot_ids:
             raise ValueError("source_snapshot_ids must contain at least one snapshot identifier.")
+        if (
+            self.availability_window is not None
+            and self.effective_at != self.availability_window.available_from
+        ):
+            raise ValueError(
+                "effective_at must match availability_window.available_from when an availability window is set."
+            )
         if self.expires_at is not None and self.expires_at < self.effective_at:
             raise ValueError("expires_at must be greater than or equal to effective_at.")
         return self

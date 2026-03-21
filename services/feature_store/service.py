@@ -16,6 +16,7 @@ from libraries.schemas import (
     FeatureValue,
     PipelineEventType,
     StrictModel,
+    TimingAnomaly,
     WorkflowStatus,
 )
 from libraries.utils import make_canonical_id, make_prefixed_id
@@ -28,6 +29,7 @@ from services.monitoring import (
     RecordPipelineEventRequest,
     RecordRunSummaryRequest,
 )
+from services.timing import TimingService
 
 
 class FeatureWriteRequest(StrictModel):
@@ -111,6 +113,10 @@ class RunFeatureMappingResponse(StrictModel):
         default_factory=list,
         description="Primary candidate feature artifacts materialized during the workflow.",
     )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed during feature availability resolution.",
+    )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Artifact storage locations written by the workflow.",
@@ -193,6 +199,7 @@ class FeatureStoreService(BaseService):
         )
         audit_root = output_root.parent / "audit"
         monitoring_root = output_root.parent / "monitoring"
+        timing_root = output_root.parent / "timing"
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(
@@ -217,6 +224,11 @@ class FeatureStoreService(BaseService):
             inputs = load_feature_mapping_inputs(
                 research_root=request.research_root,
                 parsing_root=inferred_parsing_root,
+                ingestion_root=(
+                    request.research_root.parent / "ingestion"
+                    if (request.research_root.parent / "ingestion").exists()
+                    else None
+                ),
                 company_id=request.company_id,
                 as_of_time=request.as_of_time,
             )
@@ -248,6 +260,12 @@ class FeatureStoreService(BaseService):
                 )
             for feature in result.features:
                 storage_locations.append(self._persist_feature(store=store, feature=feature))
+            if result.timing_anomalies:
+                timing_response = TimingService(clock=self.clock).persist_anomalies(
+                    anomalies=result.timing_anomalies,
+                    output_root=timing_root,
+                )
+                storage_locations.extend(timing_response.storage_locations)
             notes = list(result.notes)
             if request.as_of_time is None:
                 notes.append(
@@ -281,6 +299,7 @@ class FeatureStoreService(BaseService):
                         ],
                         *[feature_value.feature_value_id for feature_value in result.feature_values],
                         *[feature.feature_id for feature in result.features],
+                        *[anomaly.timing_anomaly_id for anomaly in result.timing_anomalies],
                     ],
                     notes=notes,
                 ),
@@ -365,6 +384,7 @@ class FeatureStoreService(BaseService):
                 feature_definitions=result.feature_definitions,
                 feature_values=result.feature_values,
                 features=result.features,
+                timing_anomalies=result.timing_anomalies,
                 storage_locations=storage_locations,
                 notes=notes,
             )

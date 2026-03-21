@@ -27,6 +27,7 @@ from libraries.schemas import (
     DatasetReference,
     DatasetUsageRole,
     DataSnapshot,
+    DecisionCutoff,
     EvaluationMetric,
     EvaluationReport,
     Experiment,
@@ -48,6 +49,7 @@ from libraries.schemas import (
     StrategySpec,
     StrategyVariant,
     StrictModel,
+    TimingAnomaly,
     WorkflowStatus,
 )
 from libraries.schemas.base import ProvenanceRecord
@@ -84,6 +86,7 @@ from services.monitoring import (
     RecordPipelineEventRequest,
     RecordRunSummaryRequest,
 )
+from services.timing import TimingService
 
 
 class BacktestRequest(StrictModel):
@@ -163,6 +166,14 @@ class RunBacktestWorkflowResponse(StrictModel):
     simulation_events: list[SimulationEvent] = Field(
         default_factory=list,
         description="Simulation events emitted by the run.",
+    )
+    decision_cutoffs: list[DecisionCutoff] = Field(
+        default_factory=list,
+        description="Decision cutoffs used to evaluate point-in-time eligibility.",
+    )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed during the run.",
     )
     performance_summary: PerformanceSummary = Field(
         description="Mechanical performance summary for the run."
@@ -345,6 +356,7 @@ class BacktestingService(BaseService):
         output_root = request.output_root or (get_settings().resolved_artifact_root / "backtesting")
         experiment_root = request.experiment_root or (output_root.parent / "experiments")
         audit_root = output_root.parent / "audit"
+        timing_root = output_root.parent / "timing"
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
         experiment: Experiment | None = None
@@ -379,6 +391,20 @@ class BacktestingService(BaseService):
             location = self._persist_model(store=store, category="snapshots", model=snapshot)
             snapshot_storage_locations.append(location)
             storage_locations.append(location)
+        for decision_cutoff in result.decision_cutoffs:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="decision_cutoffs",
+                    model=decision_cutoff,
+                )
+            )
+        if result.timing_anomalies:
+            timing_response = TimingService(clock=self.clock).persist_anomalies(
+                anomalies=result.timing_anomalies,
+                output_root=timing_root,
+            )
+            storage_locations.extend(timing_response.storage_locations)
         if request.record_experiment:
             (
                 data_snapshots,
@@ -502,6 +528,14 @@ class BacktestingService(BaseService):
                     status=ExperimentStatus.COMPLETED,
                     notes=[
                         f"backtest_run_id={backtest_run.backtest_run_id}",
+                        *[
+                            f"timing_anomaly_id={anomaly.timing_anomaly_id}"
+                            for anomaly in result.timing_anomalies
+                        ],
+                        *[
+                            f"decision_cutoff_id={cutoff.decision_cutoff_id}"
+                            for cutoff in result.decision_cutoffs
+                        ],
                         "Experiment finalized from deterministic backtest workflow output.",
                     ],
                 ),
@@ -511,6 +545,8 @@ class BacktestingService(BaseService):
             storage_locations.extend(finalize_response.storage_locations)
 
         notes = [f"requested_by={request.requested_by}", *result.notes]
+        if result.timing_anomalies:
+            notes.append(f"timing_anomaly_count={len(result.timing_anomalies)}")
         if experiment is not None:
             notes.append(f"experiment_id={experiment.experiment_id}")
         else:
@@ -576,6 +612,8 @@ class BacktestingService(BaseService):
             data_snapshots=data_snapshots,
             strategy_decisions=result.strategy_decisions,
             simulation_events=result.simulation_events,
+            decision_cutoffs=result.decision_cutoffs,
+            timing_anomalies=result.timing_anomalies,
             performance_summary=result.performance_summary,
             benchmark_references=result.benchmark_references,
             experiment=experiment,

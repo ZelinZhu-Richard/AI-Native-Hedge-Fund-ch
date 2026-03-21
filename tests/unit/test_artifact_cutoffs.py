@@ -167,6 +167,9 @@ def _duplicate_feature_and_research_brief_with_later_timestamps(
     feature_payload["feature_value"]["available_at"] = later_time.isoformat().replace(
         "+00:00", "Z"
     )
+    feature_payload["feature_value"]["availability_window"]["available_from"] = (
+        later_time.isoformat().replace("+00:00", "Z")
+    )
     feature_payload["feature_value"]["created_at"] = later_time.isoformat().replace(
         "+00:00", "Z"
     )
@@ -223,6 +226,11 @@ def _duplicate_signal_with_later_timestamp(
         update={
             "signal_id": f"{signal.signal_id}_later",
             "effective_at": later_time,
+            "availability_window": (
+                signal.availability_window.model_copy(update={"available_from": later_time})
+                if signal.availability_window is not None
+                else None
+            ),
             "created_at": later_time,
             "updated_at": later_time,
             "provenance": signal.provenance.model_copy(update={"processing_time": later_time}),

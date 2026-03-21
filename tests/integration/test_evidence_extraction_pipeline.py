@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from libraries.schemas import TimingAnomalyKind
 from libraries.time import FrozenClock
 from pipelines.document_processing import (
     run_evidence_extraction_pipeline,
@@ -31,6 +32,20 @@ def test_evidence_extraction_pipeline_processes_parseable_documents(tmp_path: Pa
     assert all(response.segments for response in responses)
     assert all(response.evidence_spans for response in responses)
     assert all(response.evaluation.passed for response in responses)
+    assert all(response.publication_timing is not None for response in responses)
+    assert all(response.availability_window is not None for response in responses)
+    assert all(
+        response.publication_timing.internal_available_at
+        == response.availability_window.available_from
+        for response in responses
+        if response.publication_timing is not None and response.availability_window is not None
+    )
+    assert all(
+        {
+            anomaly.anomaly_kind for anomaly in response.timing_anomalies
+        }.issubset({TimingAnomalyKind.INGESTED_BEFORE_PUBLICATION})
+        for response in responses
+    )
     assert (parsing_root / "parsed_text").exists()
     assert (parsing_root / "segments").exists()
     assert (parsing_root / "evidence_spans").exists()

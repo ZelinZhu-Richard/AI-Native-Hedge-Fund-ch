@@ -19,6 +19,7 @@ from services.red_team import RedTeamService
 from services.research_orchestrator import ResearchOrchestrationService
 from services.risk_engine import RiskEngineService
 from services.signal_generation import SignalGenerationService
+from services.timing import TimingService
 
 
 def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]:
@@ -42,5 +43,6 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         AuditLoggingService(clock=clock),
         MonitoringService(clock=clock),
         RedTeamService(clock=clock),
+        TimingService(clock=clock),
     ]
     return {service.capability_name: service for service in services}

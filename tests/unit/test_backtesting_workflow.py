@@ -50,6 +50,8 @@ def test_backtesting_workflow_generates_run_events_and_benchmarks(tmp_path: Path
     assert response.backtest_run.exploratory_only is True
     assert response.strategy_decisions
     assert response.simulation_events
+    assert response.decision_cutoffs
+    assert all(decision.decision_cutoff is not None for decision in response.strategy_decisions)
     assert response.performance_summary.trade_count >= 1
     assert {benchmark.benchmark_kind for benchmark in response.benchmark_references} == {
         BenchmarkKind.FLAT_BASELINE,
@@ -104,6 +106,10 @@ def test_backtesting_workflow_records_experiment_registry(tmp_path: Path) -> Non
         for snapshot in response.data_snapshots
     }
     assert {reference.storage_uri for reference in response.dataset_references} == snapshot_uris
+    assert all(
+        snapshot.information_cutoff_time == response.decision_cutoffs[-1].decision_time
+        for snapshot in response.data_snapshots
+    )
 
 
 def test_backtesting_experiment_config_is_stable_for_identical_runs(tmp_path: Path) -> None:
@@ -142,6 +148,7 @@ def test_future_feature_availability_blocks_signal_use(tmp_path: Path) -> None:
     feature_path = next((signal_root / "features").glob("*.json"))
     payload = json.loads(feature_path.read_text(encoding="utf-8"))
     payload["feature_value"]["available_at"] = "2026-03-24T20:00:00Z"
+    payload["feature_value"]["availability_window"]["available_from"] = "2026-03-24T20:00:00Z"
     feature_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     response = run_backtest_pipeline(
@@ -159,6 +166,29 @@ def test_future_feature_availability_blocks_signal_use(tmp_path: Path) -> None:
         check.startswith("future_feature_availability_rejected")
         for check in response.backtest_run.leakage_checks
     )
+
+
+def test_missing_signal_availability_window_blocks_backtest(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    signal_root = _build_signal_artifacts(artifact_root=artifact_root)
+    signal_path = next((signal_root / "signals").glob("*.json"))
+    payload = json.loads(signal_path.read_text(encoding="utf-8"))
+    payload["availability_window"] = None
+    signal_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    try:
+        run_backtest_pipeline(
+            signal_root=signal_root,
+            feature_root=signal_root,
+            output_root=artifact_root / "backtesting",
+            price_fixture_path=PRICE_FIXTURE_PATH,
+            backtest_config=_backtest_config(),
+            clock=FrozenClock(FIXED_NOW),
+        )
+    except ValueError as exc:
+        assert "timing-safe availability" in str(exc)
+    else:
+        raise AssertionError("Expected missing signal availability metadata to block the backtest.")
 
 
 def test_execution_lag_and_costs_reduce_net_pnl(tmp_path: Path) -> None:

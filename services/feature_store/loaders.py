@@ -7,11 +7,16 @@ from typing import TypeVar
 from pydantic import Field
 
 from libraries.schemas import (
+    AvailabilityBasis,
+    AvailabilityWindow,
     CounterHypothesis,
+    EarningsCall,
     EvidenceAssessment,
     ExtractedRiskFactor,
+    Filing,
     GuidanceChange,
     Hypothesis,
+    NewsItem,
     ResearchBrief,
     StrictModel,
     ToneMarker,
@@ -49,12 +54,17 @@ class LoadedFeatureMappingInputs(StrictModel):
         default_factory=list,
         description="Tone-marker artifacts reloaded from parsing output for deterministic feature mapping.",
     )
+    document_availability_windows: list[AvailabilityWindow] = Field(
+        default_factory=list,
+        description="Resolved document availability windows when ingestion timing metadata exists.",
+    )
 
 
 def load_feature_mapping_inputs(
     *,
     research_root: Path,
     parsing_root: Path | None,
+    ingestion_root: Path | None = None,
     company_id: str | None = None,
     as_of_time: datetime | None = None,
 ) -> LoadedFeatureMappingInputs:
@@ -122,6 +132,7 @@ def load_feature_mapping_inputs(
     guidance_changes: list[GuidanceChange] = []
     risk_factors: list[ExtractedRiskFactor] = []
     tone_markers: list[ToneMarker] = []
+    document_availability_windows: list[AvailabilityWindow] = []
     if parsing_root is not None and parsing_root.exists():
         guidance_changes = [
             change
@@ -147,6 +158,12 @@ def load_feature_mapping_inputs(
             )
             if tone_marker.company_id == resolved_company_id
         ]
+    if ingestion_root is not None and ingestion_root.exists():
+        document_availability_windows = _load_document_availability_windows(
+            ingestion_root=ingestion_root,
+            company_id=resolved_company_id,
+            as_of_time=as_of_time,
+        )
 
     return LoadedFeatureMappingInputs(
         company_id=resolved_company_id,
@@ -157,6 +174,7 @@ def load_feature_mapping_inputs(
         guidance_changes=guidance_changes,
         risk_factors=risk_factors,
         tone_markers=tone_markers,
+        document_availability_windows=document_availability_windows,
     )
 
 
@@ -223,3 +241,36 @@ def _apply_created_at_cutoff(
     if as_of_time is None:
         return artifacts
     return [artifact for artifact in artifacts if artifact.created_at <= as_of_time]
+
+
+def _load_document_availability_windows(
+    *,
+    ingestion_root: Path,
+    company_id: str,
+    as_of_time: datetime | None,
+) -> list[AvailabilityWindow]:
+    """Load document availability windows backed by normalized timing metadata."""
+
+    documents = [
+        *_load_models(ingestion_root / "normalized" / "filings", Filing),
+        *_load_models(ingestion_root / "normalized" / "earnings_calls", EarningsCall),
+        *_load_models(ingestion_root / "normalized" / "news_items", NewsItem),
+    ]
+    windows: list[AvailabilityWindow] = []
+    for document in documents:
+        if document.company_id != company_id or document.publication_timing is None:
+            continue
+        available_from = document.publication_timing.internal_available_at
+        if as_of_time is not None and available_from > as_of_time:
+            continue
+        windows.append(
+            AvailabilityWindow(
+                available_from=available_from,
+                available_until=None,
+                availability_basis=AvailabilityBasis.PUBLICATION_RULE,
+                publication_timing=document.publication_timing,
+                market_session=None,
+                rule_name=document.publication_timing.rule_name,
+            )
+        )
+    return sorted(windows, key=lambda window: window.available_from)

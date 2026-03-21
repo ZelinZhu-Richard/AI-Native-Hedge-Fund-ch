@@ -17,6 +17,7 @@ from libraries.schemas.base import (
     SourceType,
     TimestampedModel,
 )
+from libraries.schemas.timing import PublicationTiming
 
 
 class Company(TimestampedModel):
@@ -64,6 +65,10 @@ class SourceReference(TimestampedModel):
     effective_at: datetime | None = Field(
         default=None,
         description="UTC timestamp when the information became actionable, if distinct from publication.",
+    )
+    publication_timing: PublicationTiming | None = Field(
+        default=None,
+        description="Normalized publication and internal availability timing when resolved.",
     )
     license: str | None = Field(
         default=None, description="Usage or redistribution license if applicable."
@@ -155,6 +160,10 @@ class Document(TimestampedModel):
     effective_at: datetime | None = Field(
         default=None,
         description="UTC time when the information should be considered effective.",
+    )
+    publication_timing: PublicationTiming | None = Field(
+        default=None,
+        description="Normalized publication and internal availability timing when resolved.",
     )
     ingested_at: datetime = Field(
         description="UTC timestamp when the platform ingested the document."

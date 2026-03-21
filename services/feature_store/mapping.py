@@ -24,11 +24,13 @@ from libraries.schemas import (
     ResearchReviewStatus,
     ResearchValidationStatus,
     StrictModel,
+    TimingAnomaly,
     ToneMarkerType,
 )
 from libraries.time import Clock
 from libraries.utils import make_canonical_id
 from services.feature_store.loaders import LoadedFeatureMappingInputs
+from services.timing import TimingService
 
 SUPPORT_GRADE_MAP = {
     EvidenceGrade.STRONG: 1.0,
@@ -65,6 +67,10 @@ class FeatureMappingResult(StrictModel):
         default_factory=list,
         description="Operational notes describing skipped work, assumptions, or gaps.",
     )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed while deriving feature availability.",
+    )
 
 
 def build_feature_candidates(
@@ -77,6 +83,7 @@ def build_feature_candidates(
     """Build the Day 5 deterministic feature set from research and parsing artifacts."""
 
     notes: list[str] = []
+    timing_service = TimingService(clock=clock)
     if ablation_view is not AblationView.TEXT_ONLY:
         notes.append(
             f"Ablation view `{ablation_view.value}` is not populated on Day 5 because only "
@@ -117,7 +124,7 @@ def build_feature_candidates(
         notes.append("Features remain candidate-only because research artifacts are not yet approved for feature work.")
 
     as_of_date = inputs.research_brief.created_at.date()
-    available_at = _max_timestamp(
+    fallback_available_at = _max_timestamp(
         [
             inputs.hypothesis.updated_at,
             inputs.counter_hypothesis.updated_at,
@@ -172,6 +179,23 @@ def build_feature_candidates(
     common_assumptions = [
         "Day 5 features are candidate-only and must not be treated as validated alpha.",
     ]
+    availability_window, timing_anomalies = timing_service.derive_feature_availability(
+        target_id=make_canonical_id(
+            "fval",
+            inputs.company_id,
+            "shared",
+            as_of_date.isoformat(),
+            inputs.research_brief.research_brief_id,
+        ),
+        source_reference_ids=source_reference_ids,
+        upstream_windows=inputs.document_availability_windows,
+        fallback_time=fallback_available_at,
+    )
+    available_at = availability_window.available_from
+    if timing_anomalies:
+        notes.append(
+            "Feature availability used a compatibility fallback because upstream document timing metadata was incomplete."
+        )
 
     feature_specs = [
         (
@@ -244,6 +268,7 @@ def build_feature_candidates(
             feature_definition_id=feature_definition.feature_definition_id,
             as_of_date=as_of_date,
             available_at=available_at,
+            availability_window=availability_window.model_copy(),
             numeric_value=numeric_value,
             confidence=confidence,
             provenance=build_provenance(
@@ -294,6 +319,7 @@ def build_feature_candidates(
         feature_values=feature_values,
         features=features,
         notes=notes,
+        timing_anomalies=timing_anomalies,
     )
 
 

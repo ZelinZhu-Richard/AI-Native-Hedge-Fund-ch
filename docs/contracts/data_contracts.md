@@ -71,6 +71,11 @@ Current Day 16 clarification:
 - `company_id` is now the canonical entity-resolution-backed company key used downstream
 - raw tickers, vendor symbols, and source legal-name variants must be preserved as aliases or cross-source links rather than treated as canonical identity
 
+Current Day 17 clarification:
+
+- canonical downstream timing should prefer `PublicationTiming`, `AvailabilityWindow`, and `DecisionCutoff` over ad hoc comparisons against `published_at`, `available_at`, or `effective_at` alone
+- `effective_at` and `available_at` remain compatibility fields, but when timing windows are present they must match the resolved timing-window start
+
 ## Timestamp Semantics
 
 Every timestamp must be timezone-aware UTC at rest.
@@ -80,6 +85,8 @@ The canonical timestamp types are:
 - `event_time`: when the real-world event happened
 - `event_time_start`: earliest event time represented by a snapshot or partition
 - `published_at`: when a source was made available upstream
+- `publication_time`: normalized source visibility time used by the timing layer
+- `internal_available_at`: normalized platform-usable time derived from a timing rule
 - `retrieved_at` or `ingested_at`: when the platform first retrieved or registered the source
 - `ingestion_cutoff_time`: latest ingestion boundary included in a snapshot or partition
 - `processing_time` or `processed_at`: when a transformation completed
@@ -109,6 +116,12 @@ Current ingestion examples:
 - `Filing.filing_date` is not a substitute for `SourceReference.retrieved_at`
 - `EarningsCall.call_datetime` is event time, while transcript publication time is a separate source timestamp
 - company metadata may have `as_of_time` that is earlier than fixture ingestion time
+
+Current Day 17 timing examples:
+
+- a pre-market document may have `publication_time` before the regular open and `internal_available_at` at the same day's regular open
+- an after-hours transcript may share a calendar date with the call but still be unavailable until the next session
+- local fixture ingestion time is not a substitute for historical document availability
 
 Current parsing examples:
 
@@ -224,6 +237,12 @@ Current Day 8 experiment recording requires:
 - `DatasetReference` records pointing to workflow-owned `DataSnapshot` artifacts
 - `ExperimentArtifact` rows for produced outputs and referenced snapshots
 - `ExperimentMetric` rows for recorded numeric results
+
+Current Day 17 timing recording also expects:
+
+- `DataSnapshot.information_cutoff_time` to reflect resolved decision cutoffs
+- `BacktestRun.decision_cutoff_time` to reflect the actual decision schedule
+- timing assumptions and anomaly IDs to remain inspectable rather than hidden in code
 
 ## Future Dataset Partitioning Rules
 

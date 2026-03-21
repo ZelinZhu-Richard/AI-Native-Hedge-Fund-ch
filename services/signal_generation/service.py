@@ -15,6 +15,7 @@ from libraries.schemas import (
     Signal,
     SignalScore,
     StrictModel,
+    TimingAnomaly,
     WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
@@ -27,6 +28,7 @@ from services.monitoring import (
 from services.signal_generation.loaders import load_signal_generation_inputs
 from services.signal_generation.scoring import build_candidate_signals
 from services.signal_generation.storage import LocalSignalArtifactStore
+from services.timing import TimingService
 
 
 class SignalGenerationRequest(StrictModel):
@@ -93,6 +95,10 @@ class RunSignalGenerationWorkflowResponse(StrictModel):
         default_factory=list,
         description="Signal-score components emitted by the workflow.",
     )
+    timing_anomalies: list[TimingAnomaly] = Field(
+        default_factory=list,
+        description="Structured timing anomalies observed during signal availability resolution.",
+    )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Artifact storage locations written by the workflow.",
@@ -143,6 +149,7 @@ class SignalGenerationService(BaseService):
         )
         audit_root = output_root.parent / "audit"
         monitoring_root = output_root.parent / "monitoring"
+        timing_root = output_root.parent / "timing"
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(
@@ -196,6 +203,12 @@ class SignalGenerationService(BaseService):
                         source_reference_ids=signal.provenance.source_reference_ids,
                     )
                 )
+            if result.timing_anomalies:
+                timing_response = TimingService(clock=self.clock).persist_anomalies(
+                    anomalies=result.timing_anomalies,
+                    output_root=timing_root,
+                )
+                storage_locations.extend(timing_response.storage_locations)
             notes = list(result.notes)
             if request.as_of_time is None:
                 notes.append(
@@ -225,6 +238,7 @@ class SignalGenerationService(BaseService):
                     related_artifact_ids=[
                         *[signal_score.signal_score_id for signal_score in result.signal_scores],
                         *[signal.signal_id for signal in result.signals],
+                        *[anomaly.timing_anomaly_id for anomaly in result.timing_anomalies],
                     ],
                     notes=notes,
                 ),
@@ -287,6 +301,7 @@ class SignalGenerationService(BaseService):
                     produced_artifact_ids=[
                         *[signal_score.signal_score_id for signal_score in result.signal_scores],
                         *[signal.signal_id for signal in result.signals],
+                        *[anomaly.timing_anomaly_id for anomaly in result.timing_anomalies],
                     ],
                     pipeline_event_ids=pipeline_event_ids,
                     attention_reasons=attention_reasons,
@@ -300,6 +315,7 @@ class SignalGenerationService(BaseService):
                 company_id=inputs.company_id,
                 signals=result.signals,
                 signal_scores=result.signal_scores,
+                timing_anomalies=result.timing_anomalies,
                 storage_locations=storage_locations,
                 notes=notes,
             )
