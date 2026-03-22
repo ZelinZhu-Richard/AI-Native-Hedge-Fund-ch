@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generic, TypeVar, cast
+from typing import TypeVar, cast
 
+from libraries.core import StoredLocalModel, load_stored_local_models
 from libraries.schemas import (
     BacktestRun,
     CounterHypothesis,
@@ -25,20 +26,7 @@ from libraries.schemas import (
 )
 
 TModel = TypeVar("TModel", bound=StrictModel)
-
-
-@dataclass(frozen=True)
-class StoredModel(Generic[TModel]):
-    """One parsed persisted model plus its on-disk location."""
-
-    model: TModel
-    path: Path
-
-    @property
-    def uri(self) -> str:
-        """Return the canonical local file URI for the stored model."""
-
-        return self.path.resolve().as_uri()
+StoredModel = StoredLocalModel
 
 
 @dataclass(frozen=True)
@@ -152,15 +140,7 @@ def load_research_memory_workspace(
 def load_models(directory: Path, model_cls: type[TModel]) -> list[StoredModel[TModel]]:
     """Load persisted JSON models from one directory when it exists."""
 
-    if not directory.exists():
-        return []
-    return [
-        StoredModel(
-            model=model_cls.model_validate_json(path.read_text(encoding="utf-8")),
-            path=path,
-        )
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_stored_local_models(directory, model_cls)
 
 
 def _load_documents(ingestion_root: Path) -> list[StoredModel[Document]]:

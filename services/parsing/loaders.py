@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from libraries.core import ensure_file_exists
 from libraries.schemas import DocumentKind, EarningsCall, Filing, NewsItem, SourceReference
 from services.ingestion.fixture_loader import load_raw_fixture
 from services.ingestion.payloads import RawFilingFixture, RawNewsFixture, RawTranscriptFixture
@@ -41,6 +42,7 @@ def discover_parseable_document_paths(ingestion_root: Path) -> list[Path]:
 def load_parseable_document(path: Path) -> ParsableDocument:
     """Load a normalized filing, transcript, or news document from disk."""
 
+    ensure_file_exists(path, label="normalized document")
     payload = json.loads(path.read_text(encoding="utf-8"))
     kind = payload.get("kind")
     if kind == DocumentKind.FILING.value:
@@ -60,6 +62,9 @@ def load_parsing_inputs(
 ) -> LoadedParsingInputs:
     """Load and cross-check the explicit artifacts required for document parsing."""
 
+    ensure_file_exists(document_path, label="document path")
+    ensure_file_exists(source_reference_path, label="source reference path")
+    ensure_file_exists(raw_payload_path, label="raw payload path")
     document = load_parseable_document(document_path)
     source_reference = SourceReference.model_validate_json(
         source_reference_path.read_text(encoding="utf-8")

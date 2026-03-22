@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArbitrationDecision,
@@ -116,8 +117,9 @@ class SignalArbitrationService(BaseService):
         output_root = request.output_root or (
             get_settings().resolved_artifact_root / "signal_arbitration"
         )
-        audit_root = output_root.parent / "audit"
-        monitoring_root = output_root.parent / "monitoring"
+        workspace = resolve_artifact_workspace_from_stage_root(output_root)
+        audit_root = workspace.audit_root
+        monitoring_root = workspace.monitoring_root
         started_at = self.clock.now()
         monitoring_service = MonitoringService(clock=self.clock)
         start_event = monitoring_service.record_pipeline_event(

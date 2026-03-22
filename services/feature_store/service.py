@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
@@ -197,9 +198,11 @@ class FeatureStoreService(BaseService):
         output_root = request.output_root or (
             get_settings().resolved_artifact_root / "signal_generation"
         )
-        audit_root = output_root.parent / "audit"
-        monitoring_root = output_root.parent / "monitoring"
-        timing_root = output_root.parent / "timing"
+        output_workspace = resolve_artifact_workspace_from_stage_root(output_root)
+        research_workspace = resolve_artifact_workspace_from_stage_root(request.research_root)
+        audit_root = output_workspace.audit_root
+        monitoring_root = output_workspace.monitoring_root
+        timing_root = output_workspace.timing_root
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(
@@ -217,7 +220,7 @@ class FeatureStoreService(BaseService):
         )
         inferred_parsing_root = request.parsing_root
         if inferred_parsing_root is None:
-            sibling_parsing_root = request.research_root.parent / "parsing"
+            sibling_parsing_root = research_workspace.parsing_root
             inferred_parsing_root = sibling_parsing_root if sibling_parsing_root.exists() else None
 
         try:
@@ -225,8 +228,8 @@ class FeatureStoreService(BaseService):
                 research_root=request.research_root,
                 parsing_root=inferred_parsing_root,
                 ingestion_root=(
-                    request.research_root.parent / "ingestion"
-                    if (request.research_root.parent / "ingestion").exists()
+                    research_workspace.ingestion_root
+                    if research_workspace.ingestion_root.exists()
                     else None
                 ),
                 company_id=request.company_id,

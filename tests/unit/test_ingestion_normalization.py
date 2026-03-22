@@ -87,11 +87,12 @@ def test_ingestion_service_persists_raw_and_normalized_artifacts(tmp_path: Path)
     record = load_fixture_record(fixture_path)
     fixed_now = datetime(2026, 3, 16, 14, 30, tzinfo=UTC)
     service = IngestionService(clock=FrozenClock(fixed_now))
+    ingestion_root = tmp_path / "ingestion"
 
     response = service.ingest_fixture(
         FixtureIngestionRequest(
             fixture_path=fixture_path,
-            output_root=tmp_path,
+            output_root=ingestion_root,
             requested_by="unit_test",
         )
     )
@@ -100,15 +101,15 @@ def test_ingestion_service_persists_raw_and_normalized_artifacts(tmp_path: Path)
     assert response.company is not None
     assert len(response.storage_locations) >= 4
 
-    raw_path = tmp_path / "raw" / "filing" / f"{response.source_reference.source_reference_id}.json"
+    raw_path = ingestion_root / "raw" / "filing" / f"{response.source_reference.source_reference_id}.json"
     source_reference_path = (
-        tmp_path
+        ingestion_root
         / "normalized"
         / "source_references"
         / f"{response.source_reference.source_reference_id}.json"
     )
-    company_path = tmp_path / "normalized" / "companies" / f"{response.company.company_id}.json"
-    filing_path = tmp_path / "normalized" / "filings" / f"{response.filing.document_id}.json"
+    company_path = ingestion_root / "normalized" / "companies" / f"{response.company.company_id}.json"
+    filing_path = ingestion_root / "normalized" / "filings" / f"{response.filing.document_id}.json"
     entity_reference_path = (
         tmp_path
         / "entity_resolution"

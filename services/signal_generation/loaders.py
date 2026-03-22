@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from pydantic import Field
 
+from libraries.core import ensure_directory_exists, load_local_models
 from libraries.schemas import (
     EvidenceAssessment,
     Feature,
@@ -48,8 +49,14 @@ def load_signal_generation_inputs(
 ) -> LoadedSignalGenerationInputs:
     """Load Day 5 candidate features and optional Day 4 research context for one company."""
 
+    ensure_directory_exists(feature_root, label="feature root")
     features = _apply_feature_cutoff(
-        _load_models(feature_root / "features", Feature),
+        load_local_models(
+            feature_root / "features",
+            Feature,
+            required=True,
+            label="Feature category",
+        ),
         as_of_time=as_of_time,
     )
     resolved_company_id = _resolve_company_id(company_id=company_id, features=features)
@@ -133,12 +140,7 @@ def _find_by_id(artifacts: list[T], attribute: str, identifier: str) -> T | None
 def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     """Load JSON models from a category directory."""
 
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_local_models(directory, model_cls)
 
 
 def _apply_created_at_cutoff(

@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Day 21 adds a local orchestration layer that turns the current research stack into a repeatable daily operating path.
+The current repo includes a local orchestration layer that turns the research stack into a repeatable daily operating path.
 
-It is deliberately small and explicit:
+This layer is deliberately small and explicit:
 
 - local only
 - manual invocation only

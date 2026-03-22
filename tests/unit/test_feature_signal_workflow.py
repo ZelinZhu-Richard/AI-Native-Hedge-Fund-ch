@@ -31,6 +31,7 @@ from services.signal_generation import (
     RunSignalGenerationWorkflowRequest,
     SignalGenerationService,
 )
+from services.signal_generation.loaders import load_signal_generation_inputs
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "ingestion"
 FIXED_NOW = datetime(2026, 3, 17, 11, 0, tzinfo=UTC)
@@ -133,6 +134,16 @@ def test_non_text_ablation_returns_no_candidate_signals(tmp_path: Path) -> None:
     assert response.notes
 
 
+def test_signal_generation_loader_requires_feature_category(tmp_path: Path) -> None:
+    feature_root = tmp_path / "signal_generation"
+    feature_root.mkdir(parents=True)
+    with pytest.raises(ValueError, match="Feature category"):
+        load_signal_generation_inputs(
+            feature_root=feature_root,
+            research_root=None,
+        )
+
+
 def test_insufficient_evidence_returns_no_features_or_signals() -> None:
     inputs = LoadedFeatureMappingInputs(
         company_id="co_test",
@@ -174,6 +185,32 @@ def _build_feature_signal_artifacts(*, artifact_root: Path) -> FeatureSignalPipe
         output_root=artifact_root / "signal_generation",
         clock=FrozenClock(FIXED_NOW),
     )
+
+
+def test_pipeline_uses_sibling_roots_from_custom_output_workspace(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "custom_workspace"
+
+    run_fixture_ingestion_pipeline(
+        fixtures_root=FIXTURE_ROOT,
+        output_root=workspace_root / "ingestion",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_evidence_extraction_pipeline(
+        output_root=workspace_root / "parsing",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_hypothesis_workflow_pipeline(
+        output_root=workspace_root / "research",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    response = run_feature_signal_pipeline(
+        output_root=workspace_root / "signal_generation",
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert response.feature_mapping.features
+    assert response.signal_generation.signals
+    assert response.signal_arbitration.signal_bundle is not None
 
 
 def _build_research_artifacts(*, artifact_root: Path) -> None:

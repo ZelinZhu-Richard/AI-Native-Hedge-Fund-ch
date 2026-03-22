@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace, resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
@@ -131,10 +132,15 @@ class ParsingService(BaseService):
             f"raw_payload_path={request.raw_payload_path}",
         ]
         output_root = request.output_root
+        workspace = (
+            resolve_artifact_workspace_from_stage_root(output_root)
+            if output_root is not None
+            else resolve_artifact_workspace(workspace_root=get_settings().resolved_artifact_root)
+        )
         if output_root is None:
-            output_root = get_settings().resolved_artifact_root / "parsing"
-        monitoring_root = output_root.parent / "monitoring"
-        timing_root = output_root.parent / "timing"
+            output_root = workspace.parsing_root
+        monitoring_root = workspace.monitoring_root
+        timing_root = workspace.timing_root
         monitoring_service = MonitoringService(clock=self.clock)
         start_event = monitoring_service.record_pipeline_event(
             RecordPipelineEventRequest(
@@ -207,7 +213,7 @@ class ParsingService(BaseService):
                     parsing_root=output_root,
                     company_id=bundle.company_id,
                     document_ids=[bundle.document_id],
-                    output_root=_default_entity_resolution_root(output_root),
+                    output_root=workspace.entity_resolution_root,
                     requested_by=request.requested_by,
                 )
             )
@@ -412,11 +418,3 @@ def _resolve_ingestion_root_from_source_reference_path(source_reference_path: Pa
     """Infer the ingestion root from a normalized source-reference path."""
 
     return source_reference_path.parents[2]
-
-
-def _default_entity_resolution_root(parsing_root: Path) -> Path:
-    """Choose the default entity-resolution root adjacent to the parsing root when possible."""
-
-    if parsing_root.name == "parsing":
-        return parsing_root.parent / "entity_resolution"
-    return parsing_root / "entity_resolution"

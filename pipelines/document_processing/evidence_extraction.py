@@ -3,6 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from libraries.config import get_settings
+from libraries.core import (
+    ensure_directory_exists,
+    resolve_artifact_workspace,
+    resolve_artifact_workspace_from_stage_root,
+)
 from libraries.time import Clock, SystemClock
 from services.parsing import (
     ExtractDocumentEvidenceRequest,
@@ -26,13 +31,24 @@ def run_evidence_extraction_pipeline(
 ) -> list[ExtractDocumentEvidenceResponse]:
     """Run deterministic evidence extraction over normalized Day 2 artifacts."""
 
-    settings = get_settings()
-    resolved_ingestion_root = ingestion_root or (settings.resolved_artifact_root / "ingestion")
-    resolved_output_root = output_root or (settings.resolved_artifact_root / "parsing")
+    workspace_anchor = output_root or ingestion_root
+    workspace = (
+        resolve_artifact_workspace_from_stage_root(workspace_anchor)
+        if workspace_anchor is not None
+        else resolve_artifact_workspace(workspace_root=get_settings().resolved_artifact_root)
+    )
+    resolved_ingestion_root = ingestion_root or workspace.ingestion_root
+    resolved_output_root = output_root or workspace.parsing_root
+    ensure_directory_exists(resolved_ingestion_root, label="ingestion root")
+    document_paths = discover_parseable_document_paths(resolved_ingestion_root)
+    if not document_paths:
+        raise ValueError(
+            f"No parseable normalized documents were found under `{resolved_ingestion_root}`."
+        )
     service = ParsingService(clock=clock or SystemClock())
 
     responses: list[ExtractDocumentEvidenceResponse] = []
-    for document_path in discover_parseable_document_paths(resolved_ingestion_root):
+    for document_path in document_paths:
         document = load_parseable_document(document_path)
         responses.append(
             service.extract_document_evidence(

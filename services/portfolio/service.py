@@ -7,6 +7,7 @@ from typing import Protocol, cast
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
@@ -281,11 +282,11 @@ class PortfolioConstructionService(BaseService):
             workflow_run_id=portfolio_workflow_id,
         )
 
+        output_root = request.output_root or (get_settings().resolved_artifact_root / "portfolio")
         signal_map = {signal.signal_id: signal for signal in inputs.signals}
-        portfolio_analysis_root = request.portfolio_analysis_root or (
-            request.output_root.parent / "portfolio_analysis"
-            if request.output_root is not None
-            else (get_settings().resolved_artifact_root / "portfolio_analysis")
+        portfolio_workspace = resolve_artifact_workspace_from_stage_root(output_root)
+        portfolio_analysis_root = (
+            request.portfolio_analysis_root or portfolio_workspace.portfolio_analysis_root
         )
         analysis_response = PortfolioAnalysisService(clock=self.clock).analyze_portfolio_proposal(
             portfolio_proposal=proposal,
@@ -331,7 +332,6 @@ class PortfolioConstructionService(BaseService):
         )
         notes.extend(risk_response.blocking_issues)
 
-        output_root = request.output_root or (get_settings().resolved_artifact_root / "portfolio")
         store = LocalPortfolioArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = list(analysis_response.storage_locations)
         for constraint in constraints:

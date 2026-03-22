@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from libraries.schemas import TimingAnomalyKind
 from libraries.time import FrozenClock
 from pipelines.document_processing import (
@@ -50,3 +52,12 @@ def test_evidence_extraction_pipeline_processes_parseable_documents(tmp_path: Pa
     assert (parsing_root / "segments").exists()
     assert (parsing_root / "evidence_spans").exists()
     assert (parsing_root / "claims").exists()
+
+
+def test_evidence_extraction_pipeline_requires_existing_ingestion_root(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="ingestion root"):
+        run_evidence_extraction_pipeline(
+            ingestion_root=tmp_path / "missing_ingestion",
+            output_root=tmp_path / "parsing",
+            clock=FrozenClock(datetime(2026, 3, 16, 14, 30, tzinfo=UTC)),
+        )

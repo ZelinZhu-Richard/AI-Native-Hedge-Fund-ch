@@ -2,90 +2,79 @@
 
 ## What The System Actually Is
 
-The repository is now a serious local research operating system scaffold.
+The repository is now a serious local research operating system scaffold with real typed workflows, persisted artifacts, and explicit review boundaries.
 
-It already has real typed contracts, persisted artifacts, review workflows, monitoring, evaluation, reproducibility metadata, and a coherent paper-only downstream path.
+It is not a finished hedge fund platform. It is not a live trading system. It is not a shallow model wrapper around a dashboard.
 
-It is **not** a finished hedge fund platform. It is also not a shallow AI wrapper that glues a model call onto a dashboard and calls that “research.”
+## What Is Credible Today
 
-## Founder / Investor Lens
+- the repo has a genuine end-to-end path from raw fixtures to review-bound portfolio proposals
+- paper-trade candidate creation is explicit and approval-gated
+- major layers persist typed artifacts instead of loose text blobs
+- timing, provenance, monitoring, audit, and review semantics are first-class
+- research memory, signal arbitration, portfolio attribution, stress testing, and daily orchestration are implemented as real local layers
 
-What is real now:
+## Why This Is Structurally Better Than A Thin Demo
 
-- the repo has a genuine end-to-end path from raw fixture data to review-bound portfolio proposals, plus an explicit approved-only path to paper-trade candidates
-- every major layer has typed artifacts rather than loose text blobs
-- the system already has explicit audit, review, risk, evaluation, monitoring, and red-team surfaces
-- the architecture is intentionally designed to keep human review visible and avoid accidental autonomous trading
-
-Why this is different from shallow wrappers:
-
-- temporal correctness, lineage, and artifact structure are first-class
-- candidate signals are separate from reviewed or validated states
+- candidate artifacts remain distinct from reviewed or validated ones
+- evidence, hypotheses, features, signals, proposals, and trade candidates are separate objects
 - portfolio proposals and paper trades are explicit review objects, not hidden side effects
-- baseline comparisons and evaluation artifacts exist to keep the system honest
+- monitoring, audit, evaluation, and run summaries make workflows inspectable after the fact
 
-What is still not there:
+## Current Strengths
 
-- no production connectors
-- no validated alpha claims
-- no hard promotion gates across the full chain
-- no production operator UI
+- the domain chain is coherent:
+  ingestion -> parsing -> research -> features -> signals -> arbitration -> backtesting -> portfolio -> review -> paper-trade candidates
+- service boundaries are explicit enough to extend without collapsing everything into one module
+- point-in-time timing and provenance semantics are now stronger across multiple layers
+- the repo has a repeatable local demo path and a repeatable local daily workflow
 
-## Engineer / Research-Platform Lens
+## Current Weaknesses
 
-Current strengths:
+- snapshot-native selection is still incomplete across the full chain
+- company identity still carries too much of the tradable-instrument burden
+- many workflows are rigorous locally but still depend on filesystem-scanning rather than explicit selected slices
+- portfolio construction can still consume candidate artifacts before a true reviewed-and-evaluated gate exists
+- local persistence is useful for development but not durable infrastructure
 
-- domain separation is real: ingestion -> parsing -> research -> features -> signals -> backtesting -> portfolio -> review
-- schemas are broad and serious enough to support auditability and extension
-- experiment, evaluation, monitoring, and red-team layers now give the repo operational depth instead of only pipeline depth
-- the end-to-end demo path is reproducible and isolated under its own artifact root
-
-Current weaknesses:
-
-- snapshot-native selection still is not end to end
-- some service and pipeline boundaries still mix orchestration with persistence
-- instrument identity still leans too much on company or ticker shortcuts
-- local filesystem persistence is useful but not durable infrastructure
-- downstream gating is still convention-heavy in places
-
-## Quant / Risk Lens
+## Quant And Risk Reality
 
 What is credible:
 
-- point-in-time concerns are explicit in the contracts
-- backtests are exploratory and documented as such
-- baseline ablations are mechanical comparisons, not winner declarations
-- risk checks and review decisions are explicit artifacts
-- paper trades are clearly paper-only and now require an approved proposal
+- backtests are explicitly exploratory
+- ablations are mechanical comparisons, not winner declarations
+- signal conflicts and proposal fragility are surfaced rather than hidden
+- portfolio proposals remain review objects
+- paper trades are clearly paper-only and human-gated
 
 What is not yet trustworthy enough:
 
-- signal quality is still deterministic and skeletal
-- price fixtures are synthetic
-- there is no realistic transaction model, liquidity model, or portfolio optimizer
-- reviewed proposal state now gates paper-trade creation, but reviewed and evaluated signal state still is not a full hard eligibility gate
-- there is no basis yet for performance extrapolation
+- there is still no basis for claiming market edge
+- price fixtures are synthetic in the default demo
+- there is no realistic transaction-cost, liquidity, or execution model
+- calibration and arbitration are deterministic heuristics, not statistical truth
+- stress testing is structured but simple
 
-## Strongest Architectural Decisions
+## What Week 3 Actually Achieved
 
-- typed artifacts over loose text
-- explicit provenance and timestamps
-- separation of candidate, review, and validation semantics
-- paper-trading-only downstream posture with approved-proposal gating
-- monitoring, audit, evaluation, and red-team work added before any live execution idea
+- tightened point-in-time timing and availability semantics
+- added metadata-first research retrieval
+- added inspectable signal arbitration and uncertainty handling
+- added explainable portfolio attribution and structured stress testing
+- added repeatable local daily orchestration and runbook support
+- improved repo consistency around artifact roots, local JSON persistence, validation errors, and review-facing notes
 
-## Weakest Open Gaps
+## What Would Be Misleading To Claim
 
-- incomplete downstream enforcement
-- incomplete snapshot-native replay
-- no first-class security master or instrument reference layer
-- local-only persistence and operator workflow
-- deterministic heuristics still dominate the research and signal stack
+- that the repo has a real promotion gate for downstream-eligible signals
+- that the system is production-ready
+- that the demo proves alpha or realistic paper-trading performance
+- that retrieval is semantic or model-ranked
+- that the current stress layer is institutional risk modeling
 
-## Next Milestones After Week 2
+## Main Review Themes For Week 3
 
-1. hard eligibility gates for reviewed and evaluated artifacts
-2. snapshot-native selection across the full research-to-portfolio chain
-3. first-class instrument identity and reference data
-4. stronger operator attention queues for failed, stale, or blocked workflows
-5. broader adversarial and replay testing around downstream enforcement
+1. Where candidate artifacts still flow too far downstream by convention.
+2. Where cutoff-based loading still stands in for explicit snapshot selection.
+3. Where instrument identity is still too weak.
+4. Where local development ergonomics are good enough, but operational durability is not.

@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from pydantic import Field
 
+from libraries.core import ensure_directory_exists, load_local_models
 from libraries.schemas import (
     ArbitrationDecision,
     BacktestRun,
@@ -83,8 +84,14 @@ def load_portfolio_inputs(
 ) -> LoadedPortfolioInputs:
     """Load persisted Day 5 and Day 6 artifacts needed for Day 7 workflows."""
 
+    ensure_directory_exists(signal_root, label="signal root")
     signals = _apply_signal_cutoff(
-        _load_models(signal_root / "signals", Signal),
+        load_local_models(
+            signal_root / "signals",
+            Signal,
+            required=True,
+            label="Portfolio signal category",
+        ),
         as_of_time=as_of_time,
     )
     resolved_company_id = _resolve_company_id(company_id=company_id, signals=signals)
@@ -231,12 +238,7 @@ def _resolve_company_id(*, company_id: str | None, signals: list[Signal]) -> str
 def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     """Load JSON models from one category directory."""
 
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_local_models(directory, model_cls)
 
 
 def _apply_created_at_cutoff(

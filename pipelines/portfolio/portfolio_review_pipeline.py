@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace, resolve_artifact_workspace_from_stage_root
 from libraries.schemas import (
     ArtifactStorageLocation,
     AuditOutcome,
@@ -127,25 +128,29 @@ def run_portfolio_review_pipeline(
     if proposal_review_outcome is not None and reviewer_id is None:
         raise ValueError("reviewer_id is required when proposal_review_outcome is supplied.")
 
-    settings = get_settings()
-    resolved_artifact_root = settings.resolved_artifact_root
-    resolved_signal_root = signal_root or (resolved_artifact_root / "signal_generation")
-    resolved_signal_arbitration_root = signal_arbitration_root or (
-        resolved_signal_root.parent / "signal_arbitration"
-        if signal_root is not None
-        else (resolved_artifact_root / "signal_arbitration")
+    workspace_anchor = (
+        output_root
+        or signal_root
+        or signal_arbitration_root
+        or research_root
+        or ingestion_root
+        or backtesting_root
+        or portfolio_analysis_root
     )
-    resolved_research_root = research_root or (resolved_artifact_root / "research")
-    resolved_ingestion_root = ingestion_root or (resolved_artifact_root / "ingestion")
-    resolved_backtesting_root = backtesting_root or (resolved_artifact_root / "backtesting")
-    resolved_output_root = output_root or (resolved_artifact_root / "portfolio")
-    resolved_portfolio_analysis_root = portfolio_analysis_root or (
-        resolved_output_root.parent / "portfolio_analysis"
-        if output_root is not None
-        else (resolved_artifact_root / "portfolio_analysis")
+    workspace = (
+        resolve_artifact_workspace_from_stage_root(workspace_anchor)
+        if workspace_anchor is not None
+        else resolve_artifact_workspace(workspace_root=get_settings().resolved_artifact_root)
     )
-    audit_root = resolved_output_root.parent / "audit"
-    monitoring_root = resolved_output_root.parent / "monitoring"
+    resolved_signal_root = signal_root or workspace.signal_root
+    resolved_signal_arbitration_root = signal_arbitration_root or workspace.signal_arbitration_root
+    resolved_research_root = research_root or workspace.research_root
+    resolved_ingestion_root = ingestion_root or workspace.ingestion_root
+    resolved_backtesting_root = backtesting_root or workspace.backtesting_root
+    resolved_output_root = output_root or workspace.portfolio_root
+    resolved_portfolio_analysis_root = portfolio_analysis_root or workspace.portfolio_analysis_root
+    audit_root = workspace.audit_root
+    monitoring_root = workspace.monitoring_root
     resolved_clock = clock or SystemClock()
     resolved_review_notes = review_notes or []
     resolved_assumed_prices = assumed_reference_prices or {}
@@ -210,7 +215,7 @@ def run_portfolio_review_pipeline(
                     conditions=[],
                     review_notes=resolved_review_notes,
                     portfolio_root=resolved_output_root,
-                    review_root=resolved_output_root.parent / "review",
+                    review_root=workspace.review_root,
                     audit_root=audit_root,
                 )
             )

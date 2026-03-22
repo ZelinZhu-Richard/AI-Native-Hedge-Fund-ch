@@ -2,15 +2,15 @@
 
 ## Purpose
 
-Day 11 adds a first-class operator review layer on top of the existing research, signal, portfolio, and paper-trade artifacts.
+The repo includes a first-class operator review layer over research briefs, candidate signals, portfolio proposals, and paper trades.
 
 The goal is explicit human workflow, not cosmetic UI:
 
 - surface reviewable objects in one queue
 - attach notes and assignments
 - apply explicit review actions
-- preserve queue state and status transitions
-- record auditable before/after changes
+- preserve queue state transitions
+- record auditable before-and-after changes
 
 ## Reviewable Targets
 
@@ -21,12 +21,12 @@ The current workflow supports four target types:
 - `portfolio_proposal`
 - `paper_trade`
 
-`ResearchBrief` is the primary research review object. Hypotheses, critiques, evidence assessments, and evidence links are shown through the derived review context, not queued as separate operator items.
+`ResearchBrief` is the primary research review object. Hypotheses, counter-hypotheses, evidence assessments, and evidence spans remain visible through derived review context rather than separate queue items.
 
 ## Core Objects
 
 - `ReviewQueueItem`: persisted queue state for one target
-- `ReviewContext`: derived console read model built from current artifacts
+- `ReviewContext`: derived inspection view built from current artifacts
 - `ReviewNote`: operator note attached to one target
 - `ReviewAssignment`: single active assignee for one queue item
 - `ReviewDecision`: generic review decision reused across domains
@@ -39,16 +39,30 @@ Artifacts are persisted under `artifacts/review/`:
 - `review_assignments/`
 - `review_decisions/`
 
+## What Review Context Includes Today
+
+Review context is no longer just the target object. Depending on the target type, it can include:
+
+- related evidence and research artifacts
+- signal arbitration context
+- related prior work from metadata-first retrieval
+- portfolio attribution
+- position attributions
+- stress-test runs and stress-test results
+- risk checks and blocking issues
+
+The context is built from persisted local artifacts, not from a database-backed read model.
+
 ## Queue Sync Rules
 
-Queue sync scans persisted artifacts and materializes reviewable items for:
+Queue sync materializes items for:
 
 - `ResearchBrief` with `review_status in {pending_human_review, revision_requested}`
 - `Signal` with `status = candidate`
 - `PortfolioProposal` with `status in {pending_review, draft}`
 - `PaperTrade` with `status = proposed`
 
-The queue does not silently approve anything. It only surfaces work and reflects explicit operator actions.
+The queue does not silently approve anything. It surfaces work and reflects explicit operator actions.
 
 ## Review Actions
 
@@ -95,9 +109,9 @@ Queue-item transitions:
 
 ## Auditability
 
-Every material review action creates an `AuditLog` artifact under `artifacts/audit/audit_logs/`.
+Every material review action creates an `AuditLog` under `artifacts/audit/audit_logs/`.
 
-Review audit events now preserve:
+Review audit events preserve:
 
 - actor
 - target type and target ID
@@ -119,11 +133,21 @@ This applies to:
 ## Current Limitations
 
 - there is no frontend console yet
-- assignment is single-reviewer only
-- review context is rebuilt from local filesystem artifacts, not a database-backed read model
-- reviewed state exists, but downstream enforcement is not complete yet
+- assignment is still single-reviewer only
+- review context is rebuilt from local filesystem artifacts
+- approved state exists, but the full reviewed-and-evaluated downstream eligibility gate is still incomplete
 - review history is durable locally, but not tamper-evident
 
-## Immediate Next Step
+## Correct Framing
 
-Day 12 should make reviewed and evaluated state operationally gate downstream workflows so exploratory signals and unreviewed proposals cannot drift into later stages by convention alone.
+The current review layer is real and useful. It should be described as:
+
+- a local, artifact-backed human review workflow
+- explicit queueing and decision state
+- conservative downstream gating for paper-trade candidates
+
+It should not be described as:
+
+- a production operations console
+- a complete downstream promotion-policy engine
+- a substitute for stronger snapshot-native selection or instrument identity

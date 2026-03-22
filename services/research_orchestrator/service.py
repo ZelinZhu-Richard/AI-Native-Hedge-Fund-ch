@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
-from libraries.core import build_provenance
+from libraries.core import build_provenance, resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AgentRun,
@@ -189,9 +189,12 @@ class ResearchOrchestrationService(BaseService):
         """Execute the deterministic Day 4 hypothesis and critique workflow."""
 
         research_workflow_id = make_prefixed_id("rflow")
-        resolved_output_root = request.output_root or (get_settings().resolved_artifact_root / "research")
-        audit_root = resolved_output_root.parent / "audit"
-        monitoring_root = resolved_output_root.parent / "monitoring"
+        resolved_output_root = request.output_root or (
+            get_settings().resolved_artifact_root / "research"
+        )
+        workspace = resolve_artifact_workspace_from_stage_root(resolved_output_root)
+        audit_root = workspace.audit_root
+        monitoring_root = workspace.monitoring_root
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(

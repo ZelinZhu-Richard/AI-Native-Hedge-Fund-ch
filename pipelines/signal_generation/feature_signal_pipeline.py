@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace, resolve_artifact_workspace_from_stage_root
 from libraries.schemas import AblationView, StrictModel
 from libraries.time import Clock, SystemClock
 from services.feature_store import (
@@ -52,11 +53,15 @@ def run_feature_signal_pipeline(
 ) -> FeatureSignalPipelineResponse:
     """Run the Day 5 deterministic feature and signal workflow."""
 
-    settings = get_settings()
-    resolved_artifact_root = settings.resolved_artifact_root
-    resolved_research_root = research_root or (resolved_artifact_root / "research")
-    resolved_parsing_root = parsing_root or (resolved_artifact_root / "parsing")
-    resolved_output_root = output_root or (resolved_artifact_root / "signal_generation")
+    workspace_anchor = output_root or research_root or parsing_root
+    workspace = (
+        resolve_artifact_workspace_from_stage_root(workspace_anchor)
+        if workspace_anchor is not None
+        else resolve_artifact_workspace(workspace_root=get_settings().resolved_artifact_root)
+    )
+    resolved_research_root = research_root or workspace.research_root
+    resolved_parsing_root = parsing_root or workspace.parsing_root
+    resolved_output_root = output_root or workspace.signal_root
     resolved_clock = clock or SystemClock()
 
     feature_service = FeatureStoreService(clock=resolved_clock)
@@ -88,7 +93,7 @@ def run_feature_signal_pipeline(
         RunSignalArbitrationRequest(
             signal_root=resolved_output_root,
             research_root=resolved_research_root,
-            output_root=resolved_output_root.parent / "signal_arbitration",
+            output_root=workspace.signal_arbitration_root,
             company_id=feature_mapping.company_id,
             as_of_time=as_of_time,
             requested_by=requested_by,

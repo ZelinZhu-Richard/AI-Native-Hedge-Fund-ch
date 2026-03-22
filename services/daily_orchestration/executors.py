@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from libraries.core import resolve_artifact_workspace
 from libraries.schemas import (
     AblationView,
     ArtifactStorageLocation,
@@ -402,20 +403,21 @@ def build_executor_registry() -> dict[str, Callable[[DailyWorkflowState], StepEx
 def build_workflow_roots(*, artifact_root: Path) -> WorkflowRoots:
     """Resolve the standard artifact roots for one daily workflow run."""
 
+    workspace = resolve_artifact_workspace(workspace_root=artifact_root)
     return WorkflowRoots(
-        artifact_root=artifact_root,
-        ingestion_root=artifact_root / "ingestion",
-        parsing_root=artifact_root / "parsing",
-        research_root=artifact_root / "research",
-        signal_root=artifact_root / "signal_generation",
-        signal_arbitration_root=artifact_root / "signal_arbitration",
-        portfolio_root=artifact_root / "portfolio",
-        portfolio_analysis_root=artifact_root / "portfolio_analysis",
-        review_root=artifact_root / "review",
-        audit_root=artifact_root / "audit",
-        monitoring_root=artifact_root / "monitoring",
-        orchestration_root=artifact_root / "orchestration",
-        backtesting_root=artifact_root / "backtesting",
+        artifact_root=workspace.root,
+        ingestion_root=workspace.ingestion_root,
+        parsing_root=workspace.parsing_root,
+        research_root=workspace.research_root,
+        signal_root=workspace.signal_root,
+        signal_arbitration_root=workspace.signal_arbitration_root,
+        portfolio_root=workspace.portfolio_root,
+        portfolio_analysis_root=workspace.portfolio_analysis_root,
+        review_root=workspace.review_root,
+        audit_root=workspace.audit_root,
+        monitoring_root=workspace.monitoring_root,
+        orchestration_root=workspace.orchestration_root,
+        backtesting_root=workspace.backtesting_root,
     )
 
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
+from libraries.core import ensure_directory_exists, load_local_models
 from libraries.schemas import (
     Company,
     Document,
@@ -57,6 +58,7 @@ def load_entity_resolution_workspace(
 ) -> LoadedEntityResolutionWorkspace:
     """Load the persisted ingestion and parsing artifacts needed for entity resolution."""
 
+    ensure_directory_exists(ingestion_root, label="ingestion root")
     companies = _load_models(ingestion_root / "normalized" / "companies", Company)
     source_references = _load_models(
         ingestion_root / "normalized" / "source_references",
@@ -169,9 +171,4 @@ def _load_parsing_company_ids_by_document(
 def _load_models(directory: Path, model_cls: type[TModel]) -> list[TModel]:
     """Load JSON models from one category directory when present."""
 
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_local_models(directory, model_cls)

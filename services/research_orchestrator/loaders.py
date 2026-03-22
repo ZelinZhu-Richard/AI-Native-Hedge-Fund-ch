@@ -5,6 +5,7 @@ from typing import TypeVar
 
 from pydantic import Field
 
+from libraries.core import ensure_directory_exists, load_local_models
 from libraries.schemas import (
     Company,
     Document,
@@ -65,10 +66,15 @@ def load_research_artifacts(
 ) -> LoadedResearchArtifacts:
     """Load parsing artifacts and optional company context for one company."""
 
+    ensure_directory_exists(parsing_root, label="parsing root")
     claims = _load_models(parsing_root / "claims", ExtractedClaim)
     risk_factors = _load_models(parsing_root / "risk_factors", ExtractedRiskFactor)
     guidance_changes = _load_models(parsing_root / "guidance_changes", GuidanceChange)
     tone_markers = _load_models(parsing_root / "tone_markers", ToneMarker)
+    if not any([claims, risk_factors, guidance_changes, tone_markers]):
+        raise ValueError(
+            f"Research workflow requires parsing artifacts under `{parsing_root}` but none were found."
+        )
 
     resolved_company_id = _resolve_company_id(
         company_id=company_id,
@@ -217,9 +223,4 @@ def _load_documents(
 def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     """Load JSON models from a category directory."""
 
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_local_models(directory, model_cls)

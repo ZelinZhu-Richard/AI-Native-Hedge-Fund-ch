@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from pydantic import Field
 
+from libraries.core import ensure_directory_exists, load_local_models
 from libraries.schemas import (
     AvailabilityBasis,
     AvailabilityWindow,
@@ -70,12 +71,18 @@ def load_feature_mapping_inputs(
 ) -> LoadedFeatureMappingInputs:
     """Load the best available research slice and optional parsing context for one company."""
 
+    ensure_directory_exists(research_root, label="research root")
     research_briefs = _apply_created_at_cutoff(
         _load_models(research_root / "research_briefs", ResearchBrief),
         as_of_time=as_of_time,
     )
     evidence_assessments = _apply_created_at_cutoff(
-        _load_models(research_root / "evidence_assessments", EvidenceAssessment),
+        load_local_models(
+            research_root / "evidence_assessments",
+            EvidenceAssessment,
+            required=True,
+            label="Research evidence assessments",
+        ),
         as_of_time=as_of_time,
     )
     hypotheses = _apply_created_at_cutoff(
@@ -223,12 +230,7 @@ def _find_by_id(
 def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     """Load JSON models from a category directory."""
 
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_local_models(directory, model_cls)
 
 
 def _apply_created_at_cutoff(

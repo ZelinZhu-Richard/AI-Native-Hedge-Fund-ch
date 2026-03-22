@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from hashlib import sha256
 from pathlib import Path
 
-from libraries.core import build_provenance
-from libraries.schemas import ArtifactStorageLocation, DataLayer, StorageKind, StrictModel
+from libraries.core import persist_local_model
+from libraries.schemas import ArtifactStorageLocation, StrictModel
 from libraries.time import Clock
 
 
@@ -25,26 +24,12 @@ class LocalBacktestArtifactStore:
     ) -> ArtifactStorageLocation:
         """Persist one typed backtesting artifact and return storage metadata."""
 
-        destination = self.root / category / f"{artifact_id}.json"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        serialized = model.model_dump_json(indent=2)
-        destination.write_text(serialized, encoding="utf-8")
-        content_hash = sha256(serialized.encode("utf-8")).hexdigest()
-        now = self.clock.now()
-        return ArtifactStorageLocation(
-            artifact_storage_location_id=f"store_{content_hash[:24]}",
+        return persist_local_model(
+            root=self.root,
+            category=category,
             artifact_id=artifact_id,
-            storage_kind=StorageKind.LOCAL_FILESYSTEM,
-            data_layer=DataLayer.DERIVED,
-            uri=destination.resolve().as_uri(),
-            content_hash=content_hash,
-            retention_policy="local_development",
-            provenance=build_provenance(
-                clock=self.clock,
-                transformation_name="local_backtest_artifact_store",
-                source_reference_ids=source_reference_ids,
-                upstream_artifact_ids=[artifact_id],
-            ),
-            created_at=now,
-            updated_at=now,
+            model=model,
+            source_reference_ids=source_reference_ids,
+            clock=self.clock,
+            transformation_name="local_backtest_artifact_store",
         )

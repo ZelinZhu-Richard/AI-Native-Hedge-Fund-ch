@@ -2,21 +2,22 @@
 
 ## Purpose
 
-This demo is the first honest end-to-end walkthrough of the current research OS.
+This demo is the clearest local walkthrough of the current research OS.
 
-It is meant to prove that the existing layers connect coherently:
+It is meant to show that the implemented layers connect coherently:
 
 - ingestion and normalization
 - evidence extraction
-- research artifact generation
-- feature and signal creation
-- exploratory backtesting
-- baseline ablation
-- portfolio proposal and risk checks
-- operator review and approval-gated paper trading
-- monitoring, audit, and operator review artifacts
+- research artifacts
+- feature mapping and candidate signal generation
+- signal arbitration
+- exploratory backtesting and baseline ablation
+- portfolio proposal construction
+- portfolio attribution and stress testing
+- operator review artifacts
+- monitoring and audit artifacts
 
-It does **not** prove alpha, statistical significance, production readiness, or autonomous execution.
+It does **not** prove alpha, production readiness, or autonomous execution.
 
 ## Default Command
 
@@ -29,7 +30,7 @@ Direct module entrypoint:
 ```bash
 python -m pipelines.demo.end_to_end_demo \
   --frozen-time 2026-04-01T12:00:00Z \
-  --base-root artifacts/demo_runs/week2_demo
+  --base-root artifacts/demo_runs/week3_demo
 ```
 
 ## Inputs Used
@@ -45,45 +46,44 @@ The run is local, deterministic, single-company, and synthetic-price-backed.
 
 In order, the demo executes:
 
-1. fixture ingestion
+1. fixture ingestion and normalization
 2. evidence extraction
 3. research workflow
-4. feature mapping
-5. signal generation
-6. one exploratory text-signal backtest
-7. one four-family baseline ablation:
-   - naive baseline
-   - price-only baseline
-   - text-only candidate baseline
-   - combined baseline
-8. portfolio review pipeline
-9. review queue sync
-10. one conservative review note
-11. one conservative proposal review action: `needs_revision`
-12. health checks and recent run-summary collection
+4. feature mapping, signal generation, and signal arbitration
+5. one exploratory text-signal backtest
+6. one four-family baseline ablation
+7. portfolio review pipeline
+8. review queue sync
+9. one conservative operator note
+10. one conservative proposal review action: `needs_revision`
+11. health checks and recent run-summary collection
 
 ## Artifact Layout
 
 The demo writes beneath one isolated base root, for example:
 
 ```text
-artifacts/demo_runs/week2_demo/
+artifacts/demo_runs/week3_demo/
   ingestion/
   parsing/
   research/
   signal_generation/
+  signal_arbitration/
   backtesting/
   ablation/
   experiments/
   evaluation/
   portfolio/
+  portfolio_analysis/
   review/
   audit/
   monitoring/
+  timing/
+  entity_resolution/
   demo/manifests/
 ```
 
-The persisted manifest under `demo/manifests/` is a convenience summary. The source of truth remains the normal stage-specific artifact directories.
+The manifest under `demo/manifests/` is a convenience summary. The normal stage-specific artifact directories remain the source of truth.
 
 ## What To Inspect After A Run
 
@@ -91,17 +91,19 @@ Useful artifact categories:
 
 - `research/research_briefs/`
 - `signal_generation/signals/`
+- `signal_arbitration/signal_bundles/`
 - `backtesting/runs/`
 - `ablation/ablation_results/`
-- `evaluation/reports/`
 - `portfolio/portfolio_proposals/`
+- `portfolio_analysis/portfolio_attributions/`
+- `portfolio_analysis/stress_test_results/`
 - `review/queue_items/`
 - `review/review_notes/`
 - `review/review_decisions/`
 - `audit/audit_logs/`
 - `monitoring/run_summaries/`
 
-`portfolio/paper_trades/` is only populated on an explicit approved-proposal path. The default demo does not write trade candidates.
+`portfolio/paper_trades/` is only populated on an explicit approved-proposal path. The default demo does not create trade candidates.
 
 Useful API inspection endpoints:
 
@@ -115,25 +117,24 @@ Useful API inspection endpoints:
 ## What The Demo Proves
 
 - the current typed workflow layers connect end to end
-- upstream lineage survives into signals and proposals, with a separate approved-only path to paper trades
-- monitoring, audit, and review artifacts are not just placeholders
-- the system can compare simple baseline variants on the same slice
+- temporal, audit, and review artifacts are persisted rather than implied
+- signal arbitration, proposal attribution, and simple stress testing are real implemented layers
 - downstream work remains review-bound and paper-only
 
 ## What The Demo Does Not Prove
 
 - no alpha claim
-- no validated signal promotion
+- no validated signal-promotion gate
 - no production data integration
 - no realistic execution simulation
-- no portfolio optimization
-- no multi-user operator console
+- no portfolio optimizer
 - no snapshot-native replay across the full chain
+- no multi-user production operator system
 
 ## Current Sharp Edges
 
-- the demo is single-company and local-filesystem-backed
+- the demo is still single-company and local-filesystem-backed
 - pricing is synthetic
-- research, scoring, and ablation logic are still deterministic mechanical baselines
-- some workflow monitoring is still newer than the underlying artifact layers
-- review exists, and proposal approval now gates trade-candidate creation, but broader signal eligibility enforcement is still incomplete
+- research, features, signals, and stress logic remain deterministic baselines
+- reviewed and evaluated eligibility is still not enforced as a true downstream promotion gate
+- the demo uses real artifact flows, but not production operations infrastructure

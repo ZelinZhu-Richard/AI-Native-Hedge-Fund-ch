@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "anhf-research-os"
 version = "0.1.0"
-description = "Week 1 foundation for an AI-native hedge fund research and paper-trading platform."
+description = "Deterministic local research operating system for AI-assisted equity research and approval-gated paper-trading workflows."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }

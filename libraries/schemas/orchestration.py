@@ -364,3 +364,9 @@ class WorkflowExecution(TimestampedModel):
         if self.completed_at is not None and self.completed_at < self.started_at:
             raise ValueError("completed_at must be greater than or equal to started_at.")
         return self
+
+    @property
+    def linked_run_summary_ids(self) -> list[str]:
+        """Compatibility alias for child workflow run-summary identifiers."""
+
+        return self.linked_child_run_summary_ids

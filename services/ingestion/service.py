@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field, model_validator
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace, resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
@@ -134,10 +135,15 @@ class IngestionService(BaseService):
         """Load, normalize, and optionally persist a local fixture-backed source payload."""
 
         artifact_root = request.output_root
+        workspace = (
+            resolve_artifact_workspace_from_stage_root(artifact_root)
+            if artifact_root is not None
+            else resolve_artifact_workspace(workspace_root=get_settings().resolved_artifact_root)
+        )
         if artifact_root is None:
-            artifact_root = get_settings().resolved_artifact_root / "ingestion"
-        monitoring_root = artifact_root.parent / "monitoring"
-        timing_root = artifact_root.parent / "timing"
+            artifact_root = workspace.ingestion_root
+        monitoring_root = workspace.monitoring_root
+        timing_root = workspace.timing_root
         monitoring_service = MonitoringService(clock=self.clock)
         ingestion_job_id = make_prefixed_id("ingest")
         started_at = self.clock.now()
@@ -193,7 +199,7 @@ class IngestionService(BaseService):
                             if (document_artifact := self._document_artifact(normalized)) is not None
                             else []
                         ),
-                        output_root=_default_entity_resolution_root(artifact_root),
+                        output_root=workspace.entity_resolution_root,
                         requested_by=request.requested_by,
                     )
                 )
@@ -371,11 +377,3 @@ class IngestionService(BaseService):
         if normalized.news_item is not None:
             return "news_items", normalized.news_item
         return None
-
-
-def _default_entity_resolution_root(ingestion_root: Path) -> Path:
-    """Choose the default entity-resolution root adjacent to the ingestion root when possible."""
-
-    if ingestion_root.name == "ingestion":
-        return ingestion_root.parent / "entity_resolution"
-    return ingestion_root / "entity_resolution"

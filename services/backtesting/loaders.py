@@ -7,6 +7,7 @@ from typing import TypeVar, cast
 
 from pydantic import Field, model_validator
 
+from libraries.core import ensure_file_exists, load_local_models
 from libraries.schemas import Feature, Signal, StrategyVariantSignal, StrictModel
 from libraries.time import parse_datetime_value
 from libraries.time.clock import ensure_utc
@@ -90,8 +91,18 @@ def load_backtest_inputs(
 ) -> LoadedBacktestInputs:
     """Load Day 5 signal and feature artifacts plus the synthetic price fixture."""
 
-    signals = _load_models(signal_root / "signals", Signal)
-    features = _load_models(feature_root / "features", Feature)
+    signals = load_local_models(
+        signal_root / "signals",
+        Signal,
+        required=True,
+        label="Backtesting signal category",
+    )
+    features = load_local_models(
+        feature_root / "features",
+        Feature,
+        required=True,
+        label="Backtesting feature category",
+    )
     resolved_company_id = _resolve_company_id(company_id=company_id, signals=signals)
     company_signals = [signal for signal in signals if signal.company_id == resolved_company_id]
     if not company_signals:
@@ -119,6 +130,7 @@ def load_backtest_inputs(
             + ", ".join(missing_feature_ids)
         )
 
+    ensure_file_exists(price_fixture_path, label="price fixture")
     price_fixture = SyntheticPriceFixture.model_validate(
         json.loads(price_fixture_path.read_text(encoding="utf-8"))
     )
@@ -159,13 +171,3 @@ def bar_timestamp(bar: SyntheticDailyPriceBar) -> datetime:
 
     return ensure_utc(bar.timestamp_dt)
 
-
-def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
-    """Load JSON models from a category directory."""
-
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]

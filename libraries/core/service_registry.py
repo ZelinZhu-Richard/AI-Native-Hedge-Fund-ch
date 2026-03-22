@@ -27,7 +27,7 @@ from services.timing import TimingService
 
 
 def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]:
-    """Instantiate the Day 1 default service registry."""
+    """Instantiate the current local service registry."""
 
     services: list[BaseService] = [
         IngestionService(clock=clock),

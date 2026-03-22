@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
+from libraries.core import resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
@@ -147,9 +148,11 @@ class SignalGenerationService(BaseService):
         output_root = request.output_root or (
             get_settings().resolved_artifact_root / "signal_generation"
         )
-        audit_root = output_root.parent / "audit"
-        monitoring_root = output_root.parent / "monitoring"
-        timing_root = output_root.parent / "timing"
+        output_workspace = resolve_artifact_workspace_from_stage_root(output_root)
+        feature_workspace = resolve_artifact_workspace_from_stage_root(request.feature_root)
+        audit_root = output_workspace.audit_root
+        monitoring_root = output_workspace.monitoring_root
+        timing_root = output_workspace.timing_root
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(
@@ -167,7 +170,7 @@ class SignalGenerationService(BaseService):
         )
         inferred_research_root = request.research_root
         if inferred_research_root is None:
-            sibling_research_root = request.feature_root.parent / "research"
+            sibling_research_root = feature_workspace.research_root
             inferred_research_root = sibling_research_root if sibling_research_root.exists() else None
 
         try:

@@ -5,6 +5,7 @@ from typing import TypeVar
 
 from pydantic import Field
 
+from libraries.core import load_local_models
 from libraries.schemas import (
     AuditLog,
     CounterHypothesis,
@@ -176,12 +177,7 @@ def _load_review_decisions(*, review_root: Path, portfolio_root: Path) -> list[R
 def _load_models(directory: Path, model_cls: type[T]) -> list[T]:
     """Load JSON models from one category directory."""
 
-    if not directory.exists():
-        return []
-    return [
-        model_cls.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted(directory.glob("*.json"))
-    ]
+    return load_local_models(directory, model_cls)
 
 
 TReviewArtifact = TypeVar("TReviewArtifact", ReviewNote, ReviewDecision)

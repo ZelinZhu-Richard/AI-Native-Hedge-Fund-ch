@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import Field
 
-from libraries.core import build_provenance
+from libraries.core import build_provenance, resolve_artifact_workspace
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
@@ -524,18 +524,19 @@ class DailyOrchestrationService(BaseService):
         """Build the persisted local scheduled-run configuration."""
 
         now = self.clock.now()
+        workspace = resolve_artifact_workspace(workspace_root=request.artifact_root)
         artifact_roots = {
-            "artifact_root": request.artifact_root,
-            "ingestion_root": request.artifact_root / "ingestion",
-            "parsing_root": request.artifact_root / "parsing",
-            "research_root": request.artifact_root / "research",
-            "signal_root": request.artifact_root / "signal_generation",
-            "signal_arbitration_root": request.artifact_root / "signal_arbitration",
-            "portfolio_root": request.artifact_root / "portfolio",
-            "portfolio_analysis_root": request.artifact_root / "portfolio_analysis",
-            "review_root": request.artifact_root / "review",
-            "monitoring_root": request.artifact_root / "monitoring",
-            "orchestration_root": request.artifact_root / "orchestration",
+            "artifact_root": workspace.root,
+            "ingestion_root": workspace.ingestion_root,
+            "parsing_root": workspace.parsing_root,
+            "research_root": workspace.research_root,
+            "signal_root": workspace.signal_root,
+            "signal_arbitration_root": workspace.signal_arbitration_root,
+            "portfolio_root": workspace.portfolio_root,
+            "portfolio_analysis_root": workspace.portfolio_analysis_root,
+            "review_root": workspace.review_root,
+            "monitoring_root": workspace.monitoring_root,
+            "orchestration_root": workspace.orchestration_root,
         }
         schedule_mode = ScheduleMode.MANUAL_LOCAL
         config_id = make_canonical_id(

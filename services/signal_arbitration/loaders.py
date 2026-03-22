@@ -6,6 +6,7 @@ from typing import TypeVar
 
 from pydantic import Field
 
+from libraries.core import ensure_directory_exists
 from libraries.schemas import (
     ArbitrationDecision,
     EvidenceAssessment,
@@ -42,6 +43,7 @@ def load_signal_arbitration_inputs(
 ) -> LoadedSignalArbitrationInputs:
     """Load same-company signals plus evidence-support context for arbitration."""
 
+    ensure_directory_exists(signal_root, label="signal root")
     signals = _apply_signal_cutoff(
         load_models(root=signal_root, category="signals", model_cls=Signal),
         as_of_time=as_of_time,

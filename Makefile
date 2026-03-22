@@ -22,7 +22,7 @@ api:
 	$(PYTHON) -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload
 
 demo:
-	$(PYTHON) -m pipelines.demo.end_to_end_demo --frozen-time 2026-04-01T12:00:00Z --base-root artifacts/demo_runs/week2_demo
+	$(PYTHON) -m pipelines.demo.end_to_end_demo --frozen-time 2026-04-01T12:00:00Z --base-root artifacts/demo_runs/week3_demo
 
 daily-run:
 	$(PYTHON) -m pipelines.daily_operations.daily_workflow --artifact-root artifacts/daily_runs/latest --requested-by make_daily_run
