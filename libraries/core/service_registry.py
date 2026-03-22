@@ -4,6 +4,7 @@ from libraries.core.service_framework import BaseService
 from libraries.time import Clock
 from services.audit import AuditLoggingService
 from services.backtesting import BacktestingService
+from services.daily_orchestration import DailyOrchestrationService
 from services.entity_resolution import EntityResolutionService
 from services.evaluation import EvaluationService
 from services.experiment_registry import ExperimentRegistryService
@@ -50,5 +51,6 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         MonitoringService(clock=clock),
         RedTeamService(clock=clock),
         TimingService(clock=clock),
+        DailyOrchestrationService(clock=clock),
     ]
     return {service.capability_name: service for service in services}
