@@ -18,6 +18,7 @@ def run_hypothesis_workflow_pipeline(
     output_root: Path | None = None,
     company_id: str | None = None,
     generate_memo_skeleton: bool = True,
+    include_retrieval_context: bool = True,
     requested_by: str = "pipeline_daily_research",
     clock: Clock | None = None,
 ) -> RunResearchWorkflowResponse:
@@ -33,6 +34,7 @@ def run_hypothesis_workflow_pipeline(
             output_root=output_root or (resolved_artifact_root / "research"),
             company_id=company_id,
             generate_memo_skeleton=generate_memo_skeleton,
+            include_retrieval_context=include_retrieval_context,
             requested_by=requested_by,
         )
     )

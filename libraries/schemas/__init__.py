@@ -150,6 +150,14 @@ from libraries.schemas.research import (
     StrategyVariantSignal,
     SupportingEvidenceLink,
 )
+from libraries.schemas.retrieval import (
+    EvidenceSearchResult,
+    MemoryScope,
+    ResearchArtifactReference,
+    RetrievalContext,
+    RetrievalQuery,
+    RetrievalResult,
+)
 from libraries.schemas.review import (
     ActionRecommendationSummary,
     EscalationStatus,
@@ -273,6 +281,7 @@ __all__ = [
     "Experiment",
     "ExperimentStatus",
     "EvidenceAssessment",
+    "EvidenceSearchResult",
     "EvidenceGrade",
     "EvidenceLinkRole",
     "EvaluationStatus",
@@ -316,6 +325,7 @@ __all__ = [
     "MarketSessionKind",
     "ComparisonSummary",
     "CoverageSummary",
+    "MemoryScope",
     "MetricValue",
     "Memo",
     "MemoStatus",
@@ -340,6 +350,7 @@ __all__ = [
     "PublicationTiming",
     "RecommendedMitigation",
     "RedTeamCase",
+    "ResearchArtifactReference",
     "ResearchBrief",
     "ResearchReviewStatus",
     "ResearchStance",
@@ -353,6 +364,9 @@ __all__ = [
     "ReviewContext",
     "ReviewDecision",
     "ReviewNote",
+    "RetrievalContext",
+    "RetrievalQuery",
+    "RetrievalResult",
     "RankingExplanation",
     "RobustnessCheck",
     "RobustnessCheckKind",

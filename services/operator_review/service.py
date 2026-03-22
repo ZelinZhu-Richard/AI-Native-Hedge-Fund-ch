@@ -16,6 +16,7 @@ from libraries.schemas import (
     DerivedArtifactValidationStatus,
     EscalationStatus,
     EvidenceGrade,
+    MemoryScope,
     PaperTrade,
     PaperTradeStatus,
     PipelineEventType,
@@ -24,6 +25,8 @@ from libraries.schemas import (
     PositionIdea,
     ResearchBrief,
     ResearchReviewStatus,
+    RetrievalContext,
+    RetrievalQuery,
     ReviewAssignment,
     ReviewContext,
     ReviewDecision,
@@ -57,6 +60,7 @@ from services.operator_review.loaders import (
     target_key,
 )
 from services.operator_review.storage import LocalReviewArtifactStore
+from services.research_memory import ResearchMemoryService, SearchResearchMemoryRequest
 
 TTarget = TypeVar("TTarget")
 
@@ -499,6 +503,20 @@ class OperatorReviewService(BaseService):
             audit_logs=audit_logs,
             review_assignment=review_assignment,
             action_recommendation=queue_item.action_recommendation,
+            related_prior_work=self._build_related_prior_work(
+                workspace=workspace,
+                request=request,
+                research_root=research_root,
+                review_root=review_root,
+                company_id=self._company_id_for_review_target(
+                    research_brief=research_brief,
+                    signal=signal,
+                    portfolio_proposal=portfolio_proposal,
+                    paper_trade=paper_trade,
+                    position_ideas=position_ideas,
+                    workspace=workspace,
+                ),
+            ),
         )
 
     def add_review_note(self, request: AddReviewNoteRequest) -> AddReviewNoteResponse:
@@ -1605,6 +1623,98 @@ class OperatorReviewService(BaseService):
             if link.supporting_evidence_link_id in desired_link_ids
         }
         return list(unique_links.values())
+
+    def _company_id_for_review_target(
+        self,
+        *,
+        research_brief: ResearchBrief | None,
+        signal: Signal | None,
+        portfolio_proposal: PortfolioProposal | None,
+        paper_trade: PaperTrade | None,
+        position_ideas: list[PositionIdea],
+        workspace: LoadedReviewWorkspace,
+    ) -> str | None:
+        """Resolve one canonical company identifier for related-prior-work retrieval."""
+
+        if research_brief is not None:
+            return research_brief.company_id
+        if signal is not None:
+            return signal.company_id
+        if position_ideas:
+            company_ids = {idea.company_id for idea in position_ideas}
+            if len(company_ids) == 1:
+                return next(iter(company_ids))
+        if portfolio_proposal is not None:
+            company_ids = {idea.company_id for idea in portfolio_proposal.position_ideas}
+            if len(company_ids) == 1:
+                return next(iter(company_ids))
+        if paper_trade is not None:
+            position_idea = workspace.position_ideas_by_id.get(paper_trade.position_idea_id)
+            if position_idea is not None:
+                return position_idea.company_id
+        return None
+
+    def _build_related_prior_work(
+        self,
+        *,
+        workspace: LoadedReviewWorkspace,
+        request: GetReviewContextRequest,
+        research_root: Path,
+        review_root: Path,
+        company_id: str | None,
+    ) -> RetrievalContext | None:
+        """Build advisory same-company prior-work retrieval context for operators."""
+
+        if company_id is None:
+            return None
+        response = ResearchMemoryService(clock=self.clock).search_research_memory(
+            SearchResearchMemoryRequest(
+                workspace_root=review_root.parent,
+                research_root=research_root,
+                review_root=review_root,
+                query=RetrievalQuery(
+                    retrieval_query_id=make_prefixed_id("rqry"),
+                    scopes=[
+                        MemoryScope.EVIDENCE_ASSESSMENT,
+                        MemoryScope.HYPOTHESIS,
+                        MemoryScope.COUNTER_HYPOTHESIS,
+                        MemoryScope.RESEARCH_BRIEF,
+                        MemoryScope.MEMO,
+                        MemoryScope.EXPERIMENT,
+                        MemoryScope.REVIEW_NOTE,
+                    ],
+                    company_id=company_id,
+                    limit=20,
+                ),
+            )
+        )
+        current_target_scope = {
+            ReviewTargetType.RESEARCH_BRIEF: MemoryScope.RESEARCH_BRIEF,
+        }.get(request.target_type)
+        filtered_results = [
+            result
+            for result in response.retrieval_context.results
+            if not (
+                result.artifact_reference.artifact_id == request.target_id
+                and current_target_scope is not None
+                and result.scope is current_target_scope
+            )
+            and not (
+                result.scope is MemoryScope.REVIEW_NOTE
+                and (
+                    note := workspace.review_notes_by_id.get(result.artifact_reference.artifact_id)
+                ) is not None
+                and note.target_type is request.target_type
+                and note.target_id == request.target_id
+            )
+        ]
+        return RetrievalContext(
+            query=response.retrieval_context.query,
+            results=filtered_results,
+            evidence_results=response.retrieval_context.evidence_results,
+            notes=response.retrieval_context.notes,
+            semantic_retrieval_used=False,
+        )
 
     def _supporting_links_from_research_artifact_ids(
         self,

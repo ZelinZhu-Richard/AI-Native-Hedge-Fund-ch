@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         Signal,
         SupportingEvidenceLink,
     )
+    from libraries.schemas.retrieval import RetrievalContext
     from libraries.schemas.system import AuditLog
 
 
@@ -281,6 +282,10 @@ class ReviewContext(StrictModel):
     action_recommendation: ActionRecommendationSummary = Field(
         description="Current conservative action recommendation for the operator."
     )
+    related_prior_work: RetrievalContext | None = Field(
+        default=None,
+        description="Advisory same-company prior work retrieved for operator context.",
+    )
 
     @model_validator(mode="after")
     def validate_target_payload(self) -> ReviewContext:
@@ -308,6 +313,7 @@ def _rebuild_review_context() -> None:
         Signal,
         SupportingEvidenceLink,
     )
+    from libraries.schemas.retrieval import RetrievalContext
     from libraries.schemas.system import AuditLog
 
     ReviewContext.model_rebuild(
@@ -322,6 +328,7 @@ def _rebuild_review_context() -> None:
             "ResearchBrief": ResearchBrief,
             "Signal": Signal,
             "SupportingEvidenceLink": SupportingEvidenceLink,
+            "RetrievalContext": RetrievalContext,
             "AuditLog": AuditLog,
         }
     )

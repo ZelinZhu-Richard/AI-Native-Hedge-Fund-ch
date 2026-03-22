@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from pydantic import Field
@@ -18,8 +18,11 @@ from libraries.schemas import (
     EvidenceGrade,
     Hypothesis,
     Memo,
+    MemoryScope,
     PipelineEventType,
     ResearchBrief,
+    RetrievalContext,
+    RetrievalQuery,
     StrictModel,
     WorkflowStatus,
 )
@@ -31,6 +34,7 @@ from services.monitoring import (
     RecordPipelineEventRequest,
     RecordRunSummaryRequest,
 )
+from services.research_memory import ResearchMemoryService, SearchResearchMemoryRequest
 from services.research_orchestrator.briefs import build_research_brief
 from services.research_orchestrator.critique import generate_counter_hypothesis
 from services.research_orchestrator.grading import build_evidence_assessment
@@ -87,6 +91,10 @@ class RunResearchWorkflowRequest(StrictModel):
         default=True,
         description="Whether to render a draft memo skeleton from the research brief.",
     )
+    include_retrieval_context: bool = Field(
+        default=True,
+        description="Whether to retrieve same-company prior work as advisory context.",
+    )
     requested_by: str = Field(description="Requester identifier.")
 
 
@@ -114,6 +122,10 @@ class RunResearchWorkflowResponse(StrictModel):
     memo: Memo | None = Field(
         default=None,
         description="Optional draft memo skeleton rendered from the research brief.",
+    )
+    retrieval_context: RetrievalContext | None = Field(
+        default=None,
+        description="Optional advisory retrieval context used for the workflow.",
     )
     agent_runs: list[AgentRun] = Field(
         default_factory=list,
@@ -202,6 +214,20 @@ class ResearchOrchestrationService(BaseService):
                 company_id=request.company_id,
             )
             notes = [f"requested_by={request.requested_by}"]
+            retrieval_context = (
+                self._build_retrieval_context(
+                    request=request,
+                    resolved_output_root=resolved_output_root,
+                    company_id=inputs.company_id,
+                    started_at=started_at,
+                )
+                if request.include_retrieval_context
+                else None
+            )
+            if retrieval_context is not None:
+                notes.append(
+                    f"retrieval_context_results={len(retrieval_context.results) + len(retrieval_context.evidence_results)}"
+                )
             agent_runs: list[AgentRun] = []
             input_artifact_ids = _input_artifact_ids(inputs)
 
@@ -341,6 +367,7 @@ class ResearchOrchestrationService(BaseService):
                     counter_hypothesis=None,
                     research_brief=None,
                     memo=None,
+                    retrieval_context=retrieval_context,
                     agent_runs=agent_runs,
                     storage_locations=storage_locations,
                     notes=notes,
@@ -410,6 +437,7 @@ class ResearchOrchestrationService(BaseService):
                         audience="research_review",
                         requested_by=request.requested_by,
                         author_agent_run_id=brief_agent_run_id,
+                        retrieval_context=retrieval_context,
                     )
                 ).memo
 
@@ -502,6 +530,7 @@ class ResearchOrchestrationService(BaseService):
                 counter_hypothesis=counter_hypothesis,
                 research_brief=research_brief,
                 memo=memo,
+                retrieval_context=retrieval_context,
                 agent_runs=agent_runs,
                 storage_locations=storage_locations,
                 notes=notes,
@@ -541,6 +570,42 @@ class ResearchOrchestrationService(BaseService):
                 output_root=monitoring_root,
             )
             raise
+
+    def _build_retrieval_context(
+        self,
+        *,
+        request: RunResearchWorkflowRequest,
+        resolved_output_root: Path,
+        company_id: str,
+        started_at: datetime,
+    ) -> RetrievalContext:
+        """Build advisory same-company retrieval context for a research workflow run."""
+
+        query = RetrievalQuery(
+            retrieval_query_id=make_prefixed_id("rqry"),
+            scopes=[
+                MemoryScope.EVIDENCE,
+                MemoryScope.EVIDENCE_ASSESSMENT,
+                MemoryScope.HYPOTHESIS,
+                MemoryScope.COUNTER_HYPOTHESIS,
+                MemoryScope.RESEARCH_BRIEF,
+                MemoryScope.MEMO,
+                MemoryScope.EXPERIMENT,
+            ],
+            company_id=company_id,
+            time_end=started_at - timedelta(microseconds=1),
+            limit=25,
+        )
+        response = ResearchMemoryService(clock=self.clock).search_research_memory(
+            SearchResearchMemoryRequest(
+                workspace_root=resolved_output_root.parent,
+                research_root=resolved_output_root,
+                parsing_root=request.parsing_root,
+                ingestion_root=request.ingestion_root,
+                query=query,
+            )
+        )
+        return response.retrieval_context
 
     def _persist_partial_workflow(
         self,

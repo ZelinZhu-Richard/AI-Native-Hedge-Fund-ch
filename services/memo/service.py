@@ -4,7 +4,7 @@ from pydantic import Field
 
 from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
-from libraries.schemas import Memo, MemoStatus, ResearchBrief, StrictModel
+from libraries.schemas import Memo, MemoStatus, ResearchBrief, RetrievalContext, StrictModel
 from libraries.utils import make_prefixed_id
 
 
@@ -17,6 +17,10 @@ class MemoGenerationRequest(StrictModel):
     author_agent_run_id: str | None = Field(
         default=None,
         description="Agent run that assembled the memo-ready brief when available.",
+    )
+    retrieval_context: RetrievalContext | None = Field(
+        default=None,
+        description="Optional advisory retrieval context associated with the memo workflow.",
     )
 
 
@@ -48,6 +52,19 @@ class MemoGenerationService(BaseService):
 
         now = self.clock.now()
         brief = request.research_brief
+        retrieval_artifact_ids = [
+            result.artifact_reference.artifact_id
+            for result in (
+                request.retrieval_context.results if request.retrieval_context is not None else []
+            )
+        ] + [
+            result.artifact_reference.artifact_id
+            for result in (
+                request.retrieval_context.evidence_results
+                if request.retrieval_context is not None
+                else []
+            )
+        ]
         status_summary = (
             f"Review status: {brief.review_status.value}. "
             f"Validation status: {brief.validation_status.value}."
@@ -85,8 +102,14 @@ class MemoGenerationService(BaseService):
                     brief.research_brief_id,
                     brief.hypothesis_id,
                     brief.counter_hypothesis_id,
+                    *dict.fromkeys(retrieval_artifact_ids),
                 ],
                 agent_run_id=request.author_agent_run_id,
+                notes=(
+                    [f"retrieval_context_results={len(retrieval_artifact_ids)}"]
+                    if request.retrieval_context is not None
+                    else []
+                ),
             ),
             created_at=now,
             updated_at=now,
