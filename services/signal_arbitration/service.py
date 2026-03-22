@@ -101,7 +101,7 @@ class SignalArbitrationService(BaseService):
         return ServiceCapability(
             name=self.capability_name,
             description=self.capability_description,
-            consumes=["Signal", "EvidenceAssessment", "ResearchBrief"],
+            consumes=["Signal", "EvidenceAssessment"],
             produces=["SignalCalibration", "SignalConflict", "ArbitrationDecision", "SignalBundle"],
             api_routes=[],
         )
@@ -191,7 +191,7 @@ class SignalArbitrationService(BaseService):
                     notes=notes,
                 )
 
-            candidates = build_signal_calibrations(
+            candidates, excluded_signals = build_signal_calibrations(
                 signals=inputs.signals,
                 evidence_assessments_by_hypothesis_id=inputs.evidence_assessments_by_hypothesis_id,
                 as_of_time=request.as_of_time,
@@ -208,6 +208,7 @@ class SignalArbitrationService(BaseService):
                 company_id=inputs.company_id,
                 component_signals=inputs.signals,
                 candidates=candidates,
+                excluded_signals=excluded_signals,
                 conflicts=conflicts,
                 as_of_time=request.as_of_time,
                 clock=self.clock,
@@ -241,21 +242,35 @@ class SignalArbitrationService(BaseService):
                     source_reference_ids=decision.provenance.source_reference_ids,
                 )
             )
-            storage_locations.append(
-                store.persist_model(
-                    artifact_id=bundle.signal_bundle_id,
-                    category="signal_bundles",
-                    model=bundle,
-                    source_reference_ids=bundle.provenance.source_reference_ids,
+            if bundle is not None:
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=bundle.signal_bundle_id,
+                        category="signal_bundles",
+                        model=bundle,
+                        source_reference_ids=bundle.provenance.source_reference_ids,
+                    )
                 )
-            )
             status = (
                 WorkflowStatus.ATTENTION_REQUIRED
-                if decision.selected_primary_signal_id is None or bool(conflicts)
+                if decision.selected_primary_signal_id is None or bool(conflicts) or not candidates
                 else WorkflowStatus.SUCCEEDED
             )
             if decision.selected_primary_signal_id is None:
-                notes.append("Arbitration withheld a primary signal selection.")
+                notes.append("Arbitration intentionally withheld a primary signal selection.")
+            if not candidates:
+                notes.append("All visible signals were excluded before deterministic calibration.")
+            if excluded_signals:
+                notes.append(f"excluded_signal_count={len(excluded_signals)}")
+                reason_counts: dict[str, int] = {}
+                for excluded in excluded_signals:
+                    reason_counts[excluded.reason.value] = (
+                        reason_counts.get(excluded.reason.value, 0) + 1
+                    )
+                notes.extend(
+                    f"excluded_signal_reason_count[{reason}]={count}"
+                    for reason, count in sorted(reason_counts.items())
+                )
             if conflicts:
                 notes.append(f"signal_conflict_count={len(conflicts)}")
             completed_event = monitoring_service.record_pipeline_event(
@@ -271,7 +286,7 @@ class SignalArbitrationService(BaseService):
                     status=status,
                     message=decision.summary,
                     related_artifact_ids=[
-                        bundle.signal_bundle_id,
+                        *([bundle.signal_bundle_id] if bundle is not None else []),
                         decision.arbitration_decision_id,
                         *[conflict.signal_conflict_id for conflict in conflicts],
                     ],
@@ -284,8 +299,12 @@ class SignalArbitrationService(BaseService):
                     event_type="signal_arbitration_completed",
                     actor_type="service",
                     actor_id=self.capability_name,
-                    target_type="signal_bundle",
-                    target_id=bundle.signal_bundle_id,
+                    target_type="signal_bundle" if bundle is not None else "arbitration_decision",
+                    target_id=(
+                        bundle.signal_bundle_id
+                        if bundle is not None
+                        else decision.arbitration_decision_id
+                    ),
                     action="completed",
                     outcome=(
                         AuditOutcome.WARNING
@@ -295,7 +314,7 @@ class SignalArbitrationService(BaseService):
                     reason=decision.summary,
                     request_id=workflow_run_id,
                     related_artifact_ids=[
-                        bundle.signal_bundle_id,
+                        *([bundle.signal_bundle_id] if bundle is not None else []),
                         decision.arbitration_decision_id,
                         *[candidate.calibration.signal_calibration_id for candidate in candidates],
                         *[conflict.signal_conflict_id for conflict in conflicts],
@@ -316,7 +335,7 @@ class SignalArbitrationService(BaseService):
                     completed_at=self.clock.now(),
                     storage_locations=storage_locations,
                     produced_artifact_ids=[
-                        bundle.signal_bundle_id,
+                        *([bundle.signal_bundle_id] if bundle is not None else []),
                         decision.arbitration_decision_id,
                         *[candidate.calibration.signal_calibration_id for candidate in candidates],
                         *[conflict.signal_conflict_id for conflict in conflicts],

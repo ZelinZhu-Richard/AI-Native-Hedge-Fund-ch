@@ -29,6 +29,15 @@ class SignalConflictKind(StrEnum):
     MATURITY_MISMATCH = "maturity_mismatch"
 
 
+class SignalExclusionReason(StrEnum):
+    """Explicit exclusion reasons recorded before arbitration ranking begins."""
+
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    INVALIDATED = "invalidated"
+    FUTURE_EFFECTIVE_AT_AS_OF_TIME = "future_effective_at_as_of_time"
+
+
 class UncertaintyEstimate(StrictModel):
     """Structured uncertainty interpretation derived from visible signal facts."""
 
@@ -202,6 +211,22 @@ class RankingExplanation(StrictModel):
         return self
 
 
+class ExcludedSignal(StrictModel):
+    """Explicit exclusion row recorded when a signal never entered candidate ranking."""
+
+    signal_id: str = Field(description="Signal identifier excluded before arbitration ranking.")
+    reason: SignalExclusionReason = Field(description="Deterministic reason for exclusion.")
+    message: str = Field(description="Human-readable explanation of why the signal was excluded.")
+
+    @model_validator(mode="after")
+    def validate_message(self) -> Self:
+        """Require explicit exclusion messaging."""
+
+        if not self.message:
+            raise ValueError("message must be non-empty.")
+        return self
+
+
 class ArbitrationDecision(TimestampedModel):
     """Structured, inspectable outcome of deterministic signal arbitration."""
 
@@ -216,6 +241,10 @@ class ArbitrationDecision(TimestampedModel):
     selected_primary_signal_id: str | None = Field(
         default=None,
         description="Selected primary signal when arbitration resolved cleanly.",
+    )
+    excluded_signals: list[ExcludedSignal] = Field(
+        default_factory=list,
+        description="Signals excluded before deterministic candidate ranking, with reasons.",
     )
     prioritized_signal_ids: list[str] = Field(
         default_factory=list,
@@ -235,7 +264,7 @@ class ArbitrationDecision(TimestampedModel):
     )
     ranking_explanations: list[RankingExplanation] = Field(
         default_factory=list,
-        description="Rank explanations for prioritized candidate signals.",
+        description="Rank explanations for every post-exclusion arbitration candidate in deterministic order.",
     )
     review_required: bool = Field(
         default=True,
@@ -257,10 +286,19 @@ class ArbitrationDecision(TimestampedModel):
             raise ValueError(
                 "selected_primary_signal_id must appear in candidate_signal_ids and prioritized_signal_ids."
             )
+        excluded_signal_ids = [excluded.signal_id for excluded in self.excluded_signals]
+        if len(excluded_signal_ids) != len(set(excluded_signal_ids)):
+            raise ValueError("excluded_signals must not contain duplicate signal identifiers.")
+        if set(excluded_signal_ids) & set(self.candidate_signal_ids):
+            raise ValueError("Excluded signals must not also appear in candidate_signal_ids.")
+        if not set(self.prioritized_signal_ids).issubset(self.candidate_signal_ids):
+            raise ValueError("prioritized_signal_ids must be a subset of candidate_signal_ids.")
+        if not set(self.suppressed_signal_ids).issubset(self.candidate_signal_ids):
+            raise ValueError("suppressed_signal_ids must be a subset of candidate_signal_ids.")
         ranked_signal_ids = [explanation.signal_id for explanation in self.ranking_explanations]
-        if ranked_signal_ids and ranked_signal_ids != self.prioritized_signal_ids:
+        if ranked_signal_ids and ranked_signal_ids != self.candidate_signal_ids:
             raise ValueError(
-                "ranking_explanations must be ordered to match prioritized_signal_ids."
+                "ranking_explanations must be ordered to match candidate_signal_ids."
             )
         return self
 
@@ -280,7 +318,7 @@ class SignalBundle(TimestampedModel):
     )
     signal_calibration_ids: list[str] = Field(
         default_factory=list,
-        description="Calibration identifiers produced for the component signals.",
+        description="Calibration identifiers produced for the component signals when any remained eligible after exclusion.",
     )
     signal_conflict_ids: list[str] = Field(
         default_factory=list,
@@ -302,10 +340,6 @@ class SignalBundle(TimestampedModel):
 
         if not self.component_signal_ids:
             raise ValueError("component_signal_ids must contain at least one signal identifier.")
-        if not self.signal_calibration_ids:
-            raise ValueError(
-                "signal_calibration_ids must contain at least one calibration identifier."
-            )
         if not self.arbitration_decision_id:
             raise ValueError("arbitration_decision_id must be non-empty.")
         if not self.bundle_summary:

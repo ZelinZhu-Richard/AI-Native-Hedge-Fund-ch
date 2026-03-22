@@ -92,5 +92,73 @@ def test_signal_arbitration_blocks_portfolio_input_when_conflicting_primary_sign
 
     assert portfolio_response.position_ideas == []
     assert any(
-        "withheld a primary signal selection" in note for note in portfolio_response.notes
+        "intentionally withheld a primary signal selection" in note
+        for note in portfolio_response.notes
+    )
+
+
+def test_signal_arbitration_records_future_effective_signal_as_excluded(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    run_fixture_ingestion_pipeline(
+        fixtures_root=FIXTURE_ROOT,
+        output_root=artifact_root / "ingestion",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_evidence_extraction_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        output_root=artifact_root / "parsing",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_hypothesis_workflow_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "research",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_feature_signal_pipeline(
+        research_root=artifact_root / "research",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "signal_generation",
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    signal_path = next((artifact_root / "signal_generation" / "signals").glob("*.json"))
+    payload = json.loads(signal_path.read_text(encoding="utf-8"))
+    future_payload = {
+        **payload,
+        "signal_id": f"{payload['signal_id']}_future",
+        "effective_at": "2026-03-22T14:30:00+00:00",
+    }
+    if future_payload.get("availability_window") is not None:
+        future_payload["availability_window"]["available_from"] = "2026-03-22T14:30:00+00:00"
+    future_payload["component_scores"][0]["signal_score_id"] = (
+        f"{payload['component_scores'][0]['signal_score_id']}_future"
+    )
+    (
+        artifact_root / "signal_generation" / "signals" / f"{future_payload['signal_id']}.json"
+    ).write_text(json.dumps(future_payload, indent=2), encoding="utf-8")
+
+    arbitration_response = SignalArbitrationService(
+        clock=FrozenClock(FIXED_NOW)
+    ).run_signal_arbitration(
+        RunSignalArbitrationRequest(
+            signal_root=artifact_root / "signal_generation",
+            research_root=artifact_root / "research",
+            output_root=artifact_root / "signal_arbitration",
+            as_of_time=FIXED_NOW,
+            requested_by="integration_test",
+        )
+    )
+
+    assert arbitration_response.signal_bundle is not None
+    assert arbitration_response.arbitration_decision is not None
+    assert any(
+        excluded.reason.value == "future_effective_at_as_of_time"
+        for excluded in arbitration_response.arbitration_decision.excluded_signals
+    )
+    assert all(
+        candidate_id != future_payload["signal_id"]
+        for candidate_id in arbitration_response.arbitration_decision.candidate_signal_ids
     )

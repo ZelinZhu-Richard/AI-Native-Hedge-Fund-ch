@@ -16,6 +16,7 @@ It reflects visible properties such as:
 - whether lineage is complete
 - whether evidence support is strong or weak
 - whether the signal is fresh or stale relative to an `as_of_time`
+- whether the signal is time-eligible at the arbitration cutoff
 - whether the signal is validated or still provisional
 
 It does not mean:
@@ -56,6 +57,7 @@ The current rules are intentionally simple:
 - if `Signal.confidence.uncertainty` exists, use it
 - otherwise use `1.0` and record `missing_confidence_fallback`
 - derive freshness from `effective_at` relative to `as_of_time`
+- exclude future-effective signals before freshness ranking instead of treating them as stale
 - derive lineage completeness from required feature and evidence lineage fields
 - carry evidence grade forward when an `EvidenceAssessment` is available
 
@@ -117,6 +119,7 @@ It can tell you:
 
 - where the structure is weak
 - where timing is stale
+- where timing is not yet eligible
 - where support is thin
 - where confidence is missing
 

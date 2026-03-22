@@ -23,6 +23,7 @@ It also adds:
 - portfolio consumption of arbitrated bundles when present
 - non-blocking risk visibility for missing arbitration and detected conflicts
 - experiment-registry recording of arbitration context
+- explicit excluded-signal recording inside arbitration decisions
 
 ## Core Rules
 
@@ -30,6 +31,7 @@ Current Day 19 behavior is deterministic:
 
 - clamp signal scores to `[-1, 1]`
 - preserve explicit or fallback uncertainty
+- exclude future-effective signals before calibration
 - detect directional, support, freshness, maturity, and duplicate-support conflicts
 - rank signals lexicographically with no hidden weights
 - suppress lower-ranked duplicate-support signals when stance agrees
@@ -52,12 +54,14 @@ Portfolio workflows now:
 - prefer the arbitrated primary signal when available
 - produce no position ideas when arbitration intentionally withholds a primary signal
 - fall back to raw signals only when no arbitration bundle is present, and record that fallback explicitly
+- keep that raw fallback temporary and review-bound until the Week 3 gate exists
 
 ## Remaining Weaknesses
 
 - calibration is heuristic and structural, not statistical
 - the main real signal family is still narrow
 - raw-signal fallback still exists when arbitration is absent
+- arbitration still uses `Signal` plus `EvidenceAssessment`; it does not use latent semantic brief context
 - arbitration does not yet hard-block downstream candidate-signal usage across the whole system
 
 ## Best Next Step

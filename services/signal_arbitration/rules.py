@@ -13,6 +13,7 @@ from libraries.schemas import (
     DerivedArtifactValidationStatus,
     EvidenceAssessment,
     EvidenceGrade,
+    ExcludedSignal,
     FreshnessState,
     RankingExplanation,
     ResearchStance,
@@ -21,6 +22,7 @@ from libraries.schemas import (
     SignalCalibration,
     SignalConflict,
     SignalConflictKind,
+    SignalExclusionReason,
     SignalStatus,
     StrictModel,
     UncertaintyEstimate,
@@ -56,7 +58,7 @@ def default_arbitration_rules() -> list[ArbitrationRule]:
     definitions = [
         (
             "exclude_ineligible_signals",
-            "Exclude rejected, expired, and invalidated signals from arbitration candidates.",
+            "Exclude rejected, expired, invalidated, and future-effective signals from arbitration candidates.",
             1,
             False,
         ),
@@ -117,15 +119,51 @@ def build_signal_calibrations(
     as_of_time: datetime | None,
     clock: Clock,
     workflow_run_id: str,
-) -> list[ArbitrationCandidate]:
+) -> tuple[list[ArbitrationCandidate], list[ExcludedSignal]]:
     """Build deterministic calibration rows for all non-excluded candidate signals."""
 
     now = clock.now()
     candidates: list[ArbitrationCandidate] = []
+    excluded_signals: list[ExcludedSignal] = []
     for signal in signals:
         if signal.status in {SignalStatus.REJECTED, SignalStatus.EXPIRED}:
+            excluded_signals.append(
+                _build_excluded_signal(
+                    signal=signal,
+                    reason=(
+                        SignalExclusionReason.REJECTED
+                        if signal.status is SignalStatus.REJECTED
+                        else SignalExclusionReason.EXPIRED
+                    ),
+                    message=(
+                        f"Signal was excluded before arbitration because status `{signal.status.value}` is not eligible."
+                    ),
+                )
+            )
             continue
         if signal.validation_status is DerivedArtifactValidationStatus.INVALIDATED:
+            excluded_signals.append(
+                _build_excluded_signal(
+                    signal=signal,
+                    reason=SignalExclusionReason.INVALIDATED,
+                    message=(
+                        "Signal was excluded before arbitration because validation_status "
+                        "`invalidated` is not eligible."
+                    ),
+                )
+            )
+            continue
+        if as_of_time is not None and signal.effective_at.astimezone(UTC) > as_of_time.astimezone(UTC):
+            excluded_signals.append(
+                _build_excluded_signal(
+                    signal=signal,
+                    reason=SignalExclusionReason.FUTURE_EFFECTIVE_AT_AS_OF_TIME,
+                    message=(
+                        "Signal was excluded before arbitration because effective_at is after "
+                        "the requested as_of_time."
+                    ),
+                )
+            )
             continue
 
         evidence_assessment = evidence_assessments_by_hypothesis_id.get(signal.hypothesis_id)
@@ -217,7 +255,7 @@ def build_signal_calibrations(
                 evidence_assessment=evidence_assessment,
             )
         )
-    return candidates
+    return candidates, excluded_signals
 
 
 def detect_signal_conflicts(
@@ -407,6 +445,7 @@ def build_arbitration_decision(
     company_id: str,
     component_signals: list[Signal],
     candidates: list[ArbitrationCandidate],
+    excluded_signals: list[ExcludedSignal],
     conflicts: list[SignalConflict],
     as_of_time: datetime | None,
     clock: Clock,
@@ -442,8 +481,14 @@ def build_arbitration_decision(
         if blocking_directional is None:
             selected_primary_signal_id = top_candidate.signal.signal_id
 
+    blocking_directional_conflict_ids = {
+        conflict.signal_conflict_id
+        for conflict in conflicts
+        if conflict.conflict_kind is SignalConflictKind.DIRECTIONAL_DISAGREEMENT
+        and conflict.blocking
+    }
     ranking_explanations = []
-    for rank, candidate in enumerate(prioritized_candidates, start=1):
+    for rank, candidate in enumerate(ranked_candidates, start=1):
         warnings = [
             conflict.message
             for conflict in conflicts
@@ -453,7 +498,7 @@ def build_arbitration_decision(
         if selected_primary_signal_id != candidate.signal.signal_id:
             if candidate.signal.signal_id in suppressed_signal_ids:
                 why_not_selected = "Suppressed due to duplicate support with a higher-ranked signal."
-            elif selected_primary_signal_id is None and prioritized_candidates:
+            elif selected_primary_signal_id is None and prioritized_candidates and blocking_directional_conflict_ids:
                 why_not_selected = (
                     "No primary signal was selected because the top-ranked candidates remain in blocking disagreement."
                 )
@@ -468,7 +513,7 @@ def build_arbitration_decision(
             )
         )
 
-    candidate_signal_ids = [candidate.signal.signal_id for candidate in candidates]
+    candidate_signal_ids = [candidate.signal.signal_id for candidate in ranked_candidates]
     decision_summary = (
         "No primary signal was selected because arbitration observed unresolved top-level disagreement."
         if selected_primary_signal_id is None and prioritized_signal_ids
@@ -487,6 +532,7 @@ def build_arbitration_decision(
         company_id=company_id,
         candidate_signal_ids=candidate_signal_ids,
         selected_primary_signal_id=selected_primary_signal_id,
+        excluded_signals=excluded_signals,
         prioritized_signal_ids=prioritized_signal_ids,
         suppressed_signal_ids=suppressed_signal_ids,
         applied_rules=applied_rules,
@@ -577,11 +623,24 @@ def _freshness_state(*, signal: Signal, as_of_time: datetime | None) -> Freshnes
     if as_of_time is None:
         return FreshnessState.UNKNOWN
     age = as_of_time.astimezone(UTC) - signal.effective_at.astimezone(UTC)
-    if age.days <= 1 and age.total_seconds() >= 0:
+    if age.total_seconds() < 0:
+        return FreshnessState.UNKNOWN
+    if age.days <= 1:
         return FreshnessState.FRESH
-    if age.days <= 5 and age.total_seconds() >= 0:
+    if age.days <= 5:
         return FreshnessState.AGING
     return FreshnessState.STALE
+
+
+def _build_excluded_signal(
+    *,
+    signal: Signal,
+    reason: SignalExclusionReason,
+    message: str,
+) -> ExcludedSignal:
+    """Build one explicit exclusion row for a signal removed before ranking."""
+
+    return ExcludedSignal(signal_id=signal.signal_id, reason=reason, message=message)
 
 
 def _candidate_sort_key(candidate: ArbitrationCandidate) -> tuple[object, ...]:

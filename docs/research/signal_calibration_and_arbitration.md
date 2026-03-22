@@ -57,13 +57,15 @@ The Day 19 arbitration service loads:
 
 - same-company `Signal` artifacts
 - linked `EvidenceAssessment` rows when available
-- linked `ResearchBrief` context when available
 
 Signals with these states are excluded before arbitration:
 
 - `rejected`
 - `expired`
 - `invalidated`
+- `future_effective_at_as_of_time`
+
+Those exclusions are recorded explicitly inside `ArbitrationDecision.excluded_signals`.
 
 All remaining signals stay visible inside the resulting `SignalBundle`, even when they are later suppressed during ranking.
 
@@ -132,6 +134,7 @@ The service also records `RankingExplanation` rows so reviewers can see:
 - which rules were applied
 - why one signal ranked above another
 - why a signal was suppressed or not selected
+- which post-exclusion candidates were considered even if they did not survive prioritization
 
 There are no hidden weights and no undocumented tie-breaks.
 
@@ -148,8 +151,10 @@ Important behaviors:
 
 - arbitration never creates a new synthesized `Signal`
 - calibrated does not mean validated
+- future-effective signals are excluded before calibration; they are not treated as stale
 - if blocking directional disagreement exists at the top of the ranking, `selected_primary_signal_id` is left empty
 - a bundle with no selected primary signal is a real output, not an error disguised as success
+- if all visible signals are excluded, the bundle still records the component-signal slice and the decision records the exclusion reasons
 
 ## Downstream Consumption
 
@@ -159,7 +164,7 @@ Current behavior:
 
 - if a bundle exists and a primary signal is selected, portfolio construction uses only that selected signal
 - if a bundle exists but no primary signal is selected, portfolio construction produces no `PositionIdea`
-- if no bundle exists, portfolio construction falls back to raw signals and emits an explicit note
+- if no bundle exists, portfolio construction falls back to raw signals and emits an explicit temporary fallback note
 
 `PositionIdea` and `PortfolioProposal` now preserve:
 
@@ -186,7 +191,7 @@ This records arbitration context without pretending it changes exploratory backt
 - Day 19 does not provide statistical calibration.
 - Day 19 does not validate or approve signals.
 - Current ranking is deterministic and heuristic, not learned.
-- The portfolio layer can still fall back to raw signals when no arbitration bundle exists.
+- The portfolio layer can still fall back to raw signals when no arbitration bundle exists. That fallback is temporary and remains review-bound.
 - Arbitration is not yet the actual downstream eligibility gate.
 - The current repo still has only one real text-derived signal family in the main flow, so many multi-signal cases are synthetic or conflict-injection test cases.
 

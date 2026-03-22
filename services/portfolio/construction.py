@@ -119,7 +119,7 @@ def build_position_ideas(
         and inputs.arbitration_decision.selected_primary_signal_id is None
     ):
         notes.append(
-            "Signal arbitration withheld a primary signal selection, so no position ideas were created."
+            "Signal arbitration intentionally withheld a primary signal selection, so no position ideas were created."
         )
         return PositionIdeaBuildResult(notes=notes)
     company_ticker = inputs.company.ticker if inputs.company is not None else None
@@ -207,8 +207,8 @@ def build_position_ideas(
                     f"with score {signal.primary_score:.2f} and stance `{signal.stance.value}`."
                     if inputs.arbitration_decision is not None
                     and inputs.arbitration_decision.selected_primary_signal_id == signal.signal_id
-                    else f"Selected from signal `{signal.signal_family}` with score "
-                    f"{signal.primary_score:.2f} and stance `{signal.stance.value}`."
+                    else f"Selected from raw signal `{signal.signal_family}` with score "
+                    f"{signal.primary_score:.2f} and stance `{signal.stance.value}` because no arbitrated primary signal was available."
                 ),
                 entry_conditions=[
                     "Human review completed.",

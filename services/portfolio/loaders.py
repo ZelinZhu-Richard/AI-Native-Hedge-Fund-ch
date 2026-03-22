@@ -151,7 +151,7 @@ def load_portfolio_inputs(
         )
         if signal_bundle is None or arbitration_decision is None:
             notes.append(
-                "No eligible signal bundle was found; portfolio construction fell back to raw signals."
+                "Signal arbitration bundle was unavailable; portfolio construction fell back to raw signals. This temporary raw-signal fallback remains review-bound."
             )
         else:
             signal_conflicts = [
@@ -166,7 +166,7 @@ def load_portfolio_inputs(
             if arbitration_decision.selected_primary_signal_id is None:
                 selected_signals = []
                 notes.append(
-                    "Signal arbitration withheld a primary signal selection, so portfolio construction received no actionable signal input."
+                    "Signal arbitration intentionally withheld a primary signal selection, so portfolio construction received no actionable signal input."
                 )
             else:
                 selected_signals = [
@@ -180,11 +180,11 @@ def load_portfolio_inputs(
                     )
                 else:
                     notes.append(
-                        f"Portfolio construction used arbitrated primary signal `{arbitration_decision.selected_primary_signal_id}`."
+                        f"Portfolio construction used arbitrated primary signal `{arbitration_decision.selected_primary_signal_id}` as its review-facing input."
                     )
     else:
         notes.append(
-            "No signal arbitration root was supplied; portfolio construction used raw signals directly."
+            "No signal arbitration root was supplied; portfolio construction used raw signals directly. This temporary raw-signal fallback remains review-bound."
         )
 
     return LoadedPortfolioInputs(

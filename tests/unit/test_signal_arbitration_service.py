@@ -33,7 +33,7 @@ FIXED_NOW = datetime(2026, 3, 22, 10, 0, tzinfo=UTC)
 def test_single_signal_arbitration_selects_the_only_candidate() -> None:
     signal = _signal(signal_id="sig_primary", stance=ResearchStance.POSITIVE, score=0.6)
     assessment = _assessment(hypothesis_id=signal.hypothesis_id, grade=EvidenceGrade.MODERATE)
-    candidates = build_signal_calibrations(
+    candidates, excluded_signals = build_signal_calibrations(
         signals=[signal],
         evidence_assessments_by_hypothesis_id={signal.hypothesis_id: assessment},
         as_of_time=FIXED_NOW,
@@ -50,6 +50,7 @@ def test_single_signal_arbitration_selects_the_only_candidate() -> None:
         company_id=signal.company_id,
         component_signals=[signal],
         candidates=candidates,
+        excluded_signals=excluded_signals,
         conflicts=conflicts,
         as_of_time=FIXED_NOW,
         clock=FrozenClock(FIXED_NOW),
@@ -57,6 +58,7 @@ def test_single_signal_arbitration_selects_the_only_candidate() -> None:
     )
 
     assert conflicts == []
+    assert excluded_signals == []
     assert decision.selected_primary_signal_id == signal.signal_id
     assert bundle.component_signal_ids == [signal.signal_id]
 
@@ -74,7 +76,7 @@ def test_directional_disagreement_blocks_primary_selection_when_both_signals_are
             grade=EvidenceGrade.STRONG,
         ),
     }
-    candidates = build_signal_calibrations(
+    candidates, excluded_signals = build_signal_calibrations(
         signals=[left, right],
         evidence_assessments_by_hypothesis_id=assessments,
         as_of_time=FIXED_NOW,
@@ -91,6 +93,7 @@ def test_directional_disagreement_blocks_primary_selection_when_both_signals_are
         company_id=left.company_id,
         component_signals=[left, right],
         candidates=candidates,
+        excluded_signals=excluded_signals,
         conflicts=conflicts,
         as_of_time=FIXED_NOW,
         clock=FrozenClock(FIXED_NOW),
@@ -106,7 +109,7 @@ def test_directional_disagreement_blocks_primary_selection_when_both_signals_are
 
 def test_high_score_with_weak_support_creates_support_mismatch_conflict() -> None:
     signal = _signal(signal_id="sig_weak", stance=ResearchStance.POSITIVE, score=0.9)
-    candidates = build_signal_calibrations(
+    candidates, _excluded_signals = build_signal_calibrations(
         signals=[signal],
         evidence_assessments_by_hypothesis_id={
             signal.hypothesis_id: _assessment(
@@ -151,7 +154,7 @@ def test_stale_signal_loses_rank_to_fresher_signal() -> None:
             grade=EvidenceGrade.MODERATE,
         ),
     }
-    candidates = build_signal_calibrations(
+    candidates, excluded_signals = build_signal_calibrations(
         signals=[stale, fresh],
         evidence_assessments_by_hypothesis_id=assessments,
         as_of_time=FIXED_NOW,
@@ -168,6 +171,7 @@ def test_stale_signal_loses_rank_to_fresher_signal() -> None:
         company_id=stale.company_id,
         component_signals=[stale, fresh],
         candidates=candidates,
+        excluded_signals=excluded_signals,
         conflicts=conflicts,
         as_of_time=FIXED_NOW,
         clock=FrozenClock(FIXED_NOW),
@@ -200,7 +204,7 @@ def test_duplicate_support_suppresses_lower_ranked_signal() -> None:
             grade=EvidenceGrade.MODERATE,
         ),
     }
-    candidates = build_signal_calibrations(
+    candidates, excluded_signals = build_signal_calibrations(
         signals=[stronger, weaker],
         evidence_assessments_by_hypothesis_id=assessments,
         as_of_time=FIXED_NOW,
@@ -217,6 +221,7 @@ def test_duplicate_support_suppresses_lower_ranked_signal() -> None:
         company_id=stronger.company_id,
         component_signals=[stronger, weaker],
         candidates=candidates,
+        excluded_signals=excluded_signals,
         conflicts=conflicts,
         as_of_time=FIXED_NOW,
         clock=FrozenClock(FIXED_NOW),
@@ -227,13 +232,18 @@ def test_duplicate_support_suppresses_lower_ranked_signal() -> None:
         conflict.conflict_kind.value == "duplicate_support_overlap" for conflict in conflicts
     )
     assert weaker.signal_id in decision.suppressed_signal_ids
+    assert any(
+        explanation.signal_id == weaker.signal_id
+        and explanation.why_not_selected is not None
+        for explanation in decision.ranking_explanations
+    )
     assert decision.selected_primary_signal_id == stronger.signal_id
 
 
 def test_missing_confidence_defaults_uncertainty_to_one() -> None:
     signal = _signal(signal_id="sig_missing_conf", stance=ResearchStance.POSITIVE, score=0.5)
     signal = signal.model_copy(update={"confidence": None})
-    candidates = build_signal_calibrations(
+    candidates, excluded_signals = build_signal_calibrations(
         signals=[signal],
         evidence_assessments_by_hypothesis_id={},
         as_of_time=FIXED_NOW,
@@ -241,11 +251,87 @@ def test_missing_confidence_defaults_uncertainty_to_one() -> None:
         workflow_run_id="sarbit_test",
     )
 
+    assert excluded_signals == []
     assert candidates[0].calibration.uncertainty_estimate.uncertainty_score == 1.0
     assert (
         candidates[0].calibration.uncertainty_estimate.base_uncertainty_source
         == "missing_confidence_fallback"
     )
+
+
+def test_future_effective_signal_is_excluded_before_calibration() -> None:
+    future_signal = _signal(
+        signal_id="sig_future",
+        stance=ResearchStance.POSITIVE,
+        score=0.6,
+        effective_at=FIXED_NOW + timedelta(hours=3),
+    )
+
+    candidates, excluded_signals = build_signal_calibrations(
+        signals=[future_signal],
+        evidence_assessments_by_hypothesis_id={},
+        as_of_time=FIXED_NOW,
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="sarbit_test",
+    )
+    conflicts = detect_signal_conflicts(
+        candidates=candidates,
+        as_of_time=FIXED_NOW,
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="sarbit_test",
+    )
+    decision, bundle = build_arbitration_decision(
+        company_id=future_signal.company_id,
+        component_signals=[future_signal],
+        candidates=candidates,
+        excluded_signals=excluded_signals,
+        conflicts=conflicts,
+        as_of_time=FIXED_NOW,
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="sarbit_test",
+    )
+
+    assert candidates == []
+    assert decision.selected_primary_signal_id is None
+    assert decision.candidate_signal_ids == []
+    assert decision.excluded_signals[0].signal_id == future_signal.signal_id
+    assert decision.excluded_signals[0].reason.value == "future_effective_at_as_of_time"
+    assert bundle.signal_calibration_ids == []
+
+
+def test_rejected_expired_and_invalidated_signals_are_recorded_as_excluded() -> None:
+    rejected = _signal(
+        signal_id="sig_rejected",
+        stance=ResearchStance.POSITIVE,
+        score=0.6,
+    ).model_copy(update={"status": SignalStatus.REJECTED})
+    expired = _signal(
+        signal_id="sig_expired",
+        stance=ResearchStance.POSITIVE,
+        score=0.5,
+    ).model_copy(update={"status": SignalStatus.EXPIRED})
+    invalidated = _signal(
+        signal_id="sig_invalidated",
+        stance=ResearchStance.POSITIVE,
+        score=0.4,
+    ).model_copy(
+        update={"validation_status": DerivedArtifactValidationStatus.INVALIDATED}
+    )
+
+    candidates, excluded_signals = build_signal_calibrations(
+        signals=[rejected, expired, invalidated],
+        evidence_assessments_by_hypothesis_id={},
+        as_of_time=FIXED_NOW,
+        clock=FrozenClock(FIXED_NOW),
+        workflow_run_id="sarbit_test",
+    )
+
+    assert candidates == []
+    assert {row.reason.value for row in excluded_signals} == {
+        "rejected",
+        "expired",
+        "invalidated",
+    }
 
 
 def _signal(

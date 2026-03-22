@@ -172,12 +172,14 @@ from libraries.schemas.review import (
 from libraries.schemas.signal_arbitration import (
     ArbitrationDecision,
     ArbitrationRule,
+    ExcludedSignal,
     FreshnessState,
     RankingExplanation,
     SignalBundle,
     SignalCalibration,
     SignalConflict,
     SignalConflictKind,
+    SignalExclusionReason,
     UncertaintyEstimate,
 )
 from libraries.schemas.storage import (
@@ -285,6 +287,7 @@ __all__ = [
     "EvidenceGrade",
     "EvidenceLinkRole",
     "EvaluationStatus",
+    "ExcludedSignal",
     "ExperimentArtifact",
     "ExperimentArtifactRole",
     "ExperimentConfig",
@@ -385,6 +388,7 @@ __all__ = [
     "SignalCalibration",
     "SignalConflict",
     "SignalConflictKind",
+    "SignalExclusionReason",
     "SignalLineage",
     "SignalScore",
     "SignalStatus",

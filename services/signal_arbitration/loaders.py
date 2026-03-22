@@ -9,7 +9,6 @@ from pydantic import Field
 from libraries.schemas import (
     ArbitrationDecision,
     EvidenceAssessment,
-    ResearchBrief,
     Signal,
     SignalBundle,
     StrictModel,
@@ -32,10 +31,6 @@ class LoadedSignalArbitrationInputs(StrictModel):
         default_factory=dict,
         description="Evidence assessments keyed by hypothesis identifier when available.",
     )
-    research_briefs_by_hypothesis_id: dict[str, ResearchBrief] = Field(
-        default_factory=dict,
-        description="Research briefs keyed by hypothesis identifier when available.",
-    )
 
 
 def load_signal_arbitration_inputs(
@@ -45,7 +40,7 @@ def load_signal_arbitration_inputs(
     company_id: str | None = None,
     as_of_time: datetime | None = None,
 ) -> LoadedSignalArbitrationInputs:
-    """Load same-company signals plus research support context for arbitration."""
+    """Load same-company signals plus evidence-support context for arbitration."""
 
     signals = _apply_signal_cutoff(
         load_models(root=signal_root, category="signals", model_cls=Signal),
@@ -74,24 +69,11 @@ def load_signal_arbitration_inputs(
         )
         if assessment.company_id == resolved_company_id and assessment.hypothesis_id is not None
     ]
-    research_briefs = [
-        brief
-        for brief in _apply_created_at_cutoff(
-            load_models(root=research_root, category="research_briefs", model_cls=ResearchBrief),
-            as_of_time=as_of_time,
-        )
-        if brief.company_id == resolved_company_id and brief.hypothesis_id is not None
-    ]
     evidence_assessments_by_hypothesis_id: dict[str, EvidenceAssessment] = {}
     for assessment in evidence_assessments:
         hypothesis_id = assessment.hypothesis_id
         if hypothesis_id is not None:
             evidence_assessments_by_hypothesis_id[hypothesis_id] = assessment
-    research_briefs_by_hypothesis_id: dict[str, ResearchBrief] = {}
-    for brief in research_briefs:
-        hypothesis_id = brief.hypothesis_id
-        if hypothesis_id is not None:
-            research_briefs_by_hypothesis_id[hypothesis_id] = brief
     return LoadedSignalArbitrationInputs(
         company_id=resolved_company_id,
         signals=sorted(
@@ -100,7 +82,6 @@ def load_signal_arbitration_inputs(
             reverse=True,
         ),
         evidence_assessments_by_hypothesis_id=evidence_assessments_by_hypothesis_id,
-        research_briefs_by_hypothesis_id=research_briefs_by_hypothesis_id,
     )
 
 
@@ -161,12 +142,8 @@ def _apply_signal_cutoff(
     *,
     as_of_time: datetime | None,
 ) -> list[Signal]:
-    """Apply an optional point-in-time cutoff to persisted signals."""
+    """Apply a creation-time cutoff while leaving future-effective signals visible for explicit exclusion."""
 
     if as_of_time is None:
         return signals
-    return [
-        signal
-        for signal in signals
-        if signal.created_at <= as_of_time and signal.effective_at <= as_of_time
-    ]
+    return [signal for signal in signals if signal.created_at <= as_of_time]

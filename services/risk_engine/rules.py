@@ -66,7 +66,7 @@ def evaluate_portfolio_risk(
                 severity=Severity.MEDIUM,
                 blocking=False,
                 message=(
-                    "Signal arbitration context is missing. Portfolio review is using raw signals directly."
+                    "Signal arbitration context is missing. Portfolio review is using a temporary raw-signal fallback that remains review-bound."
                 ),
                 clock=clock,
                 workflow_run_id=workflow_run_id,

@@ -10,6 +10,7 @@ from libraries.schemas import (
     ArbitrationRule,
     DerivedArtifactValidationStatus,
     EvidenceGrade,
+    ExcludedSignal,
     FreshnessState,
     ProvenanceRecord,
     RankingExplanation,
@@ -17,6 +18,7 @@ from libraries.schemas import (
     SignalCalibration,
     SignalConflict,
     SignalConflictKind,
+    SignalExclusionReason,
     UncertaintyEstimate,
 )
 
@@ -92,6 +94,23 @@ def test_signal_bundle_requires_component_and_calibration_linkage() -> None:
         )
 
 
+def test_signal_bundle_allows_empty_calibrations_when_all_components_were_excluded() -> None:
+    bundle = SignalBundle(
+        signal_bundle_id="sbundle_test",
+        company_id="co_test",
+        component_signal_ids=["sig_a"],
+        signal_calibration_ids=[],
+        signal_conflict_ids=[],
+        arbitration_decision_id="adec_test",
+        bundle_summary="No eligible candidates remained after exclusions.",
+        provenance=_provenance(),
+        created_at=FIXED_NOW,
+        updated_at=FIXED_NOW,
+    )
+
+    assert bundle.signal_calibration_ids == []
+
+
 def test_arbitration_decision_selected_signal_must_be_ranked() -> None:
     with pytest.raises(ValidationError):
         ArbitrationDecision(
@@ -99,6 +118,7 @@ def test_arbitration_decision_selected_signal_must_be_ranked() -> None:
             company_id="co_test",
             candidate_signal_ids=["sig_a"],
             selected_primary_signal_id="sig_a",
+            excluded_signals=[],
             prioritized_signal_ids=[],
             suppressed_signal_ids=[],
             applied_rules=[_rule()],
@@ -110,6 +130,76 @@ def test_arbitration_decision_selected_signal_must_be_ranked() -> None:
             created_at=FIXED_NOW,
             updated_at=FIXED_NOW,
         )
+
+
+def test_arbitration_decision_rejects_excluded_candidate_overlap() -> None:
+    with pytest.raises(ValidationError):
+        ArbitrationDecision(
+            arbitration_decision_id="adec_test",
+            company_id="co_test",
+            candidate_signal_ids=["sig_a"],
+            selected_primary_signal_id=None,
+            excluded_signals=[
+                ExcludedSignal(
+                    signal_id="sig_a",
+                    reason=SignalExclusionReason.REJECTED,
+                    message="Rejected before ranking.",
+                )
+            ],
+            prioritized_signal_ids=["sig_a"],
+            suppressed_signal_ids=[],
+            applied_rules=[_rule()],
+            conflict_ids=[],
+            ranking_explanations=[
+                RankingExplanation(
+                    signal_id="sig_a",
+                    rank=1,
+                    rule_trace=["validation_status=validated"],
+                    warnings=[],
+                )
+            ],
+            review_required=True,
+            summary="Excluded/candidate overlap.",
+            provenance=_provenance(),
+            created_at=FIXED_NOW,
+            updated_at=FIXED_NOW,
+        )
+
+
+def test_arbitration_decision_allows_explanations_for_suppressed_candidates() -> None:
+    decision = ArbitrationDecision(
+        arbitration_decision_id="adec_test",
+        company_id="co_test",
+        candidate_signal_ids=["sig_a", "sig_b"],
+        selected_primary_signal_id="sig_a",
+        excluded_signals=[],
+        prioritized_signal_ids=["sig_a"],
+        suppressed_signal_ids=["sig_b"],
+        applied_rules=[_rule()],
+        conflict_ids=[],
+        ranking_explanations=[
+            RankingExplanation(
+                signal_id="sig_a",
+                rank=1,
+                rule_trace=["validation_status=validated"],
+                warnings=[],
+            ),
+            RankingExplanation(
+                signal_id="sig_b",
+                rank=2,
+                rule_trace=["validation_status=validated"],
+                warnings=[],
+                why_not_selected="Suppressed due to duplicate support with a higher-ranked signal.",
+            ),
+        ],
+        review_required=True,
+        summary="Selected sig_a after suppression.",
+        provenance=_provenance(),
+        created_at=FIXED_NOW,
+        updated_at=FIXED_NOW,
+    )
+
+    assert [row.signal_id for row in decision.ranking_explanations] == ["sig_a", "sig_b"]
 
 
 def _uncertainty_estimate() -> UncertaintyEstimate:

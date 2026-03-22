@@ -58,6 +58,7 @@ def test_candidate_signal_creates_300bps_position_and_review_bound_proposal(
     assert response.final_position_ideas[0].proposed_weight_bps == 300
     assert response.final_position_ideas[0].signal_bundle_id is not None
     assert response.final_position_ideas[0].arbitration_decision_id is not None
+    assert "arbitrated primary signal" in response.final_position_ideas[0].selection_reason
     assert response.final_portfolio_proposal.status.value == "pending_review"
     assert response.final_portfolio_proposal.signal_bundle_id is not None
     assert response.final_portfolio_proposal.arbitration_decision_id is not None
@@ -88,6 +89,8 @@ def test_approved_validated_signal_creates_500bps_position(tmp_path: Path) -> No
 
     assert len(response.position_ideas) == 1
     assert response.position_ideas[0].proposed_weight_bps == 500
+    assert "Selected from raw signal" in response.position_ideas[0].selection_reason
+    assert any("temporary raw-signal fallback" in note for note in response.notes)
 
 
 def test_monitor_signal_does_not_create_position_ideas(tmp_path: Path) -> None:
