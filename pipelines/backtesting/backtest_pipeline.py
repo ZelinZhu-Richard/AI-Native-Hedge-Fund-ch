@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from libraries.config import get_settings
+from libraries.core import (
+    resolve_artifact_workspace,
+    resolve_artifact_workspace_from_path,
+    resolve_artifact_workspace_from_stage_root,
+)
 from libraries.schemas import BacktestConfig
 from libraries.time import Clock, SystemClock
 from services.backtesting import (
@@ -30,16 +34,22 @@ def run_backtest_pipeline(
 ) -> RunBacktestWorkflowResponse:
     """Run the deterministic Day 6 exploratory backtesting pipeline."""
 
-    settings = get_settings()
-    resolved_artifact_root = settings.resolved_artifact_root
-    resolved_signal_root = signal_root or (resolved_artifact_root / "signal_generation")
-    resolved_signal_arbitration_root = signal_arbitration_root or (
-        resolved_signal_root.parent / "signal_arbitration"
-        if signal_root is not None
-        else (resolved_artifact_root / "signal_arbitration")
-    )
-    resolved_feature_root = feature_root or (resolved_artifact_root / "signal_generation")
-    resolved_output_root = output_root or (resolved_artifact_root / "backtesting")
+    if feature_root is not None:
+        workspace = resolve_artifact_workspace_from_stage_root(feature_root)
+    elif signal_root is not None:
+        workspace = resolve_artifact_workspace_from_stage_root(signal_root)
+    elif output_root is not None:
+        workspace = resolve_artifact_workspace_from_path(
+            output_root,
+            stage_directory_name="backtesting",
+        )
+    else:
+        workspace = resolve_artifact_workspace()
+    resolved_signal_root = signal_root or workspace.signal_root
+    resolved_signal_arbitration_root = signal_arbitration_root or workspace.signal_arbitration_root
+    resolved_feature_root = feature_root or workspace.signal_root
+    resolved_output_root = output_root or workspace.backtesting_root
+    resolved_experiment_root = experiment_root or workspace.experiments_root
     resolved_clock = clock or SystemClock()
 
     service = BacktestingService(clock=resolved_clock)
@@ -55,7 +65,7 @@ def run_backtest_pipeline(
             record_experiment=record_experiment,
             experiment_name=experiment_name,
             experiment_objective=experiment_objective,
-            experiment_root=experiment_root,
+            experiment_root=resolved_experiment_root,
             requested_by=requested_by,
         )
     )

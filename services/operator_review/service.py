@@ -5,8 +5,12 @@ from typing import TypeVar
 
 from pydantic import Field
 
-from libraries.config import get_settings
-from libraries.core import build_provenance
+from libraries.core import (
+    ArtifactWorkspace,
+    build_provenance,
+    resolve_artifact_workspace,
+    resolve_artifact_workspace_from_stage_root,
+)
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ActionRecommendationSummary,
@@ -397,11 +401,18 @@ class OperatorReviewService(BaseService):
             portfolio_root=request.portfolio_root,
             review_root=request.review_root,
             audit_root=request.audit_root,
+            portfolio_analysis_root=request.portfolio_analysis_root,
         )
-        portfolio_analysis_root = request.portfolio_analysis_root or (
-            request.portfolio_root.parent / "portfolio_analysis"
-            if request.portfolio_root is not None
-            else (get_settings().resolved_artifact_root / "portfolio_analysis")
+        artifact_workspace = self._resolve_workspace(
+            research_root=request.research_root,
+            signal_root=request.signal_root,
+            portfolio_root=request.portfolio_root,
+            review_root=request.review_root,
+            audit_root=request.audit_root,
+            portfolio_analysis_root=request.portfolio_analysis_root,
+        )
+        portfolio_analysis_root = (
+            request.portfolio_analysis_root or artifact_workspace.portfolio_analysis_root
         )
         if request.sync:
             self.sync_review_queue(
@@ -786,11 +797,13 @@ class OperatorReviewService(BaseService):
         """Create a review decision, update the target, and record audit state."""
 
         workflow_run_id = make_prefixed_id("reviewflow")
-        monitoring_root = (
-            request.review_root.parent / "monitoring"
-            if request.review_root is not None
-            else get_settings().resolved_artifact_root / "monitoring"
-        )
+        monitoring_root = self._resolve_workspace(
+            research_root=request.research_root,
+            signal_root=request.signal_root,
+            portfolio_root=request.portfolio_root,
+            review_root=request.review_root,
+            audit_root=request.audit_root,
+        ).monitoring_root
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(
@@ -1064,17 +1077,58 @@ class OperatorReviewService(BaseService):
         portfolio_root: Path | None,
         review_root: Path | None,
         audit_root: Path | None,
+        portfolio_analysis_root: Path | None = None,
     ) -> tuple[Path, Path, Path, Path, Path]:
         """Resolve artifact roots for operator review workflows."""
 
-        artifact_root = get_settings().resolved_artifact_root
-        return (
-            research_root or (artifact_root / "research"),
-            signal_root or (artifact_root / "signal_generation"),
-            portfolio_root or (artifact_root / "portfolio"),
-            review_root or (artifact_root / "review"),
-            audit_root or (artifact_root / "audit"),
+        workspace = self._resolve_workspace(
+            research_root=research_root,
+            signal_root=signal_root,
+            portfolio_root=portfolio_root,
+            review_root=review_root,
+            audit_root=audit_root,
+            portfolio_analysis_root=portfolio_analysis_root,
         )
+        return (
+            research_root or workspace.research_root,
+            signal_root or workspace.signal_root,
+            portfolio_root or workspace.portfolio_root,
+            review_root or workspace.review_root,
+            audit_root or workspace.audit_root,
+        )
+
+    def _resolve_workspace(
+        self,
+        *,
+        research_root: Path | None,
+        signal_root: Path | None,
+        portfolio_root: Path | None,
+        review_root: Path | None,
+        audit_root: Path | None,
+        portfolio_analysis_root: Path | None = None,
+    ) -> ArtifactWorkspace:
+        """Resolve one shared workspace and reject mismatched explicit review roots."""
+
+        explicit_roots = [
+            root
+            for root in (
+                research_root,
+                signal_root,
+                portfolio_root,
+                review_root,
+                audit_root,
+                portfolio_analysis_root,
+            )
+            if root is not None
+        ]
+        if not explicit_roots:
+            return resolve_artifact_workspace()
+        workspace_parents = {root.resolve().parent for root in explicit_roots}
+        if len(workspace_parents) != 1:
+            raise ValueError(
+                "Operator review roots must belong to the same artifact workspace when mixed explicit roots are supplied."
+            )
+        return resolve_artifact_workspace_from_stage_root(explicit_roots[0])
 
     def _iter_reviewable_targets(
         self,

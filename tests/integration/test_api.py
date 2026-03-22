@@ -81,7 +81,7 @@ def test_monitoring_api_endpoints_return_structured_outputs(
         get_settings.cache_clear()
 
 
-def test_capabilities_and_document_ingestion_placeholder() -> None:
+def test_capabilities_and_document_ingestion_endpoint() -> None:
     capabilities_response = client.get("/capabilities")
     ingest_response = client.post(
         "/documents/ingest",

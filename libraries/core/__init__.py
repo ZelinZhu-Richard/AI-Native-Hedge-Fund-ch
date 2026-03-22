@@ -11,6 +11,7 @@ from libraries.core.local_artifacts import (
     persist_local_model,
     persist_local_text,
     resolve_artifact_workspace,
+    resolve_artifact_workspace_from_path,
     resolve_artifact_workspace_from_stage_root,
 )
 from libraries.core.provenance import build_provenance
@@ -29,6 +30,7 @@ __all__ = [
     "load_stored_local_models",
     "persist_local_model",
     "persist_local_text",
+    "resolve_artifact_workspace_from_path",
     "resolve_artifact_workspace",
     "resolve_artifact_workspace_from_stage_root",
 ]

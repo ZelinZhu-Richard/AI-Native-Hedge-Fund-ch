@@ -146,6 +146,30 @@ def test_backtesting_experiment_config_is_stable_for_identical_runs(tmp_path: Pa
     assert first.experiment_config.experiment_config_id == second.experiment_config.experiment_config_id
 
 
+def test_backtest_pipeline_uses_custom_workspace_defaults_for_experiment_registry(
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "custom_workspace"
+    signal_root = _build_signal_artifacts(artifact_root=workspace_root)
+
+    response = run_backtest_pipeline(
+        signal_root=signal_root,
+        feature_root=signal_root,
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    assert response.experiment is not None
+    assert (workspace_root / "backtesting" / "runs").exists()
+    assert (
+        workspace_root
+        / "experiments"
+        / "experiments"
+        / f"{response.experiment.experiment_id}.json"
+    ).exists()
+
+
 def test_future_feature_availability_blocks_signal_use(tmp_path: Path) -> None:
     artifact_root = tmp_path / "artifacts"
     signal_root = _build_signal_artifacts(artifact_root=artifact_root)

@@ -5,7 +5,11 @@ from pathlib import Path
 
 from pydantic import Field
 
-from libraries.config import get_settings
+from libraries.core import (
+    ArtifactWorkspace,
+    resolve_artifact_workspace,
+    resolve_artifact_workspace_from_stage_root,
+)
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AlertRecord,
@@ -200,6 +204,10 @@ class RedTeamService(BaseService):
             "Day 13 red-team outputs are deterministic structural checks, not proof of production correctness.",
             "Adversarial scenarios execute against cloned in-memory artifacts only.",
         ]
+        if request.evaluation_root is not None:
+            notes.append(
+                "evaluation_root was supplied, but current red-team scenarios do not yet consume evaluation artifacts."
+            )
         cases: list[RedTeamCase] = []
         violations: list[GuardrailViolation] = []
         findings: list[SafetyFinding] = []
@@ -360,13 +368,13 @@ class RedTeamService(BaseService):
     def _load_workspace(self, request: RunRedTeamSuiteRequest) -> LoadedRedTeamWorkspace:
         """Load persisted artifacts needed by the deterministic red-team scenarios."""
 
-        settings = get_settings()
-        parsing_root = request.parsing_root or (settings.resolved_artifact_root / "parsing")
-        research_root = request.research_root or (settings.resolved_artifact_root / "research")
-        signal_root = request.signal_root or (settings.resolved_artifact_root / "signal_generation")
-        portfolio_root = request.portfolio_root or (settings.resolved_artifact_root / "portfolio")
-        review_root = request.review_root or (settings.resolved_artifact_root / "review")
-        experiment_root = request.experiment_root or (settings.resolved_artifact_root / "experiments")
+        workspace = self._resolve_workspace(request)
+        parsing_root = request.parsing_root or workspace.parsing_root
+        research_root = request.research_root or workspace.research_root
+        signal_root = request.signal_root or workspace.signal_root
+        portfolio_root = request.portfolio_root or workspace.portfolio_root
+        review_root = request.review_root or workspace.review_root
+        experiment_root = request.experiment_root or workspace.experiments_root
         return LoadedRedTeamWorkspace(
             research_briefs=load_models(
                 root=research_root, category="research_briefs", model_cls=ResearchBrief
@@ -396,11 +404,39 @@ class RedTeamService(BaseService):
     def _resolve_roots(self, request: RunRedTeamSuiteRequest) -> tuple[Path, Path, Path]:
         """Resolve red-team, monitoring, and audit roots for the suite run."""
 
-        settings = get_settings()
-        red_team_root = request.output_root or (settings.resolved_artifact_root / "red_team")
-        monitoring_root = request.monitoring_root or (settings.resolved_artifact_root / "monitoring")
-        audit_root = request.audit_root or (settings.resolved_artifact_root / "audit")
+        workspace = self._resolve_workspace(request)
+        red_team_root = request.output_root or workspace.red_team_root
+        monitoring_root = request.monitoring_root or workspace.monitoring_root
+        audit_root = request.audit_root or workspace.audit_root
         return red_team_root, monitoring_root, audit_root
+
+    def _resolve_workspace(self, request: RunRedTeamSuiteRequest) -> ArtifactWorkspace:
+        """Resolve one shared workspace and reject mismatched explicit red-team roots."""
+
+        explicit_roots = [
+            root
+            for root in (
+                request.parsing_root,
+                request.research_root,
+                request.signal_root,
+                request.portfolio_root,
+                request.review_root,
+                request.evaluation_root,
+                request.experiment_root,
+                request.output_root,
+                request.monitoring_root,
+                request.audit_root,
+            )
+            if root is not None
+        ]
+        if not explicit_roots:
+            return resolve_artifact_workspace()
+        workspace_parents = {root.resolve().parent for root in explicit_roots}
+        if len(workspace_parents) != 1:
+            raise ValueError(
+                "Red-team roots must belong to the same artifact workspace when mixed explicit roots are supplied."
+            )
+        return resolve_artifact_workspace_from_stage_root(explicit_roots[0])
 
     def _workflow_status(self, *, violations: list[GuardrailViolation]) -> WorkflowStatus:
         """Derive the monitoring status from guardrail violations."""

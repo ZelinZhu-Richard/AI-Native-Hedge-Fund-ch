@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import Field
 
 from libraries.config import get_settings
-from libraries.core import resolve_artifact_workspace_from_stage_root
+from libraries.core import resolve_artifact_workspace, resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
@@ -148,8 +148,9 @@ class FeatureStoreService(BaseService):
     def write_features(self, request: FeatureWriteRequest) -> FeatureWriteResponse:
         """Persist feature artifacts to the local Day 5 artifact root."""
 
+        workspace = resolve_artifact_workspace()
         store = LocalFeatureArtifactStore(
-            root=get_settings().resolved_artifact_root / "signal_generation",
+            root=workspace.signal_root,
             clock=self.clock,
         )
         for feature in request.features:
@@ -163,7 +164,7 @@ class FeatureStoreService(BaseService):
     def query_features(self, request: FeatureQueryRequest) -> FeatureQueryResponse:
         """Read persisted local candidate features subject to a point-in-time cutoff."""
 
-        feature_root = get_settings().resolved_artifact_root / "signal_generation" / "features"
+        feature_root = resolve_artifact_workspace().signal_root / "features"
         features = _load_features(feature_root)
         filtered = [
             feature

@@ -67,9 +67,9 @@ class PaperExecutionService(BaseService):
         notes: list[str] = []
         if proposal.status is not PortfolioProposalStatus.APPROVED:
             notes.append(
-                "Paper-trade candidates require an approved parent portfolio proposal. "
-                f"Proposal status `{proposal.status.value}` is not eligible."
+                "Portfolio proposal is not approved, so zero paper-trade candidates were created."
             )
+            notes.append(f"proposal_status={proposal.status.value}")
             return PaperTradeProposalResponse(
                 trade_batch_id=make_prefixed_id("tradebatch"),
                 proposed_trades=[],

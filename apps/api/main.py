@@ -152,7 +152,10 @@ service_registry = build_service_registry(clock=api_clock)
 app = FastAPI(
     title=settings.project_name,
     version=settings.app_version,
-    description="Control-plane API for the ANHF Week 1 research, evaluation, and paper-trading scaffold.",
+    description=(
+        "Inspection API for the local ANHF research operating system, including "
+        "artifact-backed review, monitoring, and paper-trading coordination surfaces."
+    ),
 )
 
 

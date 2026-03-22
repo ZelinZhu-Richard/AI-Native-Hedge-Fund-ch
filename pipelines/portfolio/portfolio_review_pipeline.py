@@ -264,7 +264,7 @@ def run_portfolio_review_pipeline(
         proposal_is_approved = final_portfolio_proposal.status is PortfolioProposalStatus.APPROVED
         if not proposal_is_approved and not paper_trade_response.proposed_trades:
             notes.append(
-                "Paper-trade creation was skipped because the portfolio proposal remains review-bound."
+                "Paper-trade creation stopped at the review gate because the portfolio proposal is not approved."
             )
         for paper_trade in paper_trade_response.proposed_trades:
             storage_locations.append(

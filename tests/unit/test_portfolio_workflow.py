@@ -75,7 +75,8 @@ def test_candidate_signal_creates_300bps_position_and_review_bound_proposal(
         == response.portfolio_workflow.stress_test_run.stress_test_run_id
     )
     assert response.paper_trades == []
-    assert any("approved parent portfolio proposal" in note for note in response.notes)
+    assert any("zero paper-trade candidates were created" in note for note in response.notes)
+    assert any("proposal_status=pending_review" in note for note in response.notes)
     assert any("not replay-safe" in note for note in response.portfolio_workflow.notes)
     assert any("portfolio_analysis" in location.uri for location in response.storage_locations)
     assert {

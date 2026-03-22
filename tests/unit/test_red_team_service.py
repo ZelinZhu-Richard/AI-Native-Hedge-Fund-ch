@@ -183,6 +183,40 @@ def test_red_team_service_persists_outputs_and_monitoring(tmp_path: Path) -> Non
     assert run_summaries[-1].produced_artifact_counts["cases"] == len(response.red_team_cases)
 
 
+def test_red_team_service_infers_workspace_from_output_root(tmp_path: Path) -> None:
+    artifact_root = tmp_path / "artifacts"
+    _persist_workspace(_workspace(), artifact_root=artifact_root)
+
+    response = RedTeamService(clock=FrozenClock(FIXED_NOW)).run_red_team_suite(
+        RunRedTeamSuiteRequest(
+            output_root=artifact_root / "red_team",
+            requested_by="unit_test",
+        )
+    )
+
+    assert response.red_team_cases
+    assert response.run_summary is not None
+    assert (artifact_root / "monitoring" / "run_summaries").exists()
+    assert (artifact_root / "audit" / "audit_logs").exists()
+
+
+def test_red_team_service_rejects_mismatched_explicit_workspace_roots(tmp_path: Path) -> None:
+    service = RedTeamService(clock=FrozenClock(FIXED_NOW))
+
+    try:
+        service.run_red_team_suite(
+            RunRedTeamSuiteRequest(
+                parsing_root=tmp_path / "workspace_one" / "parsing",
+                output_root=tmp_path / "workspace_two" / "red_team",
+                requested_by="unit_test",
+            )
+        )
+    except ValueError as exc:
+        assert "same artifact workspace" in str(exc)
+    else:
+        raise AssertionError("Expected mismatched explicit red-team roots to be rejected.")
+
+
 def _workspace() -> LoadedRedTeamWorkspace:
     return LoadedRedTeamWorkspace(
         research_briefs=[_research_brief()],

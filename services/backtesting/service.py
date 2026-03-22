@@ -9,7 +9,10 @@ from typing import Protocol, cast
 from pydantic import Field
 
 from libraries.config import get_settings
-from libraries.core import build_provenance
+from libraries.core import (
+    build_provenance,
+    resolve_artifact_workspace_from_stage_root,
+)
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationConfig,
@@ -365,10 +368,11 @@ class BacktestingService(BaseService):
             workflow_run_id=backtest_run_id,
             backtest_run_id=backtest_run_id,
         )
-        output_root = request.output_root or (get_settings().resolved_artifact_root / "backtesting")
-        experiment_root = request.experiment_root or (output_root.parent / "experiments")
-        audit_root = output_root.parent / "audit"
-        timing_root = output_root.parent / "timing"
+        workspace = resolve_artifact_workspace_from_stage_root(request.feature_root)
+        output_root = request.output_root or workspace.backtesting_root
+        experiment_root = request.experiment_root or workspace.experiments_root
+        audit_root = workspace.audit_root
+        timing_root = workspace.timing_root
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
         experiment: Experiment | None = None
@@ -656,11 +660,12 @@ class BacktestingService(BaseService):
         """Execute the deterministic Day 9 baseline and ablation workflow."""
 
         ablation_run_id = make_prefixed_id("ablation")
-        output_root = request.output_root or (get_settings().resolved_artifact_root / "ablation")
-        experiment_root = request.experiment_root or (output_root.parent / "experiments")
-        evaluation_root = request.evaluation_root or (output_root.parent / "evaluation")
-        audit_root = output_root.parent / "audit"
-        monitoring_root = output_root.parent / "monitoring"
+        workspace = resolve_artifact_workspace_from_stage_root(request.feature_root)
+        output_root = request.output_root or workspace.ablation_root
+        experiment_root = request.experiment_root or workspace.experiments_root
+        evaluation_root = request.evaluation_root or workspace.evaluation_root
+        audit_root = workspace.audit_root
+        monitoring_root = workspace.monitoring_root
         monitoring_service = MonitoringService(clock=self.clock)
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(

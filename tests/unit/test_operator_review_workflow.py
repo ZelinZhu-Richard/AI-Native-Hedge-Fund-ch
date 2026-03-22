@@ -233,6 +233,43 @@ def test_operator_review_blocks_unvalidated_signal_approval(tmp_path: Path) -> N
         raise AssertionError("Expected unvalidated signal approval to be blocked.")
 
 
+def test_operator_review_infers_workspace_from_review_root_for_context(tmp_path: Path) -> None:
+    artifact_root = _build_full_stack(artifact_root=tmp_path / "artifacts")
+    service = OperatorReviewService(clock=FrozenClock(FIXED_NOW))
+    proposal = _load_single_model(
+        artifact_root / "portfolio" / "portfolio_proposals",
+        PortfolioProposal,
+    )
+
+    context = service.get_review_context(
+        GetReviewContextRequest(
+            target_type=ReviewTargetType.PORTFOLIO_PROPOSAL,
+            target_id=proposal.portfolio_proposal_id,
+            review_root=artifact_root / "review",
+        )
+    )
+
+    assert context.portfolio_proposal is not None
+    assert context.portfolio_attribution is not None
+    assert context.stress_test_results
+
+
+def test_operator_review_rejects_mismatched_explicit_workspace_roots(tmp_path: Path) -> None:
+    service = OperatorReviewService(clock=FrozenClock(FIXED_NOW))
+
+    try:
+        service.sync_review_queue(
+            SyncReviewQueueRequest(
+                research_root=tmp_path / "workspace_one" / "research",
+                review_root=tmp_path / "workspace_two" / "review",
+            )
+        )
+    except ValueError as exc:
+        assert "same artifact workspace" in str(exc)
+    else:
+        raise AssertionError("Expected mismatched explicit review roots to be rejected.")
+
+
 def test_operator_review_allows_validated_signal_approval_and_paper_trade_escalation(
     tmp_path: Path,
 ) -> None:

@@ -49,6 +49,7 @@ class ArtifactWorkspace:
     timing_root: Path
     entity_resolution_root: Path
     orchestration_root: Path
+    red_team_root: Path
 
 
 def resolve_artifact_workspace(*, workspace_root: Path | None = None) -> ArtifactWorkspace:
@@ -74,6 +75,7 @@ def resolve_artifact_workspace(*, workspace_root: Path | None = None) -> Artifac
         timing_root=resolved_root / "timing",
         entity_resolution_root=resolved_root / "entity_resolution",
         orchestration_root=resolved_root / "orchestration",
+        red_team_root=resolved_root / "red_team",
     )
 
 
@@ -81,6 +83,22 @@ def resolve_artifact_workspace_from_stage_root(stage_root: Path) -> ArtifactWork
     """Resolve sibling artifact roots from one stage-specific artifact root."""
 
     return resolve_artifact_workspace(workspace_root=stage_root.resolve().parent)
+
+
+def resolve_artifact_workspace_from_path(
+    stage_path: Path,
+    *,
+    stage_directory_name: str,
+) -> ArtifactWorkspace:
+    """Resolve a workspace from a path nested under one known stage directory."""
+
+    resolved_path = stage_path.resolve()
+    for candidate in (resolved_path, *resolved_path.parents):
+        if candidate.name == stage_directory_name:
+            return resolve_artifact_workspace_from_stage_root(candidate)
+    raise ValueError(
+        f"Stage path `{stage_path}` does not live under a `{stage_directory_name}` artifact directory."
+    )
 
 
 def ensure_directory_exists(path: Path, *, label: str) -> Path:
