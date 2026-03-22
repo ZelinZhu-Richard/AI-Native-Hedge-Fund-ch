@@ -67,6 +67,7 @@ class WorkflowRoots:
     review_root: Path
     audit_root: Path
     monitoring_root: Path
+    data_quality_root: Path
     orchestration_root: Path
     backtesting_root: Path
 
@@ -326,26 +327,46 @@ def execute_paper_trade_candidate_generation(state: DailyWorkflowState) -> StepE
             portfolio_proposal=proposal,
             assumed_reference_prices=context.assumed_reference_prices,
             requested_by=context.requested_by,
-        )
+        ),
+        output_root=context.roots.data_quality_root,
     )
     state.outputs.paper_trade_candidate_generation = response
     if response.proposed_trades:
         return StepExecutionOutcome(
             status=WorkflowStatus.SUCCEEDED,
             notes=list(response.notes),
-            produced_artifact_ids=[trade.paper_trade_id for trade in response.proposed_trades],
+            produced_artifact_ids=[
+                *[trade.paper_trade_id for trade in response.proposed_trades],
+                *(
+                    [response.validation_gate.validation_gate_id]
+                    if response.validation_gate is not None
+                    else []
+                ),
+            ],
         )
     return StepExecutionOutcome(
         status=WorkflowStatus.ATTENTION_REQUIRED,
         notes=[
             *response.notes,
+            *(
+                [f"validation_gate_id={response.validation_gate.validation_gate_id}"]
+                if response.validation_gate is not None
+                else []
+            ),
             "Paper-trade candidate generation stopped intentionally at the review gate.",
         ],
         manual_intervention_requirement=ManualInterventionRequirement(
             gate_reason="Portfolio proposal requires explicit human approval before paper-trade creation.",
             blocking=True,
             required_role="portfolio_reviewer",
-            related_artifact_ids=[proposal.portfolio_proposal_id],
+            related_artifact_ids=[
+                proposal.portfolio_proposal_id,
+                *(
+                    [response.validation_gate.validation_gate_id]
+                    if response.validation_gate is not None
+                    else []
+                ),
+            ],
             operator_instructions=[
                 "Review the portfolio proposal, attribution, stress results, and risk checks.",
                 "Apply an explicit portfolio review decision before requesting paper-trade candidates again.",
@@ -416,6 +437,7 @@ def build_workflow_roots(*, artifact_root: Path) -> WorkflowRoots:
         review_root=workspace.review_root,
         audit_root=workspace.audit_root,
         monitoring_root=workspace.monitoring_root,
+        data_quality_root=workspace.data_quality_root,
         orchestration_root=workspace.orchestration_root,
         backtesting_root=workspace.backtesting_root,
     )

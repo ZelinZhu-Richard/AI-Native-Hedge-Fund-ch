@@ -13,10 +13,14 @@ from libraries.schemas import (
     DataLayer,
     DocumentEvidenceBundle,
     PipelineEventType,
+    QualityDecision,
+    RefusalReason,
     StrictModel,
+    ValidationGate,
     WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
+from services.data_quality import DataQualityRefusalError, DataQualityService
 from services.entity_resolution import (
     EntityResolutionService,
     ResolveEntityWorkspaceRequest,
@@ -74,6 +78,18 @@ class ExtractDocumentEvidenceResponse(DocumentEvidenceBundle):
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Artifact storage locations written by the parsing flow.",
+    )
+    validation_gate: ValidationGate | None = Field(
+        default=None,
+        description="Data-quality gate recorded for parsing output when validation ran.",
+    )
+    quality_decision: QualityDecision | None = Field(
+        default=None,
+        description="Overall decision emitted by the parsing data-quality gate.",
+    )
+    refusal_reason: RefusalReason | None = Field(
+        default=None,
+        description="Primary refusal reason when parsing input or output was blocked.",
     )
 
 
@@ -141,7 +157,9 @@ class ParsingService(BaseService):
             output_root = workspace.parsing_root
         monitoring_root = workspace.monitoring_root
         timing_root = workspace.timing_root
+        quality_root = workspace.data_quality_root
         monitoring_service = MonitoringService(clock=self.clock)
+        quality_service = DataQualityService(clock=self.clock)
         start_event = monitoring_service.record_pipeline_event(
             RecordPipelineEventRequest(
                 workflow_name="evidence_extraction",
@@ -155,12 +173,21 @@ class ParsingService(BaseService):
             ),
             output_root=monitoring_root,
         )
+        storage_locations: list[ArtifactStorageLocation] = []
         try:
             inputs = load_parsing_inputs(
                 document_path=request.document_path,
                 source_reference_path=request.source_reference_path,
                 raw_payload_path=request.raw_payload_path,
             )
+            input_validation = quality_service.validate_parsing_inputs(
+                document=inputs.document,
+                source_reference=inputs.source_reference,
+                workflow_run_id=extraction_run_id,
+                requested_by=request.requested_by,
+                output_root=quality_root,
+            )
+            storage_locations.extend(input_validation.storage_locations)
             parsed_document_text = build_parsed_document_text(
                 inputs=inputs,
                 clock=self.clock,
@@ -196,9 +223,16 @@ class ParsingService(BaseService):
                     "timing_anomalies": timing_anomalies,
                 }
             )
+            output_validation = quality_service.validate_evidence_bundle(
+                bundle=bundle,
+                workflow_run_id=extraction_run_id,
+                requested_by=request.requested_by,
+                output_root=quality_root,
+            )
+            storage_locations.extend(output_validation.storage_locations)
 
             store = LocalParsingArtifactStore(root=output_root, clock=self.clock)
-            storage_locations = self._persist_bundle(store=store, bundle=bundle)
+            storage_locations.extend(self._persist_bundle(store=store, bundle=bundle))
             if bundle.timing_anomalies:
                 timing_response = timing_service.persist_anomalies(
                     anomalies=bundle.timing_anomalies,
@@ -236,6 +270,9 @@ class ParsingService(BaseService):
                 tone_markers=bundle.tone_markers,
                 evaluation=bundle.evaluation,
                 timing_anomalies=bundle.timing_anomalies,
+                validation_gate=output_validation.validation_gate,
+                quality_decision=output_validation.validation_gate.decision,
+                refusal_reason=output_validation.validation_gate.refusal_reason,
             )
             completed_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
@@ -295,6 +332,70 @@ class ParsingService(BaseService):
                 output_root=monitoring_root,
             )
             return response
+        except DataQualityRefusalError as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="evidence_extraction",
+                    workflow_run_id=extraction_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=(
+                        f"Evidence extraction failed quality validation for "
+                        f"`{request.document_path.name}`: {exc}"
+                    ),
+                    related_artifact_ids=[
+                        str(request.document_path),
+                        exc.result.validation_gate.validation_gate_id,
+                        *[
+                            location.artifact_id
+                            for location in [*storage_locations, *exc.storage_locations]
+                        ],
+                    ],
+                    notes=[
+                        f"requested_by={request.requested_by}",
+                        f"quality_decision={exc.result.validation_gate.decision.value}",
+                        (
+                            "refusal_reason="
+                            f"{exc.result.validation_gate.refusal_reason.value}"
+                            if exc.result.validation_gate.refusal_reason is not None
+                            else "refusal_reason=none"
+                        ),
+                    ],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="evidence_extraction",
+                    workflow_run_id=extraction_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[*storage_locations, *exc.storage_locations],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[
+                        *monitoring_notes,
+                        f"validation_gate_id={exc.result.validation_gate.validation_gate_id}",
+                        f"quality_decision={exc.result.validation_gate.decision.value}",
+                        (
+                            "refusal_reason="
+                            f"{exc.result.validation_gate.refusal_reason.value}"
+                            if exc.result.validation_gate.refusal_reason is not None
+                            else "refusal_reason=none"
+                        ),
+                    ],
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
         except Exception as exc:
             failed_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
@@ -320,7 +421,7 @@ class ParsingService(BaseService):
                     status=WorkflowStatus.FAILED,
                     started_at=started_at,
                     completed_at=self.clock.now(),
-                    storage_locations=[],
+                    storage_locations=storage_locations,
                     pipeline_event_ids=[
                         start_event.pipeline_event.pipeline_event_id,
                         failed_event.pipeline_event.pipeline_event_id,

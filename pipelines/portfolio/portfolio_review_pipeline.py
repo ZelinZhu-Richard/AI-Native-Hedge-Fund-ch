@@ -18,6 +18,7 @@ from libraries.schemas import (
     PortfolioProposalStatus,
     PositionAttribution,
     PositionIdea,
+    QualityDecision,
     ReviewDecision,
     ReviewOutcome,
     ReviewTargetType,
@@ -34,6 +35,7 @@ from libraries.utils import (
     make_prefixed_id,
 )
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.data_quality import DataQualityRefusalError
 from services.monitoring import (
     MonitoringService,
     RecordPipelineEventRequest,
@@ -258,9 +260,23 @@ def run_portfolio_review_pipeline(
                 portfolio_proposal=final_portfolio_proposal,
                 assumed_reference_prices=resolved_assumed_prices,
                 requested_by=requested_by,
-            )
+            ),
+            output_root=workspace.data_quality_root,
         )
+        storage_locations.extend(paper_trade_response.storage_locations)
         notes.extend(paper_trade_response.notes)
+        if paper_trade_response.validation_gate is not None:
+            notes.append(
+                f"paper_trade_validation_gate_id={paper_trade_response.validation_gate.validation_gate_id}"
+            )
+            notes.append(
+                f"paper_trade_quality_decision={paper_trade_response.validation_gate.decision.value}"
+            )
+            if paper_trade_response.validation_gate.refusal_reason is not None:
+                notes.append(
+                    "paper_trade_refusal_reason="
+                    f"{paper_trade_response.validation_gate.refusal_reason.value}"
+                )
         proposal_is_approved = final_portfolio_proposal.status is PortfolioProposalStatus.APPROVED
         if not proposal_is_approved and not paper_trade_response.proposed_trades:
             notes.append(
@@ -291,6 +307,11 @@ def run_portfolio_review_pipeline(
                     related_artifact_ids=[
                         *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
                         final_portfolio_proposal.portfolio_proposal_id,
+                        *(
+                            [paper_trade_response.validation_gate.validation_gate_id]
+                            if paper_trade_response.validation_gate is not None
+                            else []
+                        ),
                     ],
                     notes=paper_trade_response.notes,
                 ),
@@ -326,6 +347,11 @@ def run_portfolio_review_pipeline(
                     *[check.risk_check_id for check in final_portfolio_proposal.risk_checks],
                     *([review_decision.review_decision_id] if review_decision is not None else []),
                     *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
+                    *(
+                        [paper_trade_response.validation_gate.validation_gate_id]
+                        if paper_trade_response.validation_gate is not None
+                        else []
+                    ),
                 ],
                 notes=notes,
             ),
@@ -345,6 +371,11 @@ def run_portfolio_review_pipeline(
                     *[idea.position_idea_id for idea in final_position_ideas],
                     *[check.risk_check_id for check in final_portfolio_proposal.risk_checks],
                     *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
+                    *(
+                        [paper_trade_response.validation_gate.validation_gate_id]
+                        if paper_trade_response.validation_gate is not None
+                        else []
+                    ),
                 ],
                 notes=[f"requested_by={requested_by}"],
             ),
@@ -356,8 +387,14 @@ def run_portfolio_review_pipeline(
         ]
         summary_status = WorkflowStatus.SUCCEEDED
         attention_reasons: list[str] = []
+        paper_trade_blocked = (
+            paper_trade_response.quality_decision
+            in {QualityDecision.REFUSE, QualityDecision.QUARANTINE}
+            if paper_trade_response.quality_decision is not None
+            else False
+        )
         requires_attention = bool(final_portfolio_proposal.blocking_issues) or (
-            proposal_is_approved and not paper_trade_response.proposed_trades
+            not paper_trade_response.proposed_trades
         )
         if requires_attention:
             attention_event = monitoring_service.record_pipeline_event(
@@ -370,9 +407,18 @@ def run_portfolio_review_pipeline(
                     message=(
                         final_portfolio_proposal.blocking_issues[0]
                         if final_portfolio_proposal.blocking_issues
+                        else paper_trade_response.notes[0]
+                        if paper_trade_response.notes
                         else "Approved portfolio proposal produced no paper-trade candidates."
                     ),
-                    related_artifact_ids=[final_portfolio_proposal.portfolio_proposal_id],
+                    related_artifact_ids=[
+                        final_portfolio_proposal.portfolio_proposal_id,
+                        *(
+                            [paper_trade_response.validation_gate.validation_gate_id]
+                            if paper_trade_response.validation_gate is not None
+                            else []
+                        ),
+                    ],
                     notes=[f"requested_by={requested_by}"],
                 ),
                 output_root=monitoring_root,
@@ -380,6 +426,10 @@ def run_portfolio_review_pipeline(
             pipeline_event_ids.append(attention_event.pipeline_event.pipeline_event_id)
             summary_status = WorkflowStatus.ATTENTION_REQUIRED
             attention_reasons.extend(final_portfolio_proposal.blocking_issues)
+            if not proposal_is_approved and not paper_trade_response.proposed_trades:
+                attention_reasons.append("proposal_not_approved_for_paper_trade")
+            if paper_trade_blocked:
+                attention_reasons.append("paper_trade_quality_refusal")
             if proposal_is_approved and not paper_trade_response.proposed_trades:
                 attention_reasons.append("no_paper_trade_candidates")
         monitoring_service.record_run_summary(
@@ -399,6 +449,11 @@ def run_portfolio_review_pipeline(
                     *[check.risk_check_id for check in final_portfolio_proposal.risk_checks],
                     *([review_decision.review_decision_id] if review_decision is not None else []),
                     *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
+                    *(
+                        [paper_trade_response.validation_gate.validation_gate_id]
+                        if paper_trade_response.validation_gate is not None
+                        else []
+                    ),
                 ],
                 pipeline_event_ids=pipeline_event_ids,
                 attention_reasons=attention_reasons,
@@ -422,6 +477,60 @@ def run_portfolio_review_pipeline(
             storage_locations=storage_locations,
             notes=notes,
         )
+    except DataQualityRefusalError as exc:
+        failed_event = monitoring_service.record_pipeline_event(
+            RecordPipelineEventRequest(
+                workflow_name="portfolio_review_pipeline",
+                workflow_run_id=portfolio_review_pipeline_run_id,
+                service_name="portfolio",
+                event_type=PipelineEventType.RUN_FAILED,
+                status=WorkflowStatus.FAILED,
+                message=f"Portfolio review pipeline failed quality validation: {exc}",
+                related_artifact_ids=[exc.result.validation_gate.validation_gate_id],
+                notes=[
+                    f"requested_by={requested_by}",
+                    f"quality_decision={exc.result.validation_gate.decision.value}",
+                    (
+                        "refusal_reason="
+                        f"{exc.result.validation_gate.refusal_reason.value}"
+                        if exc.result.validation_gate.refusal_reason is not None
+                        else "refusal_reason=none"
+                    ),
+                ],
+            ),
+            output_root=monitoring_root,
+        )
+        monitoring_service.record_run_summary(
+            RecordRunSummaryRequest(
+                workflow_name="portfolio_review_pipeline",
+                workflow_run_id=portfolio_review_pipeline_run_id,
+                service_name="portfolio",
+                requested_by=requested_by,
+                status=WorkflowStatus.FAILED,
+                started_at=started_at,
+                completed_at=resolved_clock.now(),
+                storage_locations=exc.storage_locations,
+                pipeline_event_ids=[
+                    start_event.pipeline_event.pipeline_event_id,
+                    failed_event.pipeline_event.pipeline_event_id,
+                ],
+                failure_messages=[str(exc)],
+                notes=[
+                    f"requested_by={requested_by}",
+                    f"validation_gate_id={exc.result.validation_gate.validation_gate_id}",
+                    f"quality_decision={exc.result.validation_gate.decision.value}",
+                    (
+                        "refusal_reason="
+                        f"{exc.result.validation_gate.refusal_reason.value}"
+                        if exc.result.validation_gate.refusal_reason is not None
+                        else "refusal_reason=none"
+                    ),
+                ],
+                outputs_expected=True,
+            ),
+            output_root=monitoring_root,
+        )
+        raise
     except Exception as exc:
         failed_event = monitoring_service.record_pipeline_event(
             RecordPipelineEventRequest(

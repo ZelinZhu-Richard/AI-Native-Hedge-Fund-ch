@@ -2022,6 +2022,7 @@ def _artifact_id(artifact: StrictModel) -> str:
         "research_brief_id",
         "evidence_assessment_id",
         "feature_id",
+        "signal_score_id",
         "signal_id",
         "strategy_variant_signal_id",
         "strategy_variant_id",
@@ -2033,8 +2034,17 @@ def _artifact_id(artifact: StrictModel) -> str:
         "dataset_reference_id",
         "experiment_id",
         "portfolio_proposal_id",
+        "position_idea_id",
+        "paper_trade_id",
+        "review_decision_id",
         "risk_check_id",
     ):
+        value = getattr(artifact, field_name, None)
+        if value:
+            return cast(str, value)
+    for field_name in getattr(type(artifact), "model_fields", {}):
+        if not field_name.endswith("_id"):
+            continue
         value = getattr(artifact, field_name, None)
         if value:
             return cast(str, value)

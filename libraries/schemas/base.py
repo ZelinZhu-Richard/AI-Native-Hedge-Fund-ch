@@ -19,7 +19,7 @@ def _assert_timezone_aware(value: Any, *, field_name: str) -> None:
         for nested_value in value.values():
             _assert_timezone_aware(nested_value, field_name=field_name)
         return
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
         for nested_value in value:
             _assert_timezone_aware(nested_value, field_name=field_name)
 

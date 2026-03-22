@@ -6,7 +6,11 @@ from typing import Protocol, cast
 from pydantic import Field
 
 from libraries.config import get_settings
-from libraries.core import build_provenance
+from libraries.core import (
+    build_provenance,
+    resolve_artifact_workspace,
+    resolve_artifact_workspace_from_stage_root,
+)
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
@@ -19,12 +23,16 @@ from libraries.schemas import (
     ExperimentMetric,
     ExperimentStatus,
     ModelReference,
+    QualityDecision,
+    RefusalReason,
     RunContext,
     SourceVersion,
     StrictModel,
+    ValidationGate,
 )
 from libraries.schemas.base import ProvenanceRecord
 from libraries.utils import make_prefixed_id
+from services.data_quality import DataQualityService
 from services.experiment_registry.storage import LocalExperimentRegistryArtifactStore
 
 
@@ -100,6 +108,18 @@ class BeginExperimentResponse(StrictModel):
         default_factory=list,
         description="Storage locations written while beginning the experiment.",
     )
+    validation_gate: ValidationGate | None = Field(
+        default=None,
+        description="Data-quality gate recorded for experiment metadata when validation ran.",
+    )
+    quality_decision: QualityDecision | None = Field(
+        default=None,
+        description="Overall decision emitted by the experiment metadata validation gate.",
+    )
+    refusal_reason: RefusalReason | None = Field(
+        default=None,
+        description="Primary refusal reason when experiment creation was blocked.",
+    )
 
 
 class FinalizeExperimentRequest(StrictModel):
@@ -167,16 +187,29 @@ class ExperimentRegistryService(BaseService):
     ) -> BeginExperimentResponse:
         """Create and persist a running experiment record plus its reproducibility metadata."""
 
-        if not request.dataset_references:
-            raise ValueError("begin_experiment requires at least one dataset reference.")
+        experiments_root = output_root or (get_settings().resolved_artifact_root / "experiments")
+        workspace = (
+            resolve_artifact_workspace_from_stage_root(experiments_root)
+            if output_root is not None
+            else resolve_artifact_workspace(workspace_root=get_settings().resolved_artifact_root)
+        )
+        validation_result = DataQualityService(clock=self.clock).validate_experiment_metadata(
+            experiment_name=request.name,
+            created_by=request.created_by,
+            experiment_config=request.experiment_config,
+            dataset_references=request.dataset_references,
+            workflow_run_id=request.run_context.workflow_run_id,
+            requested_by=request.created_by,
+            output_root=workspace.data_quality_root,
+        )
 
         store = LocalExperimentRegistryArtifactStore(
-            root=output_root or (get_settings().resolved_artifact_root / "experiments"),
+            root=experiments_root,
             clock=self.clock,
         )
         experiment_id = make_prefixed_id("exp")
         now = self.clock.now()
-        storage_locations: list[ArtifactStorageLocation] = []
+        storage_locations: list[ArtifactStorageLocation] = list(validation_result.storage_locations)
 
         storage_locations.append(
             self._persist_model(
@@ -314,6 +347,9 @@ class ExperimentRegistryService(BaseService):
             dataset_references=request.dataset_references,
             model_references=request.model_references,
             storage_locations=storage_locations,
+            validation_gate=validation_result.validation_gate,
+            quality_decision=validation_result.validation_gate.decision,
+            refusal_reason=validation_result.validation_gate.refusal_reason,
         )
 
     def finalize_experiment(

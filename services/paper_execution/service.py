@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field
 
 from libraries.core import build_provenance
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
+    ArtifactStorageLocation,
     PaperTrade,
     PaperTradeStatus,
     PortfolioProposal,
     PortfolioProposalStatus,
     PositionSide,
+    QualityDecision,
+    RefusalReason,
     StrictModel,
+    ValidationGate,
 )
 from libraries.utils import make_canonical_id, make_prefixed_id
+from services.data_quality import DataQualityService
 
 
 class PaperTradeProposalRequest(StrictModel):
@@ -41,6 +48,22 @@ class PaperTradeProposalResponse(StrictModel):
         default_factory=list,
         description="Operational notes describing skipped work or gating conditions.",
     )
+    validation_gate: ValidationGate | None = Field(
+        default=None,
+        description="Data-quality gate recorded for paper-trade request or output validation.",
+    )
+    quality_decision: QualityDecision | None = Field(
+        default=None,
+        description="Overall decision emitted by the current paper-trade validation gate.",
+    )
+    refusal_reason: RefusalReason | None = Field(
+        default=None,
+        description="Primary refusal reason when paper-trade creation was blocked.",
+    )
+    storage_locations: list[ArtifactStorageLocation] = Field(
+        default_factory=list,
+        description="Data-quality artifact storage locations written while validating paper-trade creation.",
+    )
 
 
 class PaperExecutionService(BaseService):
@@ -60,29 +83,53 @@ class PaperExecutionService(BaseService):
             api_routes=["GET /paper-trades/proposals"],
         )
 
-    def propose_trades(self, request: PaperTradeProposalRequest) -> PaperTradeProposalResponse:
+    def propose_trades(
+        self,
+        request: PaperTradeProposalRequest,
+        *,
+        output_root: Path | None = None,
+    ) -> PaperTradeProposalResponse:
         """Create Day 7 paper-trade candidates from an approved proposal."""
 
         proposal = request.portfolio_proposal
         notes: list[str] = []
+        quality_service = DataQualityService(clock=self.clock)
+        trade_batch_id = make_prefixed_id("tradebatch")
+        pre_validation = quality_service.validate_paper_trade_request(
+            portfolio_proposal=proposal,
+            proposed_trades=None,
+            workflow_run_id=trade_batch_id,
+            requested_by=request.requested_by,
+            output_root=output_root,
+            raise_on_failure=False,
+        )
+        storage_locations = list(pre_validation.storage_locations)
         if proposal.status is not PortfolioProposalStatus.APPROVED:
             notes.append(
                 "Portfolio proposal is not approved, so zero paper-trade candidates were created."
             )
             notes.append(f"proposal_status={proposal.status.value}")
             return PaperTradeProposalResponse(
-                trade_batch_id=make_prefixed_id("tradebatch"),
+                trade_batch_id=trade_batch_id,
                 proposed_trades=[],
                 review_required=True,
                 notes=notes,
+                validation_gate=pre_validation.validation_gate,
+                quality_decision=pre_validation.validation_gate.decision,
+                refusal_reason=pre_validation.validation_gate.refusal_reason,
+                storage_locations=storage_locations,
             )
         if proposal.blocking_issues or any(check.blocking for check in proposal.risk_checks):
             notes.append("Proposal has blocking risk checks and cannot create paper trades.")
             return PaperTradeProposalResponse(
-                trade_batch_id=make_prefixed_id("tradebatch"),
+                trade_batch_id=trade_batch_id,
                 proposed_trades=[],
                 review_required=True,
                 notes=notes,
+                validation_gate=pre_validation.validation_gate,
+                quality_decision=pre_validation.validation_gate.decision,
+                refusal_reason=pre_validation.validation_gate.refusal_reason,
+                storage_locations=storage_locations,
             )
 
         now = self.clock.now()
@@ -150,9 +197,39 @@ class PaperExecutionService(BaseService):
             )
         if not trades:
             notes.append("No directional position ideas were eligible for paper-trade creation.")
+        post_validation = quality_service.validate_paper_trade_request(
+            portfolio_proposal=proposal,
+            proposed_trades=trades,
+            workflow_run_id=trade_batch_id,
+            requested_by=request.requested_by,
+            output_root=output_root,
+            raise_on_failure=False,
+        )
+        storage_locations.extend(post_validation.storage_locations)
+        if post_validation.validation_gate.decision in {
+            QualityDecision.REFUSE,
+            QualityDecision.QUARANTINE,
+        }:
+            notes.append(
+                "Generated paper-trade candidates were blocked by data-quality validation and were not returned."
+            )
+            return PaperTradeProposalResponse(
+                trade_batch_id=trade_batch_id,
+                proposed_trades=[],
+                review_required=True,
+                notes=notes,
+                validation_gate=post_validation.validation_gate,
+                quality_decision=post_validation.validation_gate.decision,
+                refusal_reason=post_validation.validation_gate.refusal_reason,
+                storage_locations=storage_locations,
+            )
         return PaperTradeProposalResponse(
-            trade_batch_id=make_prefixed_id("tradebatch"),
+            trade_batch_id=trade_batch_id,
             proposed_trades=trades,
             review_required=True,
             notes=notes,
+            validation_gate=post_validation.validation_gate,
+            quality_decision=post_validation.validation_gate.decision,
+            refusal_reason=post_validation.validation_gate.refusal_reason,
+            storage_locations=storage_locations,
         )

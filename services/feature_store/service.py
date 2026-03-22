@@ -16,12 +16,16 @@ from libraries.schemas import (
     FeatureDefinition,
     FeatureValue,
     PipelineEventType,
+    QualityDecision,
+    RefusalReason,
     StrictModel,
     TimingAnomaly,
+    ValidationGate,
     WorkflowStatus,
 )
 from libraries.utils import make_canonical_id, make_prefixed_id
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.data_quality import DataQualityRefusalError, DataQualityService
 from services.feature_store.loaders import load_feature_mapping_inputs
 from services.feature_store.mapping import build_feature_candidates
 from services.feature_store.storage import LocalFeatureArtifactStore
@@ -126,6 +130,18 @@ class RunFeatureMappingResponse(StrictModel):
         default_factory=list,
         description="Operational notes describing skipped work, assumptions, or gaps.",
     )
+    validation_gate: ValidationGate | None = Field(
+        default=None,
+        description="Data-quality gate recorded for feature mapping when validation ran.",
+    )
+    quality_decision: QualityDecision | None = Field(
+        default=None,
+        description="Overall decision emitted by the feature-mapping validation gate.",
+    )
+    refusal_reason: RefusalReason | None = Field(
+        default=None,
+        description="Primary refusal reason when feature mapping was blocked.",
+    )
 
 
 class FeatureStoreService(BaseService):
@@ -204,8 +220,11 @@ class FeatureStoreService(BaseService):
         audit_root = output_workspace.audit_root
         monitoring_root = output_workspace.monitoring_root
         timing_root = output_workspace.timing_root
+        quality_root = output_workspace.data_quality_root
         monitoring_service = MonitoringService(clock=self.clock)
+        quality_service = DataQualityService(clock=self.clock)
         started_at = self.clock.now()
+        storage_locations: list[ArtifactStorageLocation] = []
         start_event = monitoring_service.record_pipeline_event(
             RecordPipelineEventRequest(
                 workflow_name="feature_mapping",
@@ -236,14 +255,30 @@ class FeatureStoreService(BaseService):
                 company_id=request.company_id,
                 as_of_time=request.as_of_time,
             )
+            input_validation = quality_service.validate_feature_mapping_inputs(
+                inputs=inputs,
+                workflow_run_id=feature_mapping_run_id,
+                requested_by=request.requested_by,
+                output_root=quality_root,
+            )
             result = build_feature_candidates(
                 inputs=inputs,
                 ablation_view=request.ablation_view,
                 clock=self.clock,
                 workflow_run_id=feature_mapping_run_id,
             )
+            output_validation = quality_service.validate_feature_output(
+                company_id=inputs.company_id,
+                features=result.features,
+                workflow_run_id=feature_mapping_run_id,
+                requested_by=request.requested_by,
+                output_root=quality_root,
+            )
             store = LocalFeatureArtifactStore(root=output_root, clock=self.clock)
-            storage_locations: list[ArtifactStorageLocation] = []
+            storage_locations = [
+                *input_validation.storage_locations,
+                *output_validation.storage_locations,
+            ]
             for feature_definition in result.feature_definitions:
                 storage_locations.append(
                     store.persist_model(
@@ -391,7 +426,63 @@ class FeatureStoreService(BaseService):
                 timing_anomalies=result.timing_anomalies,
                 storage_locations=storage_locations,
                 notes=notes,
+                validation_gate=output_validation.validation_gate,
+                quality_decision=output_validation.validation_gate.decision,
+                refusal_reason=output_validation.validation_gate.refusal_reason,
             )
+        except DataQualityRefusalError as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="feature_mapping",
+                    workflow_run_id=feature_mapping_run_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=f"Feature mapping workflow failed quality validation: {exc}",
+                    related_artifact_ids=[exc.result.validation_gate.validation_gate_id],
+                    notes=[
+                        f"requested_by={request.requested_by}",
+                        f"quality_decision={exc.result.validation_gate.decision.value}",
+                        (
+                            "refusal_reason="
+                            f"{exc.result.validation_gate.refusal_reason.value}"
+                            if exc.result.validation_gate.refusal_reason is not None
+                            else "refusal_reason=none"
+                        ),
+                    ],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="feature_mapping",
+                    workflow_run_id=feature_mapping_run_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=exc.storage_locations,
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[
+                        f"validation_gate_id={exc.result.validation_gate.validation_gate_id}",
+                        f"quality_decision={exc.result.validation_gate.decision.value}",
+                        (
+                            "refusal_reason="
+                            f"{exc.result.validation_gate.refusal_reason.value}"
+                            if exc.result.validation_gate.refusal_reason is not None
+                            else "refusal_reason=none"
+                        ),
+                    ],
+                    outputs_expected=True,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
         except Exception as exc:
             failed_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
@@ -415,7 +506,7 @@ class FeatureStoreService(BaseService):
                     status=WorkflowStatus.FAILED,
                     started_at=started_at,
                     completed_at=self.clock.now(),
-                    storage_locations=[],
+                    storage_locations=storage_locations,
                     pipeline_event_ids=[
                         start_event.pipeline_event.pipeline_event_id,
                         failed_event.pipeline_event.pipeline_event_id,

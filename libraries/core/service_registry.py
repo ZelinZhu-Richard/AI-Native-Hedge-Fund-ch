@@ -5,6 +5,7 @@ from libraries.time import Clock
 from services.audit import AuditLoggingService
 from services.backtesting import BacktestingService
 from services.daily_orchestration import DailyOrchestrationService
+from services.data_quality import DataQualityService
 from services.entity_resolution import EntityResolutionService
 from services.evaluation import EvaluationService
 from services.experiment_registry import ExperimentRegistryService
@@ -31,6 +32,7 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
 
     services: list[BaseService] = [
         IngestionService(clock=clock),
+        DataQualityService(clock=clock),
         ParsingService(clock=clock),
         ResearchOrchestrationService(clock=clock),
         ResearchMemoryService(clock=clock),

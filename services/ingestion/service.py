@@ -15,10 +15,14 @@ from libraries.schemas import (
     Filing,
     NewsItem,
     PipelineEventType,
+    QualityDecision,
+    RefusalReason,
     StrictModel,
+    ValidationGate,
     WorkflowStatus,
 )
 from libraries.utils import make_prefixed_id
+from services.data_quality import DataQualityRefusalError, DataQualityService
 from services.entity_resolution import (
     EntityResolutionService,
     ResolveEntityWorkspaceRequest,
@@ -100,6 +104,18 @@ class FixtureIngestionResponse(FixtureNormalizationResult):
         default_factory=list,
         description="Artifact storage locations written by the ingestion flow.",
     )
+    validation_gate: ValidationGate | None = Field(
+        default=None,
+        description="Data-quality gate recorded for normalized ingestion outputs when validation ran.",
+    )
+    quality_decision: QualityDecision | None = Field(
+        default=None,
+        description="Overall decision emitted by the normalized-ingestion validation gate.",
+    )
+    refusal_reason: RefusalReason | None = Field(
+        default=None,
+        description="Primary refusal reason when normalized ingestion output was blocked.",
+    )
 
 
 class IngestionService(BaseService):
@@ -144,7 +160,9 @@ class IngestionService(BaseService):
             artifact_root = workspace.ingestion_root
         monitoring_root = workspace.monitoring_root
         timing_root = workspace.timing_root
+        quality_root = workspace.data_quality_root
         monitoring_service = MonitoringService(clock=self.clock)
+        quality_service = DataQualityService(clock=self.clock)
         ingestion_job_id = make_prefixed_id("ingest")
         started_at = self.clock.now()
         start_event = monitoring_service.record_pipeline_event(
@@ -160,6 +178,7 @@ class IngestionService(BaseService):
             ),
             output_root=monitoring_root,
         )
+        storage_locations: list[ArtifactStorageLocation] = []
         try:
             fixture_record = load_fixture_record(request.fixture_path)
             normalized = normalize_raw_fixture(
@@ -167,7 +186,6 @@ class IngestionService(BaseService):
                 clock=self.clock,
                 fixture_path=str(request.fixture_path),
             )
-            storage_locations: list[ArtifactStorageLocation] = []
             store = LocalArtifactStore(root=artifact_root, clock=self.clock)
             if request.persist_raw:
                 storage_locations.append(
@@ -177,7 +195,17 @@ class IngestionService(BaseService):
                         raw_text=fixture_record.raw_text,
                     )
                 )
+            validation_result = None
             if request.persist_normalized:
+                validation_result = quality_service.validate_ingestion_normalization(
+                    source_reference=normalized.source_reference,
+                    company=normalized.company,
+                    document=self._document_model(normalized),
+                    workflow_run_id=ingestion_job_id,
+                    requested_by=request.requested_by,
+                    output_root=quality_root,
+                )
+                storage_locations.extend(validation_result.storage_locations)
                 storage_locations.extend(
                     self._persist_normalized_artifacts(store=store, normalized=normalized)
                 )
@@ -219,6 +247,19 @@ class IngestionService(BaseService):
                 price_series_metadata=normalized.price_series_metadata,
                 timing_anomalies=normalized.timing_anomalies,
                 storage_locations=storage_locations,
+                validation_gate=(
+                    validation_result.validation_gate if validation_result is not None else None
+                ),
+                quality_decision=(
+                    validation_result.validation_gate.decision
+                    if validation_result is not None
+                    else None
+                ),
+                refusal_reason=(
+                    validation_result.validation_gate.refusal_reason
+                    if validation_result is not None
+                    else None
+                ),
             )
             completed_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
@@ -281,6 +322,74 @@ class IngestionService(BaseService):
                 output_root=monitoring_root,
             )
             return response
+        except DataQualityRefusalError as exc:
+            failed_event = monitoring_service.record_pipeline_event(
+                RecordPipelineEventRequest(
+                    workflow_name="fixture_ingestion",
+                    workflow_run_id=ingestion_job_id,
+                    service_name=self.capability_name,
+                    event_type=PipelineEventType.RUN_FAILED,
+                    status=WorkflowStatus.FAILED,
+                    message=(
+                        f"Fixture ingestion failed quality validation for "
+                        f"`{request.fixture_path.name}`: {exc}"
+                    ),
+                    related_artifact_ids=[
+                        str(request.fixture_path),
+                        exc.result.validation_gate.validation_gate_id,
+                        *[
+                            location.artifact_id
+                            for location in [*storage_locations, *exc.storage_locations]
+                        ],
+                    ],
+                    notes=[
+                        f"requested_by={request.requested_by}",
+                        f"quality_decision={exc.result.validation_gate.decision.value}",
+                        (
+                            "refusal_reason="
+                            f"{exc.result.validation_gate.refusal_reason.value}"
+                            if exc.result.validation_gate.refusal_reason is not None
+                            else "refusal_reason=none"
+                        ),
+                    ],
+                ),
+                output_root=monitoring_root,
+            )
+            monitoring_service.record_run_summary(
+                RecordRunSummaryRequest(
+                    workflow_name="fixture_ingestion",
+                    workflow_run_id=ingestion_job_id,
+                    service_name=self.capability_name,
+                    requested_by=request.requested_by,
+                    status=WorkflowStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=self.clock.now(),
+                    storage_locations=[*storage_locations, *exc.storage_locations],
+                    produced_artifact_ids=[
+                        *[location.artifact_id for location in storage_locations],
+                        exc.result.validation_gate.validation_gate_id,
+                    ],
+                    pipeline_event_ids=[
+                        start_event.pipeline_event.pipeline_event_id,
+                        failed_event.pipeline_event.pipeline_event_id,
+                    ],
+                    failure_messages=[str(exc)],
+                    notes=[
+                        f"fixture_path={request.fixture_path}",
+                        f"validation_gate_id={exc.result.validation_gate.validation_gate_id}",
+                        f"quality_decision={exc.result.validation_gate.decision.value}",
+                        (
+                            "refusal_reason="
+                            f"{exc.result.validation_gate.refusal_reason.value}"
+                            if exc.result.validation_gate.refusal_reason is not None
+                            else "refusal_reason=none"
+                        ),
+                    ],
+                    outputs_expected=request.persist_raw or request.persist_normalized,
+                ),
+                output_root=monitoring_root,
+            )
+            raise
         except Exception as exc:
             failed_event = monitoring_service.record_pipeline_event(
                 RecordPipelineEventRequest(
@@ -304,7 +413,7 @@ class IngestionService(BaseService):
                     status=WorkflowStatus.FAILED,
                     started_at=started_at,
                     completed_at=self.clock.now(),
-                    storage_locations=[],
+                    storage_locations=storage_locations,
                     pipeline_event_ids=[
                         start_event.pipeline_event.pipeline_event_id,
                         failed_event.pipeline_event.pipeline_event_id,
@@ -377,3 +486,14 @@ class IngestionService(BaseService):
         if normalized.news_item is not None:
             return "news_items", normalized.news_item
         return None
+
+    def _document_model(
+        self,
+        normalized: FixtureNormalizationResult,
+    ) -> Filing | EarningsCall | NewsItem | None:
+        """Return the normalized document model, if one exists."""
+
+        document_artifact = self._document_artifact(normalized)
+        if document_artifact is None:
+            return None
+        return document_artifact[1]

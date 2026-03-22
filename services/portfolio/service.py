@@ -17,14 +17,18 @@ from libraries.schemas import (
     PortfolioProposalStatus,
     PositionAttribution,
     PositionIdea,
+    QualityDecision,
+    RefusalReason,
     RiskCheck,
     ScenarioDefinition,
     StressTestResult,
     StressTestRun,
     StrictModel,
+    ValidationGate,
 )
 from libraries.schemas.base import ProvenanceRecord
 from libraries.utils import make_prefixed_id
+from services.data_quality import DataQualityService
 from services.portfolio.construction import (
     build_exposure_summary,
     build_portfolio_proposal,
@@ -147,6 +151,18 @@ class RunPortfolioWorkflowResponse(StrictModel):
     notes: list[str] = Field(
         default_factory=list,
         description="Operational notes describing skipped work, assumptions, or gating issues.",
+    )
+    validation_gate: ValidationGate | None = Field(
+        default=None,
+        description="Data-quality gate recorded for the portfolio workflow when validation ran.",
+    )
+    quality_decision: QualityDecision | None = Field(
+        default=None,
+        description="Overall decision emitted by the portfolio validation gate.",
+    )
+    refusal_reason: RefusalReason | None = Field(
+        default=None,
+        description="Primary refusal reason when portfolio proposal generation was blocked.",
     )
 
 
@@ -284,9 +300,62 @@ class PortfolioConstructionService(BaseService):
 
         output_root = request.output_root or (get_settings().resolved_artifact_root / "portfolio")
         signal_map = {signal.signal_id: signal for signal in inputs.signals}
+        proposal_source_reference_ids = sorted(
+            {
+                *proposal.provenance.source_reference_ids,
+                *(
+                    source_reference_id
+                    for signal in inputs.signals
+                    for source_reference_id in signal.provenance.source_reference_ids
+                ),
+                *(
+                    source_reference_id
+                    for idea in position_ideas
+                    for source_reference_id in idea.provenance.source_reference_ids
+                ),
+            }
+        )
+        proposal_upstream_artifact_ids = [
+            exposure_summary.portfolio_exposure_summary_id,
+            *[idea.position_idea_id for idea in position_ideas],
+            *[signal.signal_id for signal in inputs.signals],
+            *(
+                [inputs.signal_bundle.signal_bundle_id]
+                if inputs.signal_bundle is not None
+                else []
+            ),
+            *(
+                [inputs.arbitration_decision.arbitration_decision_id]
+                if inputs.arbitration_decision is not None
+                else []
+            ),
+            *proposal.provenance.upstream_artifact_ids,
+        ]
+        proposal = proposal.model_copy(
+            update={
+                "provenance": proposal.provenance.model_copy(
+                    update={
+                        "source_reference_ids": proposal_source_reference_ids,
+                        "upstream_artifact_ids": sorted(
+                            {artifact_id for artifact_id in proposal_upstream_artifact_ids if artifact_id}
+                        ),
+                    }
+                )
+            }
+        )
         portfolio_workspace = resolve_artifact_workspace_from_stage_root(output_root)
+        quality_root = portfolio_workspace.data_quality_root
         portfolio_analysis_root = (
             request.portfolio_analysis_root or portfolio_workspace.portfolio_analysis_root
+        )
+        validation_result = DataQualityService(clock=self.clock).validate_portfolio_proposal(
+            company_id=inputs.company_id,
+            signals_by_id=signal_map,
+            position_ideas=position_ideas,
+            portfolio_proposal=proposal,
+            workflow_run_id=portfolio_workflow_id,
+            requested_by=request.requested_by,
+            output_root=quality_root,
         )
         analysis_response = PortfolioAnalysisService(clock=self.clock).analyze_portfolio_proposal(
             portfolio_proposal=proposal,
@@ -333,7 +402,10 @@ class PortfolioConstructionService(BaseService):
         notes.extend(risk_response.blocking_issues)
 
         store = LocalPortfolioArtifactStore(root=output_root, clock=self.clock)
-        storage_locations: list[ArtifactStorageLocation] = list(analysis_response.storage_locations)
+        storage_locations: list[ArtifactStorageLocation] = [
+            *validation_result.storage_locations,
+            *analysis_response.storage_locations,
+        ]
         for constraint in constraints:
             storage_locations.append(
                 self._persist_model(store=store, category="constraints", model=constraint)
@@ -378,6 +450,9 @@ class PortfolioConstructionService(BaseService):
             stress_test_results=analysis_response.stress_test_results,
             storage_locations=storage_locations,
             notes=notes,
+            validation_gate=validation_result.validation_gate,
+            quality_decision=validation_result.validation_gate.decision,
+            refusal_reason=validation_result.validation_gate.refusal_reason,
         )
 
     def _persist_model(

@@ -47,6 +47,7 @@ class ArtifactWorkspace:
     audit_root: Path
     monitoring_root: Path
     timing_root: Path
+    data_quality_root: Path
     entity_resolution_root: Path
     orchestration_root: Path
     red_team_root: Path
@@ -73,6 +74,7 @@ def resolve_artifact_workspace(*, workspace_root: Path | None = None) -> Artifac
         audit_root=resolved_root / "audit",
         monitoring_root=resolved_root / "monitoring",
         timing_root=resolved_root / "timing",
+        data_quality_root=resolved_root / "data_quality",
         entity_resolution_root=resolved_root / "entity_resolution",
         orchestration_root=resolved_root / "orchestration",
         red_team_root=resolved_root / "red_team",

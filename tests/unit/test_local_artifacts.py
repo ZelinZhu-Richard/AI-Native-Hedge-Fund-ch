@@ -33,6 +33,7 @@ def test_resolve_artifact_workspace_exposes_standard_stage_roots(tmp_path: Path)
     assert workspace.ingestion_root == workspace.root / "ingestion"
     assert workspace.signal_root == workspace.root / "signal_generation"
     assert workspace.portfolio_analysis_root == workspace.root / "portfolio_analysis"
+    assert workspace.data_quality_root == workspace.root / "data_quality"
     assert workspace.orchestration_root == workspace.root / "orchestration"
     assert workspace.red_team_root == workspace.root / "red_team"
 

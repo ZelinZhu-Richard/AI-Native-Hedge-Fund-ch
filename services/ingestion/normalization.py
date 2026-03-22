@@ -464,6 +464,6 @@ def _hash_text(value: str) -> str:
 def _payload_hash_input(payload: RawFixturePayload) -> str:
     """Build a stable payload fingerprint input for source references."""
 
-    if isinstance(payload, (RawFilingFixture, RawTranscriptFixture, RawNewsFixture)):
+    if isinstance(payload, RawFilingFixture | RawTranscriptFixture | RawNewsFixture):
         return payload.raw_text
     return payload.model_dump_json()
