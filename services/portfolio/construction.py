@@ -113,6 +113,15 @@ def build_position_ideas(
     """Map eligible signals into reviewable Day 7 position ideas."""
 
     notes: list[str] = []
+    if (
+        inputs.signal_bundle is not None
+        and inputs.arbitration_decision is not None
+        and inputs.arbitration_decision.selected_primary_signal_id is None
+    ):
+        notes.append(
+            "Signal arbitration withheld a primary signal selection, so no position ideas were created."
+        )
+        return PositionIdeaBuildResult(notes=notes)
     company_ticker = inputs.company.ticker if inputs.company is not None else None
     if not company_ticker:
         notes.append(
@@ -194,7 +203,11 @@ def build_position_ideas(
                 side=side,
                 thesis_summary=signal.thesis_summary,
                 selection_reason=(
-                    f"Selected from signal `{signal.signal_family}` with score "
+                    f"Selected from arbitrated primary signal `{signal.signal_family}` "
+                    f"with score {signal.primary_score:.2f} and stance `{signal.stance.value}`."
+                    if inputs.arbitration_decision is not None
+                    and inputs.arbitration_decision.selected_primary_signal_id == signal.signal_id
+                    else f"Selected from signal `{signal.signal_family}` with score "
                     f"{signal.primary_score:.2f} and stance `{signal.stance.value}`."
                 ),
                 entry_conditions=[
@@ -212,6 +225,16 @@ def build_position_ideas(
                 supporting_evidence_link_ids=supporting_evidence_link_ids,
                 research_artifact_ids=research_artifact_ids,
                 review_decision_ids=[],
+                signal_bundle_id=(
+                    inputs.signal_bundle.signal_bundle_id
+                    if inputs.signal_bundle is not None
+                    else None
+                ),
+                arbitration_decision_id=(
+                    inputs.arbitration_decision.arbitration_decision_id
+                    if inputs.arbitration_decision is not None
+                    else None
+                ),
                 status=PositionIdeaStatus.PENDING_REVIEW,
                 confidence=signal.confidence,
                 provenance=build_provenance(
@@ -282,6 +305,8 @@ def build_portfolio_proposal(
     position_ideas: list[PositionIdea],
     constraints: list[PortfolioConstraint],
     exposure_summary: PortfolioExposureSummary,
+    signal_bundle_id: str | None,
+    arbitration_decision_id: str | None,
     clock: Clock,
     workflow_run_id: str,
 ) -> PortfolioProposal:
@@ -300,6 +325,8 @@ def build_portfolio_proposal(
         exposure_summary=exposure_summary,
         blocking_issues=[],
         review_decision_ids=[],
+        signal_bundle_id=signal_bundle_id,
+        arbitration_decision_id=arbitration_decision_id,
         review_required=True,
         status=PortfolioProposalStatus.PENDING_REVIEW,
         summary=(

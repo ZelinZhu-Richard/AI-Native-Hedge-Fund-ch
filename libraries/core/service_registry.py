@@ -18,6 +18,7 @@ from services.portfolio import PortfolioConstructionService
 from services.red_team import RedTeamService
 from services.research_orchestrator import ResearchOrchestrationService
 from services.risk_engine import RiskEngineService
+from services.signal_arbitration import SignalArbitrationService
 from services.signal_generation import SignalGenerationService
 from services.timing import TimingService
 
@@ -31,6 +32,7 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         ResearchOrchestrationService(clock=clock),
         FeatureStoreService(clock=clock),
         SignalGenerationService(clock=clock),
+        SignalArbitrationService(clock=clock),
         BacktestingService(clock=clock),
         EntityResolutionService(clock=clock),
         EvaluationService(clock=clock),

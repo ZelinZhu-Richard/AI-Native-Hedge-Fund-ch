@@ -77,6 +77,14 @@ For each recorded backtest run, the system:
    - `BenchmarkReference` artifacts
    - numeric metrics such as `gross_pnl`, `net_pnl`, `trade_count`, and benchmark simple returns
 
+When a same-company Day 19 arbitration bundle exists for the same slice, experiment recording can also attach:
+
+- `SignalBundle` as `INPUT_SNAPSHOT`
+- `ArbitrationDecision` as `SUMMARY`
+- `SignalCalibration` and `SignalConflict` as `DIAGNOSTIC`
+
+This records arbitration context without changing the exploratory strategy mechanics.
+
 ## Reproducibility Contract
 
 The current registry is metadata-first. It does not duplicate payloads that are already owned by another workflow.
@@ -109,6 +117,7 @@ For each recorded ablation run, the system:
 - there is no promotion gate from exploratory experiments to validated experiments yet
 - model references exist in the schema but are not used by the current backtest flow
 - evaluation artifacts are separate from experiment records and are not yet tied into a reviewed promotion decision
+- arbitration artifacts are recorded as experiment context only; they do not yet alter backtest eligibility or downstream approval semantics
 
 ## Next Extension Point
 

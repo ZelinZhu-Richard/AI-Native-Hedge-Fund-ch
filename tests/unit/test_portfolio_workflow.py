@@ -56,7 +56,11 @@ def test_candidate_signal_creates_300bps_position_and_review_bound_proposal(
 
     assert len(response.final_position_ideas) == 1
     assert response.final_position_ideas[0].proposed_weight_bps == 300
+    assert response.final_position_ideas[0].signal_bundle_id is not None
+    assert response.final_position_ideas[0].arbitration_decision_id is not None
     assert response.final_portfolio_proposal.status.value == "pending_review"
+    assert response.final_portfolio_proposal.signal_bundle_id is not None
+    assert response.final_portfolio_proposal.arbitration_decision_id is not None
     assert response.paper_trades == []
     assert any("approved parent portfolio proposal" in note for note in response.notes)
     assert any("not replay-safe" in note for note in response.portfolio_workflow.notes)
@@ -131,6 +135,9 @@ def test_missing_rationale_creates_blocking_risk_failure(tmp_path: Path) -> None
         constraints=workflow.final_portfolio_proposal.constraints,
         signals_by_id={broken_idea.signal_id: signal},
         evidence_assessments_by_id={},
+        signal_bundle=None,
+        arbitration_decision=None,
+        signal_conflicts=[],
         clock=FrozenClock(FIXED_NOW),
         workflow_run_id="riskeval_test",
     )

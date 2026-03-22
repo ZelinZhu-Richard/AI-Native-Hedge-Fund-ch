@@ -78,6 +78,10 @@ def test_backtesting_workflow_records_experiment_registry(tmp_path: Path) -> Non
     assert len(response.dataset_references) == 2
     assert response.experiment_artifacts
     assert response.experiment_metrics
+    assert {artifact.artifact_type for artifact in response.experiment_artifacts} >= {
+        "SignalBundle",
+        "ArbitrationDecision",
+    }
     assert {reference.data_snapshot_id for reference in response.dataset_references} == {
         snapshot.data_snapshot_id for snapshot in response.data_snapshots
     }

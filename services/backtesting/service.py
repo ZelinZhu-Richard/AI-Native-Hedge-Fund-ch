@@ -43,6 +43,8 @@ from libraries.schemas import (
     PipelineEventType,
     RobustnessCheck,
     RunContext,
+    SignalCalibration,
+    SignalConflict,
     SimulationEvent,
     SourceVersion,
     StrategyDecision,
@@ -86,6 +88,8 @@ from services.monitoring import (
     RecordPipelineEventRequest,
     RecordRunSummaryRequest,
 )
+from services.signal_arbitration.loaders import load_latest_signal_bundle
+from services.signal_arbitration.storage import load_models as load_signal_arbitration_models
 from services.timing import TimingService
 
 
@@ -116,6 +120,10 @@ class RunBacktestWorkflowRequest(StrictModel):
     """Explicit local request to run the exploratory backtest workflow."""
 
     signal_root: Path = Field(description="Root path containing persisted signal artifacts.")
+    signal_arbitration_root: Path | None = Field(
+        default=None,
+        description="Optional root path containing persisted signal arbitration artifacts.",
+    )
     feature_root: Path = Field(description="Root path containing persisted feature artifacts.")
     price_fixture_path: Path = Field(description="Path to the synthetic daily price fixture.")
     loaded_inputs: LoadedBacktestInputs | None = Field(
@@ -216,6 +224,10 @@ class RunStrategyAblationWorkflowRequest(StrictModel):
     """Explicit local request to compare multiple baseline strategy variants honestly."""
 
     signal_root: Path = Field(description="Root path containing persisted research signal artifacts.")
+    signal_arbitration_root: Path | None = Field(
+        default=None,
+        description="Optional root path containing persisted signal arbitration artifacts.",
+    )
     feature_root: Path = Field(description="Root path containing persisted feature artifacts.")
     price_fixture_path: Path = Field(description="Path to the shared synthetic daily price fixture.")
     output_root: Path | None = Field(
@@ -513,6 +525,18 @@ class BacktestingService(BaseService):
                 benchmark_references=result.benchmark_references,
                 storage_by_artifact_id=storage_by_artifact_id,
                 workflow_run_id=backtest_run_id,
+            )
+            experiment_artifacts.extend(
+                self._build_signal_arbitration_experiment_artifacts(
+                    experiment=experiment,
+                    signal_arbitration_root=request.signal_arbitration_root,
+                    company_id=inputs.company_id,
+                    as_of_time=max(
+                        snapshot.information_cutoff_time or snapshot.snapshot_time
+                        for snapshot in data_snapshots
+                    ),
+                    workflow_run_id=backtest_run_id,
+                )
             )
             experiment_metrics = self._build_experiment_metrics(
                 experiment=experiment,
@@ -948,6 +972,7 @@ class BacktestingService(BaseService):
             variant_response = self.run_backtest_workflow(
                 RunBacktestWorkflowRequest(
                     signal_root=variant_signal_root,
+                    signal_arbitration_root=request.signal_arbitration_root,
                     feature_root=request.feature_root,
                     price_fixture_path=request.price_fixture_path,
                     loaded_inputs=build_variant_backtest_inputs(
@@ -1141,6 +1166,15 @@ class BacktestingService(BaseService):
                 experiment_root=experiment_root,
                 clock=self.clock,
                 workflow_run_id=ablation_run_id,
+            )
+            experiment_artifacts.extend(
+                self._build_signal_arbitration_experiment_artifacts(
+                    experiment=parent_experiment,
+                    signal_arbitration_root=request.signal_arbitration_root,
+                    company_id=strategy_inputs.company_id,
+                    as_of_time=request.ablation_config.evaluation_slice.as_of_time,
+                    workflow_run_id=ablation_run_id,
+                )
             )
             experiment_metrics = build_parent_experiment_metrics(
                 experiment=parent_experiment,
@@ -1793,6 +1827,98 @@ class BacktestingService(BaseService):
             )
         return artifacts
 
+    def _build_signal_arbitration_experiment_artifacts(
+        self,
+        *,
+        experiment: Experiment,
+        signal_arbitration_root: Path | None,
+        company_id: str,
+        as_of_time: datetime | None,
+        workflow_run_id: str,
+    ) -> list[ExperimentArtifact]:
+        """Build optional experiment-artifact rows for signal arbitration context."""
+
+        if signal_arbitration_root is None or not signal_arbitration_root.exists():
+            return []
+        bundle, decision = load_latest_signal_bundle(
+            signal_arbitration_root=signal_arbitration_root,
+            company_id=company_id,
+            as_of_time=as_of_time,
+        )
+        if bundle is None or decision is None:
+            return []
+
+        calibrations = [
+            calibration
+            for calibration in load_signal_arbitration_models(
+                root=signal_arbitration_root,
+                category="signal_calibrations",
+                model_cls=SignalCalibration,
+            )
+            if calibration.signal_calibration_id in bundle.signal_calibration_ids
+        ]
+        conflicts = [
+            conflict
+            for conflict in load_signal_arbitration_models(
+                root=signal_arbitration_root,
+                category="signal_conflicts",
+                model_cls=SignalConflict,
+            )
+            if conflict.signal_conflict_id in bundle.signal_conflict_ids
+        ]
+        now = self.clock.now()
+        arbitration_artifacts: list[tuple[str, str, ExperimentArtifactRole]] = [
+            (bundle.signal_bundle_id, "SignalBundle", ExperimentArtifactRole.INPUT_SNAPSHOT),
+            (
+                decision.arbitration_decision_id,
+                "ArbitrationDecision",
+                ExperimentArtifactRole.SUMMARY,
+            ),
+            *[
+                (
+                    calibration.signal_calibration_id,
+                    "SignalCalibration",
+                    ExperimentArtifactRole.DIAGNOSTIC,
+                )
+                for calibration in calibrations
+            ],
+            *[
+                (
+                    conflict.signal_conflict_id,
+                    "SignalConflict",
+                    ExperimentArtifactRole.DIAGNOSTIC,
+                )
+                for conflict in conflicts
+            ],
+        ]
+        return [
+            ExperimentArtifact(
+                experiment_artifact_id=make_canonical_id(
+                    "eart",
+                    experiment.experiment_id,
+                    artifact_role.value,
+                    artifact_id,
+                ),
+                experiment_id=experiment.experiment_id,
+                artifact_id=artifact_id,
+                artifact_type=artifact_type,
+                artifact_role=artifact_role,
+                artifact_storage_location_id=None,
+                uri=(signal_arbitration_root / _category_for_artifact_type(artifact_type) / f"{artifact_id}.json").resolve().as_uri(),
+                produced_at=now,
+                provenance=build_provenance(
+                    clock=self.clock,
+                    transformation_name="day19_experiment_artifact_from_signal_arbitration",
+                    upstream_artifact_ids=[artifact_id, experiment.experiment_id],
+                    workflow_run_id=workflow_run_id,
+                    experiment_id=experiment.experiment_id,
+                ),
+                created_at=now,
+                updated_at=now,
+            )
+            for artifact_id, artifact_type, artifact_role in arbitration_artifacts
+        ]
+
     def _build_experiment_metrics(
         self,
         *,
@@ -1894,3 +2020,14 @@ def _value_repr(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+
+
+def _category_for_artifact_type(artifact_type: str) -> str:
+    """Return the persisted category directory for one arbitration artifact type."""
+
+    return {
+        "SignalBundle": "signal_bundles",
+        "ArbitrationDecision": "arbitration_decisions",
+        "SignalCalibration": "signal_calibrations",
+        "SignalConflict": "signal_conflicts",
+    }[artifact_type]

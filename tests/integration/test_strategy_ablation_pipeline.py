@@ -157,6 +157,13 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
     assert experiment_payload["dataset_reference_ids"]
     assert experiment_payload["experiment_artifact_ids"]
     assert experiment_payload["experiment_metric_ids"]
+    experiment_artifact_payloads = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((artifact_root / "experiments" / "experiment_artifacts").glob("*.json"))
+    ]
+    assert {"SignalBundle", "ArbitrationDecision"}.issubset(
+        {payload["artifact_type"] for payload in experiment_artifact_payloads}
+    )
 
     evaluation_payload = json.loads(
         (

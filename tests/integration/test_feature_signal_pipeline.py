@@ -45,13 +45,31 @@ def test_feature_signal_pipeline_persists_candidate_outputs(tmp_path: Path) -> N
 
     assert response.feature_mapping.features
     assert response.signal_generation.signals
+    assert response.signal_arbitration.signal_bundle is not None
+    assert response.signal_arbitration.arbitration_decision is not None
     feature = response.feature_mapping.features[0]
     signal = response.signal_generation.signals[0]
+    signal_bundle = response.signal_arbitration.signal_bundle
+    arbitration_decision = response.signal_arbitration.arbitration_decision
 
     feature_path = artifact_root / "signal_generation" / "features" / f"{feature.feature_id}.json"
     signal_path = artifact_root / "signal_generation" / "signals" / f"{signal.signal_id}.json"
+    signal_bundle_path = (
+        artifact_root
+        / "signal_arbitration"
+        / "signal_bundles"
+        / f"{signal_bundle.signal_bundle_id}.json"
+    )
+    arbitration_decision_path = (
+        artifact_root
+        / "signal_arbitration"
+        / "arbitration_decisions"
+        / f"{arbitration_decision.arbitration_decision_id}.json"
+    )
     assert feature_path.exists()
     assert signal_path.exists()
+    assert signal_bundle_path.exists()
+    assert arbitration_decision_path.exists()
 
     feature_payload = json.loads(feature_path.read_text(encoding="utf-8"))
     signal_payload = json.loads(signal_path.read_text(encoding="utf-8"))
@@ -78,3 +96,5 @@ def test_feature_signal_pipeline_persists_candidate_outputs(tmp_path: Path) -> N
         for mapped_feature in response.feature_mapping.features
         for supporting_evidence_link_id in mapped_feature.lineage.supporting_evidence_link_ids
     }
+    assert signal_bundle.component_signal_ids == [signal.signal_id]
+    assert arbitration_decision.selected_primary_signal_id == signal.signal_id

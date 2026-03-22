@@ -84,11 +84,14 @@ def test_signal_generation_produces_candidate_signal_and_point_in_time_query(
 
         assert len(response.signal_generation.signals) == 1
         signal = response.signal_generation.signals[0]
+        assert response.signal_arbitration.signal_bundle is not None
+        assert response.signal_arbitration.arbitration_decision is not None
         assert signal.status == SignalStatus.CANDIDATE
         assert signal.validation_status == DerivedArtifactValidationStatus.UNVALIDATED
         assert signal.component_scores
         assert signal.primary_score > 0.0
         assert signal.availability_window is not None
+        assert response.signal_arbitration.signal_bundle.component_signal_ids == [signal.signal_id]
         assert set(signal.feature_ids) == {
             feature.feature_id for feature in response.feature_mapping.features
         }

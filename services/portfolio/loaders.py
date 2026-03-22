@@ -7,15 +7,20 @@ from typing import TypeVar
 from pydantic import Field
 
 from libraries.schemas import (
+    ArbitrationDecision,
     BacktestRun,
     Company,
     EvidenceAssessment,
     Hypothesis,
     ResearchBrief,
     Signal,
+    SignalBundle,
+    SignalConflict,
     StrictModel,
 )
 from libraries.schemas.base import TimestampedModel
+from services.signal_arbitration.loaders import load_latest_signal_bundle
+from services.signal_arbitration.storage import load_models as load_signal_arbitration_models
 
 T = TypeVar("T", bound=TimestampedModel)
 
@@ -30,7 +35,19 @@ class LoadedPortfolioInputs(StrictModel):
     )
     signals: list[Signal] = Field(
         default_factory=list,
-        description="Persisted Day 5 candidate or approved signals for one company.",
+        description="Signals selected for portfolio consumption after any arbitration-aware filtering.",
+    )
+    signal_bundle: SignalBundle | None = Field(
+        default=None,
+        description="Latest eligible same-company signal bundle when available.",
+    )
+    arbitration_decision: ArbitrationDecision | None = Field(
+        default=None,
+        description="Arbitration decision associated with the loaded signal bundle when available.",
+    )
+    signal_conflicts: list[SignalConflict] = Field(
+        default_factory=list,
+        description="Signal conflicts attached to the loaded arbitration bundle when available.",
     )
     hypotheses_by_id: dict[str, Hypothesis] = Field(
         default_factory=dict,
@@ -48,6 +65,10 @@ class LoadedPortfolioInputs(StrictModel):
         default=None,
         description="Latest exploratory backtest run for the company when available.",
     )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Loader notes describing arbitration fallback or withheld inputs.",
+    )
 
 
 def load_portfolio_inputs(
@@ -56,6 +77,7 @@ def load_portfolio_inputs(
     research_root: Path,
     ingestion_root: Path | None,
     backtesting_root: Path | None,
+    signal_arbitration_root: Path | None = None,
     company_id: str | None = None,
     as_of_time: datetime | None = None,
 ) -> LoadedPortfolioInputs:
@@ -69,6 +91,7 @@ def load_portfolio_inputs(
     company_signals = [signal for signal in signals if signal.company_id == resolved_company_id]
     if not company_signals:
         raise ValueError(f"No signals were found for `{resolved_company_id}`.")
+    notes: list[str] = []
 
     hypotheses = [
         hypothesis
@@ -116,11 +139,59 @@ def load_portfolio_inputs(
         if company_runs:
             latest_backtest_run = max(company_runs, key=lambda run: run.created_at)
 
+    signal_bundle = None
+    arbitration_decision = None
+    signal_conflicts: list[SignalConflict] = []
+    selected_signals = list(company_signals)
+    if signal_arbitration_root is not None and signal_arbitration_root.exists():
+        signal_bundle, arbitration_decision = load_latest_signal_bundle(
+            signal_arbitration_root=signal_arbitration_root,
+            company_id=resolved_company_id,
+            as_of_time=as_of_time,
+        )
+        if signal_bundle is None or arbitration_decision is None:
+            notes.append(
+                "No eligible signal bundle was found; portfolio construction fell back to raw signals."
+            )
+        else:
+            signal_conflicts = [
+                conflict
+                for conflict in load_signal_arbitration_models(
+                    root=signal_arbitration_root,
+                    category="signal_conflicts",
+                    model_cls=SignalConflict,
+                )
+                if conflict.signal_conflict_id in signal_bundle.signal_conflict_ids
+            ]
+            if arbitration_decision.selected_primary_signal_id is None:
+                selected_signals = []
+                notes.append(
+                    "Signal arbitration withheld a primary signal selection, so portfolio construction received no actionable signal input."
+                )
+            else:
+                selected_signals = [
+                    signal
+                    for signal in company_signals
+                    if signal.signal_id == arbitration_decision.selected_primary_signal_id
+                ]
+                if not selected_signals:
+                    notes.append(
+                        "Signal arbitration selected a signal that was not available under the current cutoff, so no actionable signal input remained."
+                    )
+                else:
+                    notes.append(
+                        f"Portfolio construction used arbitrated primary signal `{arbitration_decision.selected_primary_signal_id}`."
+                    )
+    else:
+        notes.append(
+            "No signal arbitration root was supplied; portfolio construction used raw signals directly."
+        )
+
     return LoadedPortfolioInputs(
         company_id=resolved_company_id,
         company=company,
         signals=sorted(
-            company_signals,
+            selected_signals,
             key=lambda signal: (
                 signal.effective_at,
                 abs(signal.primary_score),
@@ -128,12 +199,16 @@ def load_portfolio_inputs(
             ),
             reverse=True,
         ),
+        signal_bundle=signal_bundle,
+        arbitration_decision=arbitration_decision,
+        signal_conflicts=signal_conflicts,
         hypotheses_by_id={hypothesis.hypothesis_id: hypothesis for hypothesis in hypotheses},
         evidence_assessments_by_id={
             assessment.evidence_assessment_id: assessment for assessment in evidence_assessments
         },
         research_briefs_by_id={brief.research_brief_id: brief for brief in research_briefs},
         latest_backtest_run=latest_backtest_run,
+        notes=notes,
     )
 
 

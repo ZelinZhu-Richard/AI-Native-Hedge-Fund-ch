@@ -81,6 +81,7 @@ class PortfolioReviewPipelineResponse(StrictModel):
 def run_portfolio_review_pipeline(
     *,
     signal_root: Path | None = None,
+    signal_arbitration_root: Path | None = None,
     research_root: Path | None = None,
     ingestion_root: Path | None = None,
     backtesting_root: Path | None = None,
@@ -103,6 +104,11 @@ def run_portfolio_review_pipeline(
     settings = get_settings()
     resolved_artifact_root = settings.resolved_artifact_root
     resolved_signal_root = signal_root or (resolved_artifact_root / "signal_generation")
+    resolved_signal_arbitration_root = signal_arbitration_root or (
+        resolved_signal_root.parent / "signal_arbitration"
+        if signal_root is not None
+        else (resolved_artifact_root / "signal_arbitration")
+    )
     resolved_research_root = research_root or (resolved_artifact_root / "research")
     resolved_ingestion_root = ingestion_root or (resolved_artifact_root / "ingestion")
     resolved_backtesting_root = backtesting_root or (resolved_artifact_root / "backtesting")
@@ -134,6 +140,7 @@ def run_portfolio_review_pipeline(
         workflow_response = portfolio_service.run_portfolio_workflow(
             RunPortfolioWorkflowRequest(
                 signal_root=resolved_signal_root,
+                signal_arbitration_root=resolved_signal_arbitration_root,
                 research_root=resolved_research_root,
                 ingestion_root=resolved_ingestion_root,
                 backtesting_root=resolved_backtesting_root,

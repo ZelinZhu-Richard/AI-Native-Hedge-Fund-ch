@@ -11,14 +11,17 @@ This is the first inspectable proposal layer downstream of signals.
 ## Current Flow
 
 1. Load persisted Day 5 `Signal` artifacts plus linked Day 4 research artifacts.
-2. Filter signals to Day 7-eligible statuses: `candidate` and `approved`.
-3. Skip non-directional stances: `mixed` and `monitor`.
-4. Map each eligible signal into one `PositionIdea`.
-5. Assemble all position ideas into one `PortfolioProposal`.
-6. Compute a `PortfolioExposureSummary`.
-7. Run explicit `RiskCheck` rules.
-8. Mark the proposal `pending_review`.
-9. Allow downstream paper-trade candidate creation only after explicit proposal approval and only when blocking issues are absent.
+2. Prefer the latest same-company `SignalBundle` and `ArbitrationDecision` when available.
+3. If arbitration selected a primary signal, consume only that signal.
+4. If arbitration intentionally withheld a primary signal, produce no `PositionIdea`.
+5. If no arbitration bundle exists, fall back to raw signals with an explicit warning note.
+6. Skip non-directional stances: `mixed` and `monitor`.
+7. Map each eligible signal into one `PositionIdea`.
+8. Assemble all position ideas into one `PortfolioProposal`.
+9. Compute a `PortfolioExposureSummary`.
+10. Run explicit `RiskCheck` rules.
+11. Mark the proposal `pending_review`.
+12. Allow downstream paper-trade candidate creation only after explicit proposal approval and only when blocking issues are absent.
 
 ## Signal To Position Mapping
 
@@ -31,10 +34,14 @@ This is the first inspectable proposal layer downstream of signals.
 Each `PositionIdea` preserves:
 
 - `signal_id`
+- `signal_bundle_id`
+- `arbitration_decision_id`
 - `supporting_evidence_link_ids`
 - `evidence_span_ids`
 - `research_artifact_ids`
 - `selection_reason`
+
+When arbitration is used, `selection_reason` explicitly points to the arbitrated primary selection rather than implying that raw signal ranking alone chose the idea.
 
 The Day 7 implementation resolves symbols from normalized `Company` metadata. If no ticker is available, the workflow emits no position idea instead of inventing a tradable symbol.
 
@@ -64,6 +71,8 @@ Warnings:
 
 - candidate or unvalidated signal input
 - `EvidenceAssessment.grade` of `moderate`
+- signal arbitration context missing
+- signal arbitration conflicts present
 
 ## Review Boundary
 
@@ -99,3 +108,5 @@ Day 7 persists local artifacts under `artifacts/portfolio/`:
 - Turnover is still measured from a flat-start assumption.
 - Sector, liquidity, and beta checks are not implemented yet.
 - Candidate signals are still allowed into proposals, but they remain visibly provisional and review-gated.
+- Signal arbitration improves comparison and conflict visibility, but it is not the reviewed-and-evaluated eligibility gate yet.
+- When no arbitration bundle exists, the workflow still falls back to raw signals with an explicit warning.

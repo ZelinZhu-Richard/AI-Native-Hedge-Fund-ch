@@ -90,6 +90,40 @@ The first-pass score is deterministic and intentionally simple. It combines:
 
 This score is an architecture placeholder, not a validated trading model.
 
+## Day 19 Arbitration Layer
+
+Day 19 adds a separate arbitration layer after raw signal generation.
+
+That layer persists:
+
+- `SignalCalibration`
+- `SignalConflict`
+- `ArbitrationDecision`
+- `SignalBundle`
+
+Current behavior:
+
+- raw `Signal` artifacts remain the Day 5 output surface
+- arbitration does not overwrite or replace those signals
+- arbitration compares same-company candidate signals when more than one is present
+- arbitration can withhold a primary selection instead of hiding a conflict
+
+This keeps generation separate from comparison.
+
+## Current Uncertainty And Conflict Visibility
+
+Signal arbitration now makes these review-facing facts explicit:
+
+- missing or present confidence payloads
+- completeness of signal lineage
+- freshness relative to `as_of_time`
+- evidence-grade mismatches against strong-looking scores
+- directional disagreement across signal families
+- duplicated support overlap across otherwise separate signals
+
+This uncertainty layer is structural and deterministic.
+It is not statistical calibration and it does not imply correctness.
+
 ## Lineage Rules
 
 Day 5 must preserve:
@@ -103,6 +137,11 @@ Day 5 must preserve:
 
 If lineage is incomplete, the feature or signal should fail validation or no-op rather than emit a vague artifact.
 
+Day 19 extends that discipline by preserving arbitration linkage on downstream consumers through:
+
+- `signal_bundle_id`
+- `arbitration_decision_id`
+
 ## What Day 5 Does Not Support Yet
 
 Day 5 still does not provide:
@@ -114,4 +153,6 @@ Day 5 still does not provide:
 
 Day 9 now adds baseline strategy and ablation reporting downstream of this layer, but those comparisons remain exploratory and do not validate the Day 5 text-derived signals by default.
 
-Backtesting, ablations, portfolio proposals, and paper-trade candidates now exist downstream, but they still consume candidate-only artifacts and remain explicitly review-bound.
+Day 19 now adds deterministic comparison and conflict visibility, but it still does not create a downstream-eligible signal class.
+
+Backtesting, ablations, portfolio proposals, and paper-trade candidates now exist downstream, but they still consume candidate-only artifacts and remain explicitly review-bound until the Week 3 reviewed-and-evaluated gate exists.

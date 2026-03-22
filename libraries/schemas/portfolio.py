@@ -59,6 +59,14 @@ class PositionIdea(TimestampedModel):
         default_factory=list,
         description="Review-decision identifiers attached to the idea.",
     )
+    signal_bundle_id: str | None = Field(
+        default=None,
+        description="Signal-bundle identifier used to select the motivating signal when applicable.",
+    )
+    arbitration_decision_id: str | None = Field(
+        default=None,
+        description="Signal-arbitration decision identifier used for the idea when applicable.",
+    )
     status: PositionIdeaStatus = Field(description="Position idea lifecycle status.")
     confidence: ConfidenceAssessment | None = Field(
         default=None,
@@ -223,6 +231,14 @@ class PortfolioProposal(TimestampedModel):
     review_decision_ids: list[str] = Field(
         default_factory=list,
         description="Review-decision identifiers attached to the proposal.",
+    )
+    signal_bundle_id: str | None = Field(
+        default=None,
+        description="Signal-bundle identifier used to source portfolio inputs when applicable.",
+    )
+    arbitration_decision_id: str | None = Field(
+        default=None,
+        description="Signal-arbitration decision identifier used by the proposal when applicable.",
     )
     review_required: bool = Field(
         default=True,

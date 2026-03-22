@@ -13,6 +13,11 @@ from services.feature_store import (
     RunFeatureMappingRequest,
     RunFeatureMappingResponse,
 )
+from services.signal_arbitration import (
+    RunSignalArbitrationRequest,
+    RunSignalArbitrationResponse,
+    SignalArbitrationService,
+)
 from services.signal_generation import (
     RunSignalGenerationWorkflowRequest,
     RunSignalGenerationWorkflowResponse,
@@ -28,6 +33,9 @@ class FeatureSignalPipelineResponse(StrictModel):
     )
     signal_generation: RunSignalGenerationWorkflowResponse = Field(
         description="Signal-generation workflow result."
+    )
+    signal_arbitration: RunSignalArbitrationResponse = Field(
+        description="Deterministic signal calibration and arbitration output."
     )
 
 
@@ -53,6 +61,7 @@ def run_feature_signal_pipeline(
 
     feature_service = FeatureStoreService(clock=resolved_clock)
     signal_service = SignalGenerationService(clock=resolved_clock)
+    arbitration_service = SignalArbitrationService(clock=resolved_clock)
     feature_mapping = feature_service.run_feature_mapping_workflow(
         RunFeatureMappingRequest(
             research_root=resolved_research_root,
@@ -75,7 +84,18 @@ def run_feature_signal_pipeline(
             requested_by=requested_by,
         )
     )
+    signal_arbitration = arbitration_service.run_signal_arbitration(
+        RunSignalArbitrationRequest(
+            signal_root=resolved_output_root,
+            research_root=resolved_research_root,
+            output_root=resolved_output_root.parent / "signal_arbitration",
+            company_id=feature_mapping.company_id,
+            as_of_time=as_of_time,
+            requested_by=requested_by,
+        )
+    )
     return FeatureSignalPipelineResponse(
         feature_mapping=feature_mapping,
         signal_generation=signal_generation,
+        signal_arbitration=signal_arbitration,
     )

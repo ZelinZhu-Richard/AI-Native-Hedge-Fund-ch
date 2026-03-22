@@ -17,6 +17,7 @@ def run_backtest_pipeline(
     price_fixture_path: Path,
     backtest_config: BacktestConfig,
     signal_root: Path | None = None,
+    signal_arbitration_root: Path | None = None,
     feature_root: Path | None = None,
     output_root: Path | None = None,
     company_id: str | None = None,
@@ -32,6 +33,11 @@ def run_backtest_pipeline(
     settings = get_settings()
     resolved_artifact_root = settings.resolved_artifact_root
     resolved_signal_root = signal_root or (resolved_artifact_root / "signal_generation")
+    resolved_signal_arbitration_root = signal_arbitration_root or (
+        resolved_signal_root.parent / "signal_arbitration"
+        if signal_root is not None
+        else (resolved_artifact_root / "signal_arbitration")
+    )
     resolved_feature_root = feature_root or (resolved_artifact_root / "signal_generation")
     resolved_output_root = output_root or (resolved_artifact_root / "backtesting")
     resolved_clock = clock or SystemClock()
@@ -40,6 +46,7 @@ def run_backtest_pipeline(
     return service.run_backtest_workflow(
         RunBacktestWorkflowRequest(
             signal_root=resolved_signal_root,
+            signal_arbitration_root=resolved_signal_arbitration_root,
             feature_root=resolved_feature_root,
             price_fixture_path=price_fixture_path,
             output_root=resolved_output_root,

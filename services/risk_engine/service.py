@@ -6,12 +6,15 @@ from pydantic import Field
 
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
+    ArbitrationDecision,
     EvidenceAssessment,
     PortfolioConstraint,
     PortfolioProposal,
     PositionIdea,
     RiskCheck,
     Signal,
+    SignalBundle,
+    SignalConflict,
     StrictModel,
 )
 from libraries.utils import make_prefixed_id
@@ -40,6 +43,18 @@ class RiskEvaluationRequest(StrictModel):
     evidence_assessments_by_id: dict[str, EvidenceAssessment] = Field(
         default_factory=dict,
         description="Evidence assessments keyed by identifier for support-grade checks.",
+    )
+    signal_bundle: SignalBundle | None = Field(
+        default=None,
+        description="Optional signal bundle used to source the portfolio input.",
+    )
+    arbitration_decision: ArbitrationDecision | None = Field(
+        default=None,
+        description="Optional arbitration decision used to source the portfolio input.",
+    )
+    signal_conflicts: list[SignalConflict] = Field(
+        default_factory=list,
+        description="Optional signal conflicts that should remain visible in risk review.",
     )
     requested_by: str = Field(description="Requester identifier.")
 
@@ -91,6 +106,9 @@ class RiskEngineService(BaseService):
             or (request.portfolio_proposal.constraints if request.portfolio_proposal else []),
             signals_by_id=request.signals_by_id,
             evidence_assessments_by_id=request.evidence_assessments_by_id,
+            signal_bundle=request.signal_bundle,
+            arbitration_decision=request.arbitration_decision,
+            signal_conflicts=request.signal_conflicts,
             clock=self.clock,
             workflow_run_id=evaluation_id,
         )

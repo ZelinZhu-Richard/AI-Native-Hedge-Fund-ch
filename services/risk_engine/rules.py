@@ -4,6 +4,7 @@ from pydantic import Field
 
 from libraries.core import build_provenance
 from libraries.schemas import (
+    ArbitrationDecision,
     ConstraintType,
     EvidenceAssessment,
     EvidenceGrade,
@@ -14,6 +15,8 @@ from libraries.schemas import (
     RiskCheckStatus,
     Severity,
     Signal,
+    SignalBundle,
+    SignalConflict,
     StrictModel,
 )
 from libraries.time import Clock
@@ -40,12 +43,73 @@ def evaluate_portfolio_risk(
     constraints: list[PortfolioConstraint],
     signals_by_id: dict[str, Signal],
     evidence_assessments_by_id: dict[str, EvidenceAssessment],
+    signal_bundle: SignalBundle | None,
+    arbitration_decision: ArbitrationDecision | None,
+    signal_conflicts: list[SignalConflict],
     clock: Clock,
     workflow_run_id: str,
 ) -> RiskEvaluationResult:
     """Evaluate the explicit Day 7 risk rules for a proposal and its positions."""
 
     risk_checks: list[RiskCheck] = []
+    if signal_bundle is None or arbitration_decision is None:
+        risk_checks.append(
+            _build_risk_check(
+                subject_type="portfolio_proposal",
+                subject_id=(
+                    portfolio_proposal.portfolio_proposal_id
+                    if portfolio_proposal is not None
+                    else "portfolio_proposal_pending"
+                ),
+                rule_name="signal_arbitration_missing",
+                status=RiskCheckStatus.WARN,
+                severity=Severity.MEDIUM,
+                blocking=False,
+                message=(
+                    "Signal arbitration context is missing. Portfolio review is using raw signals directly."
+                ),
+                clock=clock,
+                workflow_run_id=workflow_run_id,
+                upstream_artifact_ids=[
+                    *( [portfolio_proposal.portfolio_proposal_id] if portfolio_proposal is not None else [] ),
+                    *signals_by_id.keys(),
+                ],
+                source_reference_ids=[
+                    source_reference_id
+                    for signal in signals_by_id.values()
+                    for source_reference_id in signal.provenance.source_reference_ids
+                ],
+            )
+        )
+    elif signal_conflicts:
+        risk_checks.append(
+            _build_risk_check(
+                subject_type="portfolio_proposal",
+                subject_id=(
+                    portfolio_proposal.portfolio_proposal_id
+                    if portfolio_proposal is not None
+                    else "portfolio_proposal_pending"
+                ),
+                rule_name="signal_arbitration_conflicts_present",
+                status=RiskCheckStatus.WARN,
+                severity=Severity.MEDIUM,
+                blocking=False,
+                message="Signal arbitration observed conflicts that should remain visible in review.",
+                clock=clock,
+                workflow_run_id=workflow_run_id,
+                upstream_artifact_ids=[
+                    *( [portfolio_proposal.portfolio_proposal_id] if portfolio_proposal is not None else [] ),
+                    signal_bundle.signal_bundle_id,
+                    arbitration_decision.arbitration_decision_id,
+                    *[conflict.signal_conflict_id for conflict in signal_conflicts],
+                ],
+                source_reference_ids=[
+                    source_reference_id
+                    for signal in signals_by_id.values()
+                    for source_reference_id in signal.provenance.source_reference_ids
+                ],
+            )
+        )
     for idea in position_ideas:
         signal = signals_by_id.get(idea.signal_id)
         evidence_assessment = _find_evidence_assessment(

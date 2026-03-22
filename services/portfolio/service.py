@@ -52,6 +52,10 @@ class RunPortfolioWorkflowRequest(StrictModel):
     """Explicit local request to build a Day 7 portfolio proposal from persisted artifacts."""
 
     signal_root: Path = Field(description="Root path containing persisted signal artifacts.")
+    signal_arbitration_root: Path | None = Field(
+        default=None,
+        description="Optional root path containing persisted signal arbitration artifacts.",
+    )
     research_root: Path = Field(description="Root path containing persisted research artifacts.")
     ingestion_root: Path | None = Field(
         default=None,
@@ -155,6 +159,8 @@ class PortfolioConstructionService(BaseService):
             position_ideas=request.position_ideas,
             constraints=constraints,
             exposure_summary=exposure_summary,
+            signal_bundle_id=None,
+            arbitration_decision_id=None,
             clock=self.clock,
             workflow_run_id=workflow_run_id,
         ).model_copy(
@@ -177,10 +183,12 @@ class PortfolioConstructionService(BaseService):
             research_root=request.research_root,
             ingestion_root=request.ingestion_root,
             backtesting_root=request.backtesting_root,
+            signal_arbitration_root=request.signal_arbitration_root,
             company_id=request.company_id,
             as_of_time=request.as_of_time,
         )
         notes = [f"requested_by={request.requested_by}"]
+        notes.extend(inputs.notes)
         if request.as_of_time is None:
             notes.append(
                 "No as_of_time provided; latest-artifact loading is a local-development convenience and not replay-safe."
@@ -227,6 +235,14 @@ class PortfolioConstructionService(BaseService):
             position_ideas=position_ideas,
             constraints=constraints,
             exposure_summary=exposure_summary,
+            signal_bundle_id=(
+                inputs.signal_bundle.signal_bundle_id if inputs.signal_bundle is not None else None
+            ),
+            arbitration_decision_id=(
+                inputs.arbitration_decision.arbitration_decision_id
+                if inputs.arbitration_decision is not None
+                else None
+            ),
             clock=self.clock,
             workflow_run_id=portfolio_workflow_id,
         )
@@ -240,6 +256,9 @@ class PortfolioConstructionService(BaseService):
                 constraints=constraints,
                 signals_by_id=signal_map,
                 evidence_assessments_by_id=inputs.evidence_assessments_by_id,
+                signal_bundle=inputs.signal_bundle,
+                arbitration_decision=inputs.arbitration_decision,
+                signal_conflicts=inputs.signal_conflicts,
                 requested_by=request.requested_by,
             )
         )
