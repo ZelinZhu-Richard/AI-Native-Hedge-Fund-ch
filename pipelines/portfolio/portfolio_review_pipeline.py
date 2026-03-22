@@ -11,14 +11,19 @@ from libraries.schemas import (
     AuditOutcome,
     PaperTrade,
     PipelineEventType,
+    PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
     PortfolioProposalStatus,
+    PositionAttribution,
     PositionIdea,
     ReviewDecision,
     ReviewOutcome,
     ReviewTargetType,
     RiskCheck,
+    ScenarioDefinition,
+    StressTestResult,
+    StressTestRun,
     StrictModel,
     WorkflowStatus,
 )
@@ -56,6 +61,26 @@ class PortfolioReviewPipelineResponse(StrictModel):
     final_portfolio_proposal: PortfolioProposal = Field(
         description="Final portfolio proposal after risk checks and any optional review transition."
     )
+    portfolio_attribution: PortfolioAttribution | None = Field(
+        default=None,
+        description="Proposal-level attribution artifact when portfolio analysis has run.",
+    )
+    position_attributions: list[PositionAttribution] = Field(
+        default_factory=list,
+        description="Position-level attribution artifacts when portfolio analysis has run.",
+    )
+    scenario_definitions: list[ScenarioDefinition] = Field(
+        default_factory=list,
+        description="Scenario definitions applied during portfolio analysis.",
+    )
+    stress_test_run: StressTestRun | None = Field(
+        default=None,
+        description="Stress-test run artifact when portfolio analysis has run.",
+    )
+    stress_test_results: list[StressTestResult] = Field(
+        default_factory=list,
+        description="Structured stress-test results when portfolio analysis has run.",
+    )
     risk_checks: list[RiskCheck] = Field(
         default_factory=list,
         description="Risk checks attached to the final proposal.",
@@ -85,6 +110,7 @@ def run_portfolio_review_pipeline(
     research_root: Path | None = None,
     ingestion_root: Path | None = None,
     backtesting_root: Path | None = None,
+    portfolio_analysis_root: Path | None = None,
     output_root: Path | None = None,
     company_id: str | None = None,
     as_of_time: datetime | None = None,
@@ -113,6 +139,11 @@ def run_portfolio_review_pipeline(
     resolved_ingestion_root = ingestion_root or (resolved_artifact_root / "ingestion")
     resolved_backtesting_root = backtesting_root or (resolved_artifact_root / "backtesting")
     resolved_output_root = output_root or (resolved_artifact_root / "portfolio")
+    resolved_portfolio_analysis_root = portfolio_analysis_root or (
+        resolved_output_root.parent / "portfolio_analysis"
+        if output_root is not None
+        else (resolved_artifact_root / "portfolio_analysis")
+    )
     audit_root = resolved_output_root.parent / "audit"
     monitoring_root = resolved_output_root.parent / "monitoring"
     resolved_clock = clock or SystemClock()
@@ -144,6 +175,7 @@ def run_portfolio_review_pipeline(
                 research_root=resolved_research_root,
                 ingestion_root=resolved_ingestion_root,
                 backtesting_root=resolved_backtesting_root,
+                portfolio_analysis_root=resolved_portfolio_analysis_root,
                 output_root=resolved_output_root,
                 company_id=company_id,
                 as_of_time=as_of_time,
@@ -374,6 +406,11 @@ def run_portfolio_review_pipeline(
             portfolio_workflow=workflow_response,
             final_position_ideas=final_position_ideas,
             final_portfolio_proposal=final_portfolio_proposal,
+            portfolio_attribution=workflow_response.portfolio_attribution,
+            position_attributions=workflow_response.position_attributions,
+            scenario_definitions=workflow_response.scenario_definitions,
+            stress_test_run=workflow_response.stress_test_run,
+            stress_test_results=workflow_response.stress_test_results,
             risk_checks=final_portfolio_proposal.risk_checks,
             review_decision=review_decision,
             paper_trades=paper_trade_response.proposed_trades,

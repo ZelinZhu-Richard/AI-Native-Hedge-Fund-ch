@@ -11,7 +11,9 @@ from libraries.schemas import (
     EvidenceAssessment,
     Hypothesis,
     PaperTrade,
+    PortfolioAttribution,
     PortfolioProposal,
+    PositionAttribution,
     PositionIdea,
     ResearchBrief,
     ReviewAssignment,
@@ -20,6 +22,8 @@ from libraries.schemas import (
     ReviewQueueItem,
     ReviewTargetType,
     Signal,
+    StressTestResult,
+    StressTestRun,
     StrictModel,
 )
 from libraries.schemas.base import TimestampedModel
@@ -38,6 +42,10 @@ class LoadedReviewWorkspace(StrictModel):
     portfolio_proposals_by_id: dict[str, PortfolioProposal] = Field(default_factory=dict)
     paper_trades_by_id: dict[str, PaperTrade] = Field(default_factory=dict)
     position_ideas_by_id: dict[str, PositionIdea] = Field(default_factory=dict)
+    portfolio_attributions_by_id: dict[str, PortfolioAttribution] = Field(default_factory=dict)
+    position_attributions_by_id: dict[str, PositionAttribution] = Field(default_factory=dict)
+    stress_test_runs_by_id: dict[str, StressTestRun] = Field(default_factory=dict)
+    stress_test_results_by_id: dict[str, StressTestResult] = Field(default_factory=dict)
     queue_items_by_target_key: dict[str, ReviewQueueItem] = Field(default_factory=dict)
     review_notes_by_id: dict[str, ReviewNote] = Field(default_factory=dict)
     review_notes_by_target_key: dict[str, list[ReviewNote]] = Field(default_factory=dict)
@@ -54,6 +62,7 @@ def load_review_workspace(
     portfolio_root: Path,
     review_root: Path,
     audit_root: Path,
+    portfolio_analysis_root: Path | None = None,
 ) -> LoadedReviewWorkspace:
     """Load persisted reviewable artifacts and review metadata."""
 
@@ -65,6 +74,26 @@ def load_review_workspace(
     portfolio_proposals = _load_models(portfolio_root / "portfolio_proposals", PortfolioProposal)
     paper_trades = _load_models(portfolio_root / "paper_trades", PaperTrade)
     position_ideas = _load_models(portfolio_root / "position_ideas", PositionIdea)
+    portfolio_attributions = (
+        _load_models(portfolio_analysis_root / "portfolio_attributions", PortfolioAttribution)
+        if portfolio_analysis_root is not None
+        else []
+    )
+    position_attributions = (
+        _load_models(portfolio_analysis_root / "position_attributions", PositionAttribution)
+        if portfolio_analysis_root is not None
+        else []
+    )
+    stress_test_runs = (
+        _load_models(portfolio_analysis_root / "stress_test_runs", StressTestRun)
+        if portfolio_analysis_root is not None
+        else []
+    )
+    stress_test_results = (
+        _load_models(portfolio_analysis_root / "stress_test_results", StressTestResult)
+        if portfolio_analysis_root is not None
+        else []
+    )
     queue_items = _load_models(review_root / "queue_items", ReviewQueueItem)
     review_notes = _load_models(review_root / "review_notes", ReviewNote)
     review_assignments = _load_models(review_root / "review_assignments", ReviewAssignment)
@@ -87,6 +116,22 @@ def load_review_workspace(
         },
         paper_trades_by_id={paper_trade.paper_trade_id: paper_trade for paper_trade in paper_trades},
         position_ideas_by_id={idea.position_idea_id: idea for idea in position_ideas},
+        portfolio_attributions_by_id={
+            attribution.portfolio_attribution_id: attribution
+            for attribution in portfolio_attributions
+        },
+        position_attributions_by_id={
+            attribution.position_attribution_id: attribution
+            for attribution in position_attributions
+        },
+        stress_test_runs_by_id={
+            stress_test_run.stress_test_run_id: stress_test_run
+            for stress_test_run in stress_test_runs
+        },
+        stress_test_results_by_id={
+            stress_test_result.stress_test_result_id: stress_test_result
+            for stress_test_result in stress_test_results
+        },
         queue_items_by_target_key={
             target_key(item.target_type, item.target_id): item for item in queue_items
         },

@@ -8,6 +8,7 @@ from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArbitrationDecision,
     EvidenceAssessment,
+    PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
     PositionIdea,
@@ -15,6 +16,8 @@ from libraries.schemas import (
     Signal,
     SignalBundle,
     SignalConflict,
+    StressTestResult,
+    StressTestRun,
     StrictModel,
 )
 from libraries.utils import make_prefixed_id
@@ -55,6 +58,18 @@ class RiskEvaluationRequest(StrictModel):
     signal_conflicts: list[SignalConflict] = Field(
         default_factory=list,
         description="Optional signal conflicts that should remain visible in risk review.",
+    )
+    portfolio_attribution: PortfolioAttribution | None = Field(
+        default=None,
+        description="Optional portfolio-attribution artifact for explainability and fragility review.",
+    )
+    stress_test_run: StressTestRun | None = Field(
+        default=None,
+        description="Optional stress-test run artifact for proposal fragility review.",
+    )
+    stress_test_results: list[StressTestResult] = Field(
+        default_factory=list,
+        description="Optional structured stress-test results for proposal review.",
     )
     requested_by: str = Field(description="Requester identifier.")
 
@@ -109,6 +124,9 @@ class RiskEngineService(BaseService):
             signal_bundle=request.signal_bundle,
             arbitration_decision=request.arbitration_decision,
             signal_conflicts=request.signal_conflicts,
+            portfolio_attribution=request.portfolio_attribution,
+            stress_test_run=request.stress_test_run,
+            stress_test_results=request.stress_test_results,
             clock=self.clock,
             workflow_run_id=evaluation_id,
         )

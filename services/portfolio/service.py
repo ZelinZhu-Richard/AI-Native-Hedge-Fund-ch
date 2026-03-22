@@ -10,11 +10,16 @@ from libraries.config import get_settings
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
+    PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
     PortfolioProposalStatus,
+    PositionAttribution,
     PositionIdea,
     RiskCheck,
+    ScenarioDefinition,
+    StressTestResult,
+    StressTestRun,
     StrictModel,
 )
 from libraries.schemas.base import ProvenanceRecord
@@ -27,6 +32,7 @@ from services.portfolio.construction import (
 )
 from services.portfolio.loaders import load_portfolio_inputs
 from services.portfolio.storage import LocalPortfolioArtifactStore
+from services.portfolio_analysis import PortfolioAnalysisService
 from services.risk_engine import RiskEngineService, RiskEvaluationRequest
 
 
@@ -64,6 +70,10 @@ class RunPortfolioWorkflowRequest(StrictModel):
     backtesting_root: Path | None = Field(
         default=None,
         description="Optional backtesting artifact root used for contextual notes.",
+    )
+    portfolio_analysis_root: Path | None = Field(
+        default=None,
+        description="Optional root path containing persisted portfolio-analysis artifacts.",
     )
     output_root: Path | None = Field(
         default=None,
@@ -108,6 +118,26 @@ class RunPortfolioWorkflowResponse(StrictModel):
     risk_checks: list[RiskCheck] = Field(
         default_factory=list,
         description="Explicit risk checks attached to the proposal.",
+    )
+    portfolio_attribution: PortfolioAttribution | None = Field(
+        default=None,
+        description="Proposal-level attribution artifact when portfolio analysis has run.",
+    )
+    position_attributions: list[PositionAttribution] = Field(
+        default_factory=list,
+        description="Position-level attribution artifacts when portfolio analysis has run.",
+    )
+    scenario_definitions: list[ScenarioDefinition] = Field(
+        default_factory=list,
+        description="Scenario definitions applied during portfolio analysis.",
+    )
+    stress_test_run: StressTestRun | None = Field(
+        default=None,
+        description="Stress-test batch run artifact when portfolio analysis has run.",
+    )
+    stress_test_results: list[StressTestResult] = Field(
+        default_factory=list,
+        description="Stress-test results generated during portfolio analysis.",
     )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
@@ -161,6 +191,8 @@ class PortfolioConstructionService(BaseService):
             exposure_summary=exposure_summary,
             signal_bundle_id=None,
             arbitration_decision_id=None,
+            portfolio_attribution_id=None,
+            stress_test_run_id=None,
             clock=self.clock,
             workflow_run_id=workflow_run_id,
         ).model_copy(
@@ -243,11 +275,36 @@ class PortfolioConstructionService(BaseService):
                 if inputs.arbitration_decision is not None
                 else None
             ),
+            portfolio_attribution_id=None,
+            stress_test_run_id=None,
             clock=self.clock,
             workflow_run_id=portfolio_workflow_id,
         )
 
         signal_map = {signal.signal_id: signal for signal in inputs.signals}
+        portfolio_analysis_root = request.portfolio_analysis_root or (
+            request.output_root.parent / "portfolio_analysis"
+            if request.output_root is not None
+            else (get_settings().resolved_artifact_root / "portfolio_analysis")
+        )
+        analysis_response = PortfolioAnalysisService(clock=self.clock).analyze_portfolio_proposal(
+            portfolio_proposal=proposal,
+            signals_by_id=signal_map,
+            companies_by_id=(
+                {inputs.company.company_id: inputs.company}
+                if inputs.company is not None
+                else {}
+            ),
+            output_root=portfolio_analysis_root,
+            requested_by=request.requested_by,
+        )
+        notes.extend(analysis_response.notes)
+        proposal = proposal.model_copy(
+            update={
+                "portfolio_attribution_id": analysis_response.portfolio_attribution.portfolio_attribution_id,
+                "stress_test_run_id": analysis_response.stress_test_run.stress_test_run_id,
+            }
+        )
         risk_service = RiskEngineService(clock=self.clock)
         risk_response = risk_service.evaluate(
             RiskEvaluationRequest(
@@ -259,6 +316,9 @@ class PortfolioConstructionService(BaseService):
                 signal_bundle=inputs.signal_bundle,
                 arbitration_decision=inputs.arbitration_decision,
                 signal_conflicts=inputs.signal_conflicts,
+                portfolio_attribution=analysis_response.portfolio_attribution,
+                stress_test_run=analysis_response.stress_test_run,
+                stress_test_results=analysis_response.stress_test_results,
                 requested_by=request.requested_by,
             )
         )
@@ -273,7 +333,7 @@ class PortfolioConstructionService(BaseService):
 
         output_root = request.output_root or (get_settings().resolved_artifact_root / "portfolio")
         store = LocalPortfolioArtifactStore(root=output_root, clock=self.clock)
-        storage_locations: list[ArtifactStorageLocation] = []
+        storage_locations: list[ArtifactStorageLocation] = list(analysis_response.storage_locations)
         for constraint in constraints:
             storage_locations.append(
                 self._persist_model(store=store, category="constraints", model=constraint)
@@ -311,6 +371,11 @@ class PortfolioConstructionService(BaseService):
             position_ideas=position_ideas,
             portfolio_proposal=proposal,
             risk_checks=risk_response.risk_checks,
+            portfolio_attribution=analysis_response.portfolio_attribution,
+            position_attributions=analysis_response.position_attributions,
+            scenario_definitions=analysis_response.scenario_definitions,
+            stress_test_run=analysis_response.stress_test_run,
+            stress_test_results=analysis_response.stress_test_results,
             storage_locations=storage_locations,
             notes=notes,
         )

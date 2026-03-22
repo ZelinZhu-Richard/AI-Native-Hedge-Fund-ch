@@ -20,8 +20,10 @@ from libraries.schemas import (
     PaperTrade,
     PaperTradeStatus,
     PipelineEventType,
+    PortfolioAttribution,
     PortfolioProposal,
     PortfolioProposalStatus,
+    PositionAttribution,
     PositionIdea,
     ResearchBrief,
     ResearchReviewStatus,
@@ -38,6 +40,8 @@ from libraries.schemas import (
     RiskCheck,
     Signal,
     SignalStatus,
+    StressTestResult,
+    StressTestRun,
     StrictModel,
     SupportingEvidenceLink,
     WorkflowStatus,
@@ -117,6 +121,7 @@ class GetReviewContextRequest(StrictModel):
     research_root: Path | None = Field(default=None)
     signal_root: Path | None = Field(default=None)
     portfolio_root: Path | None = Field(default=None)
+    portfolio_analysis_root: Path | None = Field(default=None)
     review_root: Path | None = Field(default=None)
     audit_root: Path | None = Field(default=None)
     sync: bool = Field(default=True)
@@ -393,6 +398,11 @@ class OperatorReviewService(BaseService):
             review_root=request.review_root,
             audit_root=request.audit_root,
         )
+        portfolio_analysis_root = request.portfolio_analysis_root or (
+            request.portfolio_root.parent / "portfolio_analysis"
+            if request.portfolio_root is not None
+            else (get_settings().resolved_artifact_root / "portfolio_analysis")
+        )
         if request.sync:
             self.sync_review_queue(
                 SyncReviewQueueRequest(
@@ -410,6 +420,7 @@ class OperatorReviewService(BaseService):
             portfolio_root=portfolio_root,
             review_root=review_root,
             audit_root=audit_root,
+            portfolio_analysis_root=portfolio_analysis_root,
         )
         key = target_key(request.target_type, request.target_id)
         queue_item = workspace.queue_items_by_target_key.get(key)
@@ -437,6 +448,10 @@ class OperatorReviewService(BaseService):
         risk_checks: list[RiskCheck] = []
         related_signals: list[Signal] = []
         position_ideas: list[PositionIdea] = []
+        portfolio_attribution: PortfolioAttribution | None = None
+        position_attributions: list[PositionAttribution] = []
+        stress_test_run: StressTestRun | None = None
+        stress_test_results: list[StressTestResult] = []
 
         if request.target_type is ReviewTargetType.RESEARCH_BRIEF:
             research_brief = self._require_target(workspace.research_briefs_by_id, request.target_id)
@@ -468,11 +483,29 @@ class OperatorReviewService(BaseService):
                 position_ideas=position_ideas,
                 workspace=workspace,
             )
+            (
+                portfolio_attribution,
+                position_attributions,
+                stress_test_run,
+                stress_test_results,
+            ) = self._portfolio_analysis_for_proposal(
+                portfolio_proposal=portfolio_proposal,
+                workspace=workspace,
+            )
         elif request.target_type is ReviewTargetType.PAPER_TRADE:
             paper_trade = self._require_target(workspace.paper_trades_by_id, request.target_id)
             portfolio_proposal = workspace.portfolio_proposals_by_id.get(paper_trade.portfolio_proposal_id)
             if portfolio_proposal is not None:
                 risk_checks = list(portfolio_proposal.risk_checks)
+                (
+                    portfolio_attribution,
+                    position_attributions,
+                    stress_test_run,
+                    stress_test_results,
+                ) = self._portfolio_analysis_for_proposal(
+                    portfolio_proposal=portfolio_proposal,
+                    workspace=workspace,
+                )
             position_idea = workspace.position_ideas_by_id.get(paper_trade.position_idea_id)
             if position_idea is not None:
                 position_ideas = [position_idea]
@@ -494,6 +527,10 @@ class OperatorReviewService(BaseService):
             signal=signal,
             portfolio_proposal=portfolio_proposal,
             paper_trade=paper_trade,
+            portfolio_attribution=portfolio_attribution,
+            position_attributions=position_attributions,
+            stress_test_run=stress_test_run,
+            stress_test_results=stress_test_results,
             supporting_evidence_links=supporting_evidence_links,
             risk_checks=risk_checks,
             related_signals=related_signals,
@@ -1623,6 +1660,52 @@ class OperatorReviewService(BaseService):
             if link.supporting_evidence_link_id in desired_link_ids
         }
         return list(unique_links.values())
+
+    def _portfolio_analysis_for_proposal(
+        self,
+        *,
+        portfolio_proposal: PortfolioProposal,
+        workspace: LoadedReviewWorkspace,
+    ) -> tuple[
+        PortfolioAttribution | None,
+        list[PositionAttribution],
+        StressTestRun | None,
+        list[StressTestResult],
+    ]:
+        """Resolve proposal-linked attribution and stress artifacts when available."""
+
+        portfolio_attribution = (
+            workspace.portfolio_attributions_by_id.get(portfolio_proposal.portfolio_attribution_id)
+            if portfolio_proposal.portfolio_attribution_id is not None
+            else None
+        )
+        position_attributions = (
+            [
+                attribution
+                for attribution_id in portfolio_attribution.position_attribution_ids
+                if (
+                    attribution := workspace.position_attributions_by_id.get(attribution_id)
+                )
+                is not None
+            ]
+            if portfolio_attribution is not None
+            else []
+        )
+        stress_test_run = (
+            workspace.stress_test_runs_by_id.get(portfolio_proposal.stress_test_run_id)
+            if portfolio_proposal.stress_test_run_id is not None
+            else None
+        )
+        stress_test_results = (
+            [
+                result
+                for result_id in stress_test_run.stress_test_result_ids
+                if (result := workspace.stress_test_results_by_id.get(result_id)) is not None
+            ]
+            if stress_test_run is not None
+            else []
+        )
+        return portfolio_attribution, position_attributions, stress_test_run, stress_test_results
 
     def _company_id_for_review_target(
         self,

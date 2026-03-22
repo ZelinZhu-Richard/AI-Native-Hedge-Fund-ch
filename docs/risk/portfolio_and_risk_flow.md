@@ -19,9 +19,10 @@ This is the first inspectable proposal layer downstream of signals.
 7. Map each eligible signal into one `PositionIdea`.
 8. Assemble all position ideas into one `PortfolioProposal`.
 9. Compute a `PortfolioExposureSummary`.
-10. Run explicit `RiskCheck` rules.
-11. Mark the proposal `pending_review`.
-12. Allow downstream paper-trade candidate creation only after explicit proposal approval and only when blocking issues are absent.
+10. Build proposal-level attribution and structured stress-test artifacts.
+11. Run explicit `RiskCheck` rules, including non-blocking proposal fragility warnings.
+12. Mark the proposal `pending_review`.
+13. Allow downstream paper-trade candidate creation only after explicit proposal approval and only when blocking issues are absent.
 
 ## Signal To Position Mapping
 
@@ -73,6 +74,39 @@ Warnings:
 - `EvidenceAssessment.grade` of `moderate`
 - signal arbitration context missing
 - signal arbitration conflicts present
+- portfolio analysis missing
+- portfolio concentration fragility
+- portfolio stress fragility
+
+## Portfolio Analysis
+
+Day 20 adds a deterministic proposal-analysis layer before risk review.
+
+It persists:
+
+- `PortfolioAttribution`
+- `PositionAttribution`
+- `ScenarioDefinition`
+- `StressTestRun`
+- `StressTestResult`
+
+This layer explains:
+
+- which signals and position ideas drove the proposal
+- which constraints have headroom
+- which positions dominate concentration
+- how the proposal behaves under a few simple stress cases
+
+The current stress set is intentionally simple:
+
+- broad market drawdown
+- sector-specific shock when sector metadata exists
+- volatility-increase sizing stress
+- tighter single-name concentration stress
+- confidence degradation stress
+
+These artifacts are review-facing and advisory.
+They do not create a new approval gate by themselves.
 
 ## Review Boundary
 
@@ -101,12 +135,21 @@ Day 7 persists local artifacts under `artifacts/portfolio/`:
 - `review_decisions/`
 - `paper_trades/`
 
+Day 20 also persists local artifacts under `artifacts/portfolio_analysis/`:
+
+- `position_attributions/`
+- `portfolio_attributions/`
+- `scenario_definitions/`
+- `stress_test_runs/`
+- `stress_test_results/`
+
 ## Current Limitations
 
 - One-company local-dev flow only.
 - No optimizer, covariance model, or holdings-aware turnover model.
 - Turnover is still measured from a flat-start assumption.
 - Sector, liquidity, and beta checks are not implemented yet.
+- Stress testing is heuristic and deterministic, not a risk-model platform.
 - Candidate signals are still allowed into proposals, but they remain visibly provisional and review-gated.
 - Signal arbitration improves comparison and conflict visibility, but it is not the reviewed-and-evaluated eligibility gate yet.
 - When no arbitration bundle exists, the workflow still falls back to raw signals with an explicit warning.

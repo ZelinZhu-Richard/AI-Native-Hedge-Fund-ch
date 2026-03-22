@@ -35,6 +35,7 @@ from pipelines.portfolio import run_portfolio_review_pipeline
 from pipelines.signal_generation import run_feature_signal_pipeline
 from services.operator_review import (
     ApplyReviewActionRequest,
+    GetReviewContextRequest,
     OperatorReviewService,
     SyncReviewQueueRequest,
 )
@@ -71,12 +72,26 @@ def test_operator_review_pipeline_chains_research_signal_portfolio_and_trade_rev
     research_brief = _load_single_model(artifact_root / "research" / "research_briefs", ResearchBrief)
     signal = _load_single_model(artifact_root / "signal_generation" / "signals", Signal)
     proposal = _load_single_model(artifact_root / "portfolio" / "portfolio_proposals", PortfolioProposal)
+    proposal_context = service.get_review_context(
+        GetReviewContextRequest(
+            target_type=ReviewTargetType.PORTFOLIO_PROPOSAL,
+            target_id=proposal.portfolio_proposal_id,
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+        )
+    )
 
     assert {
         (ReviewTargetType.RESEARCH_BRIEF, research_brief.research_brief_id),
         (ReviewTargetType.SIGNAL, signal.signal_id),
         (ReviewTargetType.PORTFOLIO_PROPOSAL, proposal.portfolio_proposal_id),
     }.issubset(queue_targets)
+    assert proposal_context.portfolio_attribution is not None
+    assert proposal_context.stress_test_run is not None
+    assert proposal_context.stress_test_results
 
     brief_action = service.apply_review_action(
         ApplyReviewActionRequest(
@@ -173,9 +188,23 @@ def test_operator_review_pipeline_handles_paper_trade_after_explicit_approval(
         )
     )
     paper_trade = _load_single_model(artifact_root / "portfolio" / "paper_trades", PaperTrade)
+    trade_context = service.get_review_context(
+        GetReviewContextRequest(
+            target_type=ReviewTargetType.PAPER_TRADE,
+            target_id=paper_trade.paper_trade_id,
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+        )
+    )
     assert (ReviewTargetType.PAPER_TRADE, paper_trade.paper_trade_id) in {
         (item.target_type, item.target_id) for item in sync_response.queue_items
     }
+    assert trade_context.portfolio_attribution is not None
+    assert trade_context.stress_test_run is not None
+    assert trade_context.stress_test_results
 
     trade_action = service.apply_review_action(
         ApplyReviewActionRequest(

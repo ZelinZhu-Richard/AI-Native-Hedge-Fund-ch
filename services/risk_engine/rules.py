@@ -8,6 +8,7 @@ from libraries.schemas import (
     ConstraintType,
     EvidenceAssessment,
     EvidenceGrade,
+    PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
     PositionIdea,
@@ -17,6 +18,8 @@ from libraries.schemas import (
     Signal,
     SignalBundle,
     SignalConflict,
+    StressTestResult,
+    StressTestRun,
     StrictModel,
 )
 from libraries.time import Clock
@@ -46,6 +49,9 @@ def evaluate_portfolio_risk(
     signal_bundle: SignalBundle | None,
     arbitration_decision: ArbitrationDecision | None,
     signal_conflicts: list[SignalConflict],
+    portfolio_attribution: PortfolioAttribution | None,
+    stress_test_run: StressTestRun | None,
+    stress_test_results: list[StressTestResult],
     clock: Clock,
     workflow_run_id: str,
 ) -> RiskEvaluationResult:
@@ -108,6 +114,26 @@ def evaluate_portfolio_risk(
                     for signal in signals_by_id.values()
                     for source_reference_id in signal.provenance.source_reference_ids
                 ],
+            )
+        )
+    if portfolio_proposal is not None and (
+        portfolio_attribution is None or stress_test_run is None or not stress_test_results
+    ):
+        risk_checks.append(
+            _build_risk_check(
+                subject_type="portfolio_proposal",
+                subject_id=portfolio_proposal.portfolio_proposal_id,
+                rule_name="portfolio_analysis_missing",
+                status=RiskCheckStatus.WARN,
+                severity=Severity.MEDIUM,
+                blocking=False,
+                message=(
+                    "Portfolio attribution or structured stress-test artifacts are missing. Proposal review is less explainable than intended."
+                ),
+                clock=clock,
+                workflow_run_id=workflow_run_id,
+                upstream_artifact_ids=[portfolio_proposal.portfolio_proposal_id],
+                source_reference_ids=portfolio_proposal.provenance.source_reference_ids,
             )
         )
     for idea in position_ideas:
@@ -332,6 +358,68 @@ def evaluate_portfolio_risk(
                     source_reference_ids=portfolio_proposal.provenance.source_reference_ids,
                 )
             )
+        if _proposal_is_concentration_fragile(portfolio_proposal=portfolio_proposal):
+            top_position_weight = max(
+                (idea.proposed_weight_bps for idea in portfolio_proposal.position_ideas),
+                default=0,
+            )
+            gross_exposure = max(portfolio_proposal.exposure_summary.gross_exposure_bps, 1)
+            top_share_pct = (top_position_weight / gross_exposure) * 100.0
+            risk_checks.append(
+                _build_risk_check(
+                    subject_type="portfolio_proposal",
+                    subject_id=portfolio_proposal.portfolio_proposal_id,
+                    rule_name="portfolio_concentration_fragility",
+                    status=RiskCheckStatus.WARN,
+                    severity=Severity.MEDIUM,
+                    blocking=False,
+                    observed_value=top_share_pct,
+                    limit_value=50.0,
+                    unit="pct",
+                    message=(
+                        "Portfolio proposal is concentration-fragile under current sizing assumptions."
+                    ),
+                    clock=clock,
+                    workflow_run_id=workflow_run_id,
+                    upstream_artifact_ids=[
+                        portfolio_proposal.portfolio_proposal_id,
+                        *(
+                            [portfolio_attribution.portfolio_attribution_id]
+                            if portfolio_attribution is not None
+                            else []
+                        ),
+                    ],
+                    source_reference_ids=portfolio_proposal.provenance.source_reference_ids,
+                )
+            )
+        if stress_test_results and any(
+            stress_result.status is not RiskCheckStatus.PASS for stress_result in stress_test_results
+        ):
+            risk_checks.append(
+                _build_risk_check(
+                    subject_type="portfolio_proposal",
+                    subject_id=portfolio_proposal.portfolio_proposal_id,
+                    rule_name="portfolio_stress_fragility",
+                    status=RiskCheckStatus.WARN,
+                    severity=Severity.MEDIUM,
+                    blocking=False,
+                    message=(
+                        "Structured stress testing surfaced warning-level fragility that should remain visible in review."
+                    ),
+                    clock=clock,
+                    workflow_run_id=workflow_run_id,
+                    upstream_artifact_ids=[
+                        portfolio_proposal.portfolio_proposal_id,
+                        *(
+                            [stress_test_run.stress_test_run_id]
+                            if stress_test_run is not None
+                            else []
+                        ),
+                        *[result.stress_test_result_id for result in stress_test_results],
+                    ],
+                    source_reference_ids=portfolio_proposal.provenance.source_reference_ids,
+                )
+            )
 
     blocking_issues = [risk_check.message for risk_check in risk_checks if risk_check.blocking]
     return RiskEvaluationResult(risk_checks=risk_checks, blocking_issues=blocking_issues)
@@ -409,3 +497,17 @@ def _build_risk_check(
         created_at=now,
         updated_at=now,
     )
+
+
+def _proposal_is_concentration_fragile(*, portfolio_proposal: PortfolioProposal) -> bool:
+    """Detect simple concentration fragility for review-facing warnings."""
+
+    if not portfolio_proposal.position_ideas:
+        return False
+    if len(portfolio_proposal.position_ideas) < 3:
+        return True
+    gross_exposure = portfolio_proposal.exposure_summary.gross_exposure_bps
+    if gross_exposure <= 0:
+        return False
+    top_position_weight = max(idea.proposed_weight_bps for idea in portfolio_proposal.position_ideas)
+    return (top_position_weight / gross_exposure) >= 0.50

@@ -309,6 +309,8 @@ def build_portfolio_proposal(
     arbitration_decision_id: str | None,
     clock: Clock,
     workflow_run_id: str,
+    portfolio_attribution_id: str | None = None,
+    stress_test_run_id: str | None = None,
 ) -> PortfolioProposal:
     """Build one Day 7 reviewable portfolio proposal from position ideas."""
 
@@ -327,6 +329,8 @@ def build_portfolio_proposal(
         review_decision_ids=[],
         signal_bundle_id=signal_bundle_id,
         arbitration_decision_id=arbitration_decision_id,
+        portfolio_attribution_id=portfolio_attribution_id,
+        stress_test_run_id=stress_test_run_id,
         review_required=True,
         status=PortfolioProposalStatus.PENDING_REVIEW,
         summary=(

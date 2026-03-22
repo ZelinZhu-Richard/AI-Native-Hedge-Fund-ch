@@ -15,6 +15,7 @@ from services.operator_review import OperatorReviewService
 from services.paper_execution import PaperExecutionService
 from services.parsing import ParsingService
 from services.portfolio import PortfolioConstructionService
+from services.portfolio_analysis import PortfolioAnalysisService
 from services.red_team import RedTeamService
 from services.research_memory import ResearchMemoryService
 from services.research_orchestrator import ResearchOrchestrationService
@@ -41,6 +42,7 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         ExperimentRegistryService(clock=clock),
         RiskEngineService(clock=clock),
         PortfolioConstructionService(clock=clock),
+        PortfolioAnalysisService(clock=clock),
         PaperExecutionService(clock=clock),
         OperatorReviewService(clock=clock),
         MemoGenerationService(clock=clock),

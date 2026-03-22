@@ -240,6 +240,14 @@ class PortfolioProposal(TimestampedModel):
         default=None,
         description="Signal-arbitration decision identifier used by the proposal when applicable.",
     )
+    portfolio_attribution_id: str | None = Field(
+        default=None,
+        description="Portfolio-attribution artifact identifier when proposal analysis has run.",
+    )
+    stress_test_run_id: str | None = Field(
+        default=None,
+        description="Stress-test run identifier when proposal analysis has run.",
+    )
     review_required: bool = Field(
         default=True,
         description="Whether the proposal requires explicit human approval.",

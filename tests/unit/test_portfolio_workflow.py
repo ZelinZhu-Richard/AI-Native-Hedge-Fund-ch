@@ -62,9 +62,26 @@ def test_candidate_signal_creates_300bps_position_and_review_bound_proposal(
     assert response.final_portfolio_proposal.status.value == "pending_review"
     assert response.final_portfolio_proposal.signal_bundle_id is not None
     assert response.final_portfolio_proposal.arbitration_decision_id is not None
+    assert response.portfolio_workflow.portfolio_attribution is not None
+    assert response.portfolio_workflow.stress_test_run is not None
+    assert response.portfolio_workflow.position_attributions
+    assert response.portfolio_workflow.stress_test_results
+    assert (
+        response.final_portfolio_proposal.portfolio_attribution_id
+        == response.portfolio_workflow.portfolio_attribution.portfolio_attribution_id
+    )
+    assert (
+        response.final_portfolio_proposal.stress_test_run_id
+        == response.portfolio_workflow.stress_test_run.stress_test_run_id
+    )
     assert response.paper_trades == []
     assert any("approved parent portfolio proposal" in note for note in response.notes)
     assert any("not replay-safe" in note for note in response.portfolio_workflow.notes)
+    assert any("portfolio_analysis" in location.uri for location in response.storage_locations)
+    assert {
+        "portfolio_concentration_fragility",
+        "portfolio_stress_fragility",
+    }.issubset({check.rule_name for check in response.risk_checks})
 
 
 def test_approved_validated_signal_creates_500bps_position(tmp_path: Path) -> None:
@@ -90,6 +107,8 @@ def test_approved_validated_signal_creates_500bps_position(tmp_path: Path) -> No
     assert len(response.position_ideas) == 1
     assert response.position_ideas[0].proposed_weight_bps == 500
     assert "Selected from raw signal" in response.position_ideas[0].selection_reason
+    assert response.portfolio_attribution is not None
+    assert response.stress_test_run is not None
     assert any("temporary raw-signal fallback" in note for note in response.notes)
 
 
@@ -141,6 +160,9 @@ def test_missing_rationale_creates_blocking_risk_failure(tmp_path: Path) -> None
         signal_bundle=None,
         arbitration_decision=None,
         signal_conflicts=[],
+        portfolio_attribution=None,
+        stress_test_run=None,
+        stress_test_results=[],
         clock=FrozenClock(FIXED_NOW),
         workflow_run_id="riskeval_test",
     )

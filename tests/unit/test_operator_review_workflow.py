@@ -84,6 +84,21 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
         artifact_root / "portfolio" / "portfolio_proposals",
         PortfolioProposal,
     )
+    proposal_context = service.get_review_context(
+        GetReviewContextRequest(
+            target_type=ReviewTargetType.PORTFOLIO_PROPOSAL,
+            target_id=proposal.portfolio_proposal_id,
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+        )
+    )
+    assert proposal_context.portfolio_attribution is not None
+    assert proposal_context.position_attributions
+    assert proposal_context.stress_test_run is not None
+    assert proposal_context.stress_test_results
 
     note_response = service.add_review_note(
         AddReviewNoteRequest(

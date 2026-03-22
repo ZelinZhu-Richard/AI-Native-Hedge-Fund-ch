@@ -10,6 +10,12 @@ from libraries.schemas.base import ProvenanceRecord, ReviewOutcome, StrictModel,
 
 if TYPE_CHECKING:
     from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, RiskCheck
+    from libraries.schemas.portfolio_analysis import (
+        PortfolioAttribution,
+        PositionAttribution,
+        StressTestResult,
+        StressTestRun,
+    )
     from libraries.schemas.research import (
         CounterHypothesis,
         EvidenceAssessment,
@@ -263,6 +269,22 @@ class ReviewContext(StrictModel):
         default_factory=list,
         description="Position ideas relevant to the target.",
     )
+    portfolio_attribution: PortfolioAttribution | None = Field(
+        default=None,
+        description="Proposal attribution artifact when available.",
+    )
+    position_attributions: list[PositionAttribution] = Field(
+        default_factory=list,
+        description="Position-level attribution artifacts when available.",
+    )
+    stress_test_run: StressTestRun | None = Field(
+        default=None,
+        description="Stress-test batch linked to the proposal when available.",
+    )
+    stress_test_results: list[StressTestResult] = Field(
+        default_factory=list,
+        description="Scenario-level stress results linked to the proposal when available.",
+    )
     review_notes: list[ReviewNote] = Field(
         default_factory=list,
         description="Persisted review notes for the target.",
@@ -305,6 +327,12 @@ def _rebuild_review_context() -> None:
     """Resolve cross-module references for the derived review context model."""
 
     from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, RiskCheck
+    from libraries.schemas.portfolio_analysis import (
+        PortfolioAttribution,
+        PositionAttribution,
+        StressTestResult,
+        StressTestRun,
+    )
     from libraries.schemas.research import (
         CounterHypothesis,
         EvidenceAssessment,
@@ -321,7 +349,11 @@ def _rebuild_review_context() -> None:
             "PaperTrade": PaperTrade,
             "PortfolioProposal": PortfolioProposal,
             "PositionIdea": PositionIdea,
+            "PortfolioAttribution": PortfolioAttribution,
+            "PositionAttribution": PositionAttribution,
             "RiskCheck": RiskCheck,
+            "StressTestRun": StressTestRun,
+            "StressTestResult": StressTestResult,
             "CounterHypothesis": CounterHypothesis,
             "EvidenceAssessment": EvidenceAssessment,
             "Hypothesis": Hypothesis,
