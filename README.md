@@ -47,7 +47,15 @@ Runs a deterministic single-company local walkthrough over the APEX fixtures and
 make demo
 ```
 
-Or:
+Primary direct CLI:
+
+```bash
+anhf demo run \
+  --frozen-time 2026-04-01T12:00:00Z \
+  --base-root artifacts/demo_runs/week3_demo
+```
+
+Legacy module entrypoint still works:
 
 ```bash
 python -m pipelines.demo.end_to_end_demo \
@@ -60,6 +68,7 @@ This proves that the current layers connect coherently. It does not prove alpha,
 See:
 
 - `docs/product/end_to_end_demo.md`
+- `docs/product/demo_usability.md`
 - `docs/product/week3_demo_status.md`
 
 ### Daily local workflow
@@ -70,7 +79,15 @@ Runs the repeatable local operating path:
 make daily-run
 ```
 
-Or:
+Primary direct CLI:
+
+```bash
+anhf daily run \
+  --artifact-root artifacts/daily_runs/latest \
+  --requested-by manual_local_run
+```
+
+Legacy module entrypoint still works:
 
 ```bash
 python -m pipelines.daily_operations.daily_workflow \
@@ -124,11 +141,24 @@ make api
 
 Open `http://127.0.0.1:8000/docs` for the FastAPI inspection endpoints.
 
+See:
+
+- `docs/product/api_and_interface_contracts.md`
+
+### 6. Inspect the interface surface
+
+```bash
+anhf capabilities
+anhf manifest
+anhf review queue --json
+```
+
 ## Practical Repo Map
 
 ```text
 apps/
   api/                       FastAPI inspection and coordination surface
+  cli/                       unified local CLI for demo, daily, and inspection paths
 services/
   ingestion/                fixture-backed intake and normalization
   parsing/                  parsing and evidence extraction
@@ -178,6 +208,7 @@ artifacts/
 - Portfolio proposals are review objects, not execution instructions.
 - Paper trades are paper-only and require an explicitly approved parent proposal.
 - The repo is strongest on structure, traceability, and workflow discipline, not on live-market realism.
+- The API is a local inspection and coordination surface, not a production control plane.
 
 ## Developer Notes
 

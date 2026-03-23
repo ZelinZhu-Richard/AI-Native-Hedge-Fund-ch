@@ -85,6 +85,15 @@ from libraries.schemas.entity_resolution import (
     ResolutionDecisionStatus,
     TickerAlias,
 )
+from libraries.schemas.interface import (
+    APIResponseEnvelope,
+    CapabilityDescriptor,
+    DemoRunResult,
+    ErrorResponse,
+    InterfaceWarning,
+    ServiceManifest,
+    WorkflowInvocationResult,
+)
 from libraries.schemas.market import (
     Company,
     DataSnapshot,
@@ -565,8 +574,15 @@ __all__ = [
     "ProposalScorecard",
     "DailySystemReport",
     "SystemCapabilitySummary",
+    "APIResponseEnvelope",
+    "CapabilityDescriptor",
+    "DemoRunResult",
+    "ErrorResponse",
+    "InterfaceWarning",
+    "ServiceManifest",
     "ThesisAssessment",
     "TradeOutcome",
+    "WorkflowInvocationResult",
     "WorkflowScope",
     "RunContext",
     "SameDayAvailabilityPolicy",

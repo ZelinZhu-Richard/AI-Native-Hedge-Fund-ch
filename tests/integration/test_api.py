@@ -41,52 +41,25 @@ PRICE_FIXTURE_PATH = (
     / "apex_synthetic_daily_prices.json"
 )
 FIXED_NOW = datetime(2026, 3, 17, 11, 0, tzinfo=UTC)
+DEMO_TIME = datetime(2026, 4, 1, 12, 0, tzinfo=UTC)
 
 
-def test_api_health_and_version() -> None:
-    health_response = client.get("/health")
-    version_response = client.get("/version")
+def test_api_health_version_and_alias_routes() -> None:
+    health_response = client.get("/system/health")
+    alias_response = client.get("/health")
+    version_response = client.get("/system/version")
 
     assert health_response.status_code == 200
-    assert health_response.json()["status"] == "ok"
+    assert health_response.json()["data"]["status"] == "ok"
+    assert alias_response.status_code == 200
+    assert alias_response.json()["data"] == health_response.json()["data"]
     assert version_response.status_code == 200
-    assert version_response.json()["version"] == "0.1.0"
+    assert version_response.json()["data"]["version"] == "0.1.0"
 
 
-def test_monitoring_api_endpoints_return_structured_outputs(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    artifact_root = tmp_path / "artifacts"
-    monkeypatch.setenv("ARTIFACT_ROOT", str(artifact_root))
-    get_settings.cache_clear()
-    try:
-        _build_full_stack(artifact_root=artifact_root)
-
-        health_details_response = client.get("/health/details")
-        run_summaries_response = client.get("/monitoring/run-summaries/recent")
-        failure_summaries_response = client.get("/monitoring/failures/recent")
-        service_status_response = client.get("/monitoring/services")
-
-        assert health_details_response.status_code == 200
-        assert health_details_response.json()["health_checks"]
-        assert service_status_response.status_code == 200
-        assert service_status_response.json()["total"] >= 1
-        assert any(
-            item["service_name"] == "monitoring"
-            for item in service_status_response.json()["items"]
-        )
-        assert run_summaries_response.status_code == 200
-        assert run_summaries_response.json()["total"] >= 1
-        assert failure_summaries_response.status_code == 200
-        assert "run_summaries" in failure_summaries_response.json()
-        assert "alert_records" in failure_summaries_response.json()
-    finally:
-        get_settings.cache_clear()
-
-
-def test_capabilities_and_document_ingestion_endpoint() -> None:
-    capabilities_response = client.get("/capabilities")
+def test_system_manifest_and_capabilities_are_structured() -> None:
+    capabilities_response = client.get("/system/capabilities")
+    manifest_response = client.get("/system/manifest")
     ingest_response = client.post(
         "/documents/ingest",
         json={
@@ -99,14 +72,54 @@ def test_capabilities_and_document_ingestion_endpoint() -> None:
     )
 
     assert capabilities_response.status_code == 200
-    assert len(capabilities_response.json()["services"]) >= 5
-    assert "name" in capabilities_response.json()["services"][0]
-    assert "objective" in capabilities_response.json()["agents"][0]
+    descriptors = capabilities_response.json()["data"]["items"]
+    assert any(item["kind"] == "service" and item["name"] == "monitoring" for item in descriptors)
+    assert any(item["kind"] == "agent" for item in descriptors)
+    assert any(item["kind"] == "workflow" and item["name"] == "demo_end_to_end" for item in descriptors)
+
+    assert manifest_response.status_code == 200
+    manifest = manifest_response.json()["data"]
+    assert manifest["project_name"] == "ANHF Research OS"
+    assert "ARTIFACT_ROOT" in manifest["config_surface"]
+    assert any(item["warning_code"] == "local_only" for item in manifest["warnings"])
+
     assert ingest_response.status_code == 200
-    assert ingest_response.json()["status"] == "queued"
+    assert ingest_response.json()["data"]["status"] == "queued"
 
 
-def test_artifact_listing_endpoints_return_persisted_objects(
+def test_monitoring_api_endpoints_return_structured_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setenv("ARTIFACT_ROOT", str(artifact_root))
+    get_settings.cache_clear()
+    try:
+        _build_full_stack(artifact_root=artifact_root)
+
+        health_details_response = client.get("/system/health/details")
+        run_summaries_response = client.get("/monitoring/run-summaries/recent")
+        failure_summaries_response = client.get("/monitoring/failures/recent")
+        service_status_response = client.get("/monitoring/services")
+
+        assert health_details_response.status_code == 200
+        assert health_details_response.json()["data"]["health_checks"]
+        assert service_status_response.status_code == 200
+        assert service_status_response.json()["data"]["total"] >= 1
+        assert any(
+            item["service_name"] == "monitoring"
+            for item in service_status_response.json()["data"]["items"]
+        )
+        assert run_summaries_response.status_code == 200
+        assert run_summaries_response.json()["data"]["total"] >= 1
+        assert failure_summaries_response.status_code == 200
+        assert "run_summaries" in failure_summaries_response.json()["data"]
+        assert "alert_records" in failure_summaries_response.json()["data"]
+    finally:
+        get_settings.cache_clear()
+
+
+def test_artifact_and_report_listing_endpoints_return_persisted_objects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -116,21 +129,39 @@ def test_artifact_listing_endpoints_return_persisted_objects(
     try:
         _build_full_stack(artifact_root=artifact_root, approve_proposal=True)
 
-        hypotheses_response = client.get("/hypotheses")
-        proposals_response = client.get("/portfolio-proposals")
-        paper_trades_response = client.get("/paper-trades/proposals")
+        hypotheses_response = client.get("/research/hypotheses")
+        hypotheses_alias_response = client.get("/hypotheses")
+        briefs_response = client.get("/research/briefs")
+        proposals_response = client.get("/portfolio/proposals")
+        proposals_alias_response = client.get("/portfolio-proposals")
+        paper_trades_response = client.get("/portfolio/paper-trades")
+        paper_trades_alias_response = client.get("/paper-trades/proposals")
 
         assert hypotheses_response.status_code == 200
-        assert hypotheses_response.json()["total"] >= 1
+        assert hypotheses_response.json()["data"]["total"] >= 1
+        assert hypotheses_alias_response.json()["data"] == hypotheses_response.json()["data"]
+        assert briefs_response.status_code == 200
+        assert briefs_response.json()["data"]["total"] >= 1
+
         assert proposals_response.status_code == 200
-        assert proposals_response.json()["total"] >= 1
+        assert proposals_response.json()["data"]["total"] >= 1
+        assert proposals_alias_response.json()["data"] == proposals_response.json()["data"]
+        proposal_id = proposals_response.json()["data"]["items"][0]["portfolio_proposal_id"]
+
         assert paper_trades_response.status_code == 200
-        assert paper_trades_response.json()["total"] >= 1
+        assert paper_trades_response.json()["data"]["total"] >= 1
+        assert paper_trades_alias_response.json()["data"] == paper_trades_response.json()["data"]
+
+        proposal_scorecard_response = client.get(f"/reports/proposals/{proposal_id}/scorecard")
+        assert proposal_scorecard_response.status_code == 200
+        assert (
+            proposal_scorecard_response.json()["data"]["portfolio_proposal_id"] == proposal_id
+        )
     finally:
         get_settings.cache_clear()
 
 
-def test_operator_review_endpoints_return_queue_context_and_apply_actions(
+def test_operator_review_endpoints_use_envelopes_and_structured_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -142,7 +173,7 @@ def test_operator_review_endpoints_return_queue_context_and_apply_actions(
 
         queue_response = client.get("/reviews/queue")
         assert queue_response.status_code == 200
-        assert queue_response.json()["total"] >= 3
+        assert queue_response.json()["data"]["total"] >= 3
 
         research_brief_path = next((artifact_root / "research" / "research_briefs").glob("*.json"))
         brief_id = json.loads(research_brief_path.read_text(encoding="utf-8"))["research_brief_id"]
@@ -151,9 +182,14 @@ def test_operator_review_endpoints_return_queue_context_and_apply_actions(
 
         context_response = client.get(f"/reviews/context/research_brief/{brief_id}")
         assert context_response.status_code == 200
-        assert context_response.json()["research_brief"]["research_brief_id"] == brief_id
-        assert context_response.json()["hypothesis"] is not None
-        assert context_response.json()["supporting_evidence_links"]
+        assert context_response.json()["data"]["research_brief"]["research_brief_id"] == brief_id
+        assert context_response.json()["data"]["hypothesis"] is not None
+        assert context_response.json()["data"]["supporting_evidence_links"]
+
+        not_found_response = client.get("/reviews/context/portfolio_proposal/missing_proposal")
+        assert not_found_response.status_code == 404
+        assert not_found_response.json()["status"] == "error"
+        assert not_found_response.json()["error_code"] == "not_found"
 
         note_response = client.post(
             "/reviews/notes",
@@ -165,7 +201,7 @@ def test_operator_review_endpoints_return_queue_context_and_apply_actions(
             },
         )
         assert note_response.status_code == 200
-        assert note_response.json()["review_note"]["target_id"] == brief_id
+        assert note_response.json()["data"]["review_note"]["target_id"] == brief_id
 
         action_response = client.post(
             "/reviews/actions",
@@ -178,9 +214,48 @@ def test_operator_review_endpoints_return_queue_context_and_apply_actions(
             },
         )
         assert action_response.status_code == 200
-        assert action_response.json()["updated_target"]["status"] == "candidate"
-        assert action_response.json()["audit_log"]["status_before"] == "candidate"
-        assert action_response.json()["audit_log"]["status_after"] == "candidate"
+        assert action_response.json()["data"]["updated_target"]["status"] == "candidate"
+        assert action_response.json()["data"]["audit_log"]["status_before"] == "candidate"
+        assert action_response.json()["data"]["audit_log"]["status_after"] == "candidate"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_workflow_entrypoints_return_compact_invocation_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setenv("ARTIFACT_ROOT", str(artifact_root))
+    get_settings.cache_clear()
+    try:
+        demo_response = client.post(
+            "/workflows/demo/run",
+            json={
+                "base_root": str(tmp_path / "demo_run"),
+                "requested_by": "api_demo_test",
+                "frozen_time": DEMO_TIME.isoformat().replace("+00:00", "Z"),
+            },
+        )
+        assert demo_response.status_code == 200
+        demo_data = demo_response.json()["data"]
+        assert demo_data["workflow_name"] == "demo_end_to_end"
+        assert demo_data["demo_run_id"]
+        assert Path(demo_data["manifest_path"]).exists()
+
+        daily_response = client.post(
+            "/workflows/daily/run",
+            json={
+                "artifact_root": str(tmp_path / "daily_run"),
+                "fixtures_root": str(FIXTURE_ROOT),
+                "requested_by": "api_daily_test",
+            },
+        )
+        assert daily_response.status_code == 200
+        daily_data = daily_response.json()["data"]
+        assert daily_data["workflow_name"] == "daily_workflow"
+        assert daily_data["workflow_run_id"]
+        assert daily_data["artifact_root"] == str(tmp_path / "daily_run")
     finally:
         get_settings.cache_clear()
 

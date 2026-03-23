@@ -28,6 +28,14 @@ make demo
 Direct module entrypoint:
 
 ```bash
+anhf demo run \
+  --frozen-time 2026-04-01T12:00:00Z \
+  --base-root artifacts/demo_runs/week3_demo
+```
+
+Legacy module entrypoint:
+
+```bash
 python -m pipelines.demo.end_to_end_demo \
   --frozen-time 2026-04-01T12:00:00Z \
   --base-root artifacts/demo_runs/week3_demo
@@ -107,12 +115,13 @@ Useful artifact categories:
 
 Useful API inspection endpoints:
 
+- `/system/manifest`
 - `/monitoring/run-summaries/recent`
 - `/monitoring/failures/recent`
 - `/reviews/queue`
 - `/reviews/context/{target_type}/{target_id}`
-- `/portfolio-proposals`
-- `/paper-trades/proposals`
+- `/portfolio/proposals`
+- `/portfolio/paper-trades`
 
 ## What The Demo Proves
 

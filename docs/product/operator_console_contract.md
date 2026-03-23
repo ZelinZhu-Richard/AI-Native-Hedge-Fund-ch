@@ -30,6 +30,12 @@ The API now exposes:
 - `POST /reviews/assignments`
 - `POST /reviews/actions`
 
+Related canonical inspection surfaces now also include:
+
+- `GET /portfolio/proposals`
+- `GET /portfolio/paper-trades`
+- `GET /reports/proposals/{portfolio_proposal_id}/scorecard`
+
 The API is thin. It delegates to the operator review service and does not implement separate review logic.
 
 ## Queue Payload
