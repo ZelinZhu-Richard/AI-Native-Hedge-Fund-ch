@@ -153,6 +153,18 @@ anhf manifest
 anhf review queue --json
 ```
 
+## External Proof Materials
+
+Use these docs when you need to explain the repo to skeptical external readers without inflating what it can do:
+
+- [Founder Narrative](docs/product/founder_narrative.md)
+- [Technical Narrative](docs/product/technical_narrative.md)
+- [Quant And Research Narrative](docs/product/quant_research_narrative.md)
+- [Operator And Risk Narrative](docs/product/operator_and_risk_narrative.md)
+- [Proof Artifact Inventory](docs/product/proof_artifact_inventory.md)
+- [Project Maturity Scorecard](docs/product/project_maturity_scorecard.md)
+- [Demo Script](docs/product/demo_script.md)
+
 ## Practical Repo Map
 
 ```text

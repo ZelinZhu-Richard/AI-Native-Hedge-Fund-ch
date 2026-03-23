@@ -6,6 +6,18 @@ The repository is now a serious local research operating system scaffold with re
 
 It is not a finished hedge fund platform. It is not a live trading system. It is not a shallow model wrapper around a dashboard.
 
+## External Proof Materials
+
+For audience-specific explanations and proof packaging, use:
+
+- [Founder Narrative](./founder_narrative.md)
+- [Technical Narrative](./technical_narrative.md)
+- [Quant And Research Narrative](./quant_research_narrative.md)
+- [Operator And Risk Narrative](./operator_and_risk_narrative.md)
+- [Proof Artifact Inventory](./proof_artifact_inventory.md)
+- [Project Maturity Scorecard](./project_maturity_scorecard.md)
+- [Demo Script](./demo_script.md)
+
 ## What Is Credible Today
 
 - the repo has a genuine end-to-end path from raw fixtures to review-bound portfolio proposals
