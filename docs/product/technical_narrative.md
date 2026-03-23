@@ -6,6 +6,13 @@ The repository is a coherent local platform with explicit service boundaries, ty
 
 It is strongest as an inspectable local system. It is not yet a production-scaled distributed platform.
 
+## 30-Day Build Summary
+
+- What is real today: the repo has a passing local proof path that spans research, proposal, review, reporting, audit, and an explicit approval-only paper-ledger appendix.
+- What this audience can safely conclude: the architecture is serious enough for skeptical code and workflow review, with real typed boundaries and persisted artifacts.
+- What this audience must not conclude: the repo is not production infrastructure, not selection-complete, and not policy-hard at the final eligibility boundary.
+- Next-phase focus: make eligibility and selected-artifact enforcement structural before widening data or infra ambition.
+
 ## What Is Genuinely Strong
 
 - Core domain objects are strongly typed across research, validation, backtesting, portfolio construction, paper-trading, ledger, and reporting layers.

@@ -6,6 +6,13 @@ The repo provides a local operator-facing workflow for review queue management, 
 
 It is not an automated execution stack. Operator judgment still matters, and the current design keeps that visible.
 
+## 30-Day Build Summary
+
+- What is real today: operators can inspect review queues, proposal scorecards, risk context, explicit approvals, and a paper-ledger appendix that carries a trade through lifecycle and outcome artifacts.
+- What this audience can safely conclude: the repo supports real local operator scrutiny and auditability rather than narrative-only AI recommendations.
+- What this audience must not conclude: the repo is not institutional risk infrastructure, not a broker-connected execution system, and not fully policy-hard at readiness boundaries.
+- Next-phase focus: tighten blocked-state handling, readiness enforcement, and longer-duration paper operations before widening the operator surface.
+
 ## What Is Genuinely Strong
 
 - Reviewable objects are explicit: research briefs, signals, portfolio proposals, and paper trades each have review context and decisions.

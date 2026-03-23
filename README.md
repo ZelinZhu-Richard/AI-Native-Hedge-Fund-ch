@@ -74,6 +74,30 @@ See:
 - `docs/product/release_candidate_status.md`
 - `docs/product/known_limitations.md`
 
+### Final 30-day proof
+
+Runs the same review-bound stack as the demo, then adds an explicit approval-only appendix that proves paper-trade and paper-ledger continuity without implying automatic downstream promotion.
+
+```bash
+make final-proof
+```
+
+Direct module entrypoint:
+
+```bash
+python -m pipelines.demo.final_30_day_proof \
+  --frozen-time 2026-04-01T12:00:00Z \
+  --base-root artifacts/demo_runs/final_30_day_proof
+```
+
+The resulting manifest is the strongest single proof artifact for the first 30-day build. It still does not prove validated edge, live trading, or complete policy enforcement.
+
+See:
+
+- `docs/reviews/final_30_day_review.md`
+- `docs/plans/phase2_roadmap.md`
+- `docs/product/end_to_end_demo.md`
+
 ### Daily local workflow
 
 Runs the repeatable local operating path:
@@ -141,10 +165,11 @@ Optional maintenance:
 make format
 ```
 
-### 5. Run the demo or daily workflow
+### 5. Run the demo, final proof, or daily workflow
 
 ```bash
 make demo
+make final-proof
 make daily-run
 ```
 
@@ -181,6 +206,8 @@ Use these docs when you need to explain the repo to skeptical external readers w
 - [Release Candidate Status](docs/product/release_candidate_status.md)
 - [Known Limitations](docs/product/known_limitations.md)
 - [Demo Script](docs/product/demo_script.md)
+- [Final 30-Day Review](docs/reviews/final_30_day_review.md)
+- [Phase 2 Roadmap](docs/plans/phase2_roadmap.md)
 
 ## Practical Repo Map
 

@@ -4,7 +4,7 @@
 
 The demo should be easy to run and inspect without overstating what it proves.
 
-The repo now exposes one obvious command-line surface and one obvious API surface for the demo and related inspection paths.
+The repo now exposes one obvious command-line surface for normal local use, plus one explicit final-proof wrapper for deeper release review.
 
 ## Shortest Demo Path
 
@@ -33,8 +33,26 @@ curl -X POST http://127.0.0.1:8000/workflows/demo/run \
     "frozen_time": "2026-04-01T12:00:00Z",
     "base_root": "artifacts/demo_runs/release_candidate",
     "requested_by": "demo_api"
-  }'
+}'
 ```
+
+## Full Proof Path
+
+When you want one stronger build-cycle proof artifact instead of only the lighter review-bound demo:
+
+```bash
+make final-proof
+```
+
+Equivalent direct module entrypoint:
+
+```bash
+python -m pipelines.demo.final_30_day_proof \
+  --frozen-time 2026-04-01T12:00:00Z \
+  --base-root artifacts/demo_runs/final_30_day_proof
+```
+
+This path still uses the default demo as its base. It then adds one explicit approval-only appendix that proves paper-trade and paper-ledger continuity without implying automatic downstream promotion.
 
 ## What You Get Back
 
@@ -52,6 +70,8 @@ That result tells you:
 - the observed health status
 
 The full stage artifacts remain the source of truth.
+
+For the final proof path, the strongest convenience artifact is the final proof manifest under `demo/manifests/`.
 
 ## Useful Follow-On Commands
 
@@ -84,6 +104,7 @@ When you want to inspect those HTTP endpoints, keep `make api` running in a sepa
 - prices remain synthetic in the default backtest path
 - workflow invocation is synchronous
 - the demo still ends review-bound by default
+- the final proof appendix uses explicit local approvals and manual lifecycle events
 
 ## What The Demo Still Does Not Prove
 

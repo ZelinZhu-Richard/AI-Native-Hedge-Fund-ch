@@ -2,6 +2,8 @@
 
 This scorecard is intentionally non-flattering. It rates the current repo as a serious local system, not a production trading stack.
 
+The final 30-day review did not justify raising any of these ratings.
+
 ## Rubric
 
 - `0`: absent

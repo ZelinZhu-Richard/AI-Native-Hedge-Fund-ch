@@ -17,6 +17,8 @@ For audience-specific explanations and proof packaging, use:
 - [Proof Artifact Inventory](./proof_artifact_inventory.md)
 - [Project Maturity Scorecard](./project_maturity_scorecard.md)
 - [Demo Script](./demo_script.md)
+- [Final 30-Day Review](../reviews/final_30_day_review.md)
+- [Phase 2 Roadmap](../plans/phase2_roadmap.md)
 
 ## What Is Credible Today
 
@@ -67,14 +69,13 @@ What is not yet trustworthy enough:
 - calibration and arbitration are deterministic heuristics, not statistical truth
 - stress testing is structured but simple
 
-## What Week 3 Actually Achieved
+## What The First 30-Day Build Actually Achieved
 
-- tightened point-in-time timing and availability semantics
-- added metadata-first research retrieval
-- added inspectable signal arbitration and uncertainty handling
-- added explainable portfolio attribution and structured stress testing
-- added repeatable local daily orchestration and runbook support
-- improved repo consistency around artifact roots, local JSON persistence, validation errors, and review-facing notes
+- built a coherent typed chain from fixture-backed ingestion to review-bound portfolio proposals
+- added timing, provenance, validation, review, monitoring, reporting, and audit layers as real persisted subsystems
+- made portfolio construction, risk context, reconciliation, and paper-ledger outcomes inspectable instead of implicit
+- cleaned up the interface layer so CLI, API, demo, and proof materials describe the same local system
+- packaged the repo with a final proof path, release-candidate docs, and external proof materials that do not hide the remaining gaps
 
 ## What Would Be Misleading To Claim
 
@@ -84,9 +85,9 @@ What is not yet trustworthy enough:
 - that retrieval is semantic or model-ranked
 - that the current stress layer is institutional risk modeling
 
-## Main Review Themes For Week 3
+## Main Review Themes At The End Of The First Cycle
 
-1. Where candidate artifacts still flow too far downstream by convention.
-2. Where cutoff-based loading still stands in for explicit snapshot selection.
-3. Where instrument identity is still too weak.
-4. Where local development ergonomics are good enough, but operational durability is not.
+1. The missing downstream eligibility gate is still the largest trust gap.
+2. Selected-artifact and snapshot-native selection still need to replace latest-artifact convenience paths.
+3. Tradable identity still needs a first-class instrument/security layer.
+4. Evaluation, reconciliation, reporting, and paper-ledger followups still need to become policy-driving.

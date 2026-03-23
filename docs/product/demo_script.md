@@ -6,6 +6,8 @@ Canonical inspection routes used below include `GET /system/manifest`, `GET /por
 
 When the script uses `make api`, keep that server running in a separate terminal while you issue the HTTP inspection commands.
 
+Use `make demo` for the lighter baseline walkthrough. Use `make final-proof` when you want the strongest single build-cycle proof artifact, including the explicit approval-only paper-ledger appendix.
+
 ## Founder / YC Track
 
 **Target duration:** 8-10 minutes
@@ -15,7 +17,7 @@ When the script uses `make api`, keep that server running in a separate terminal
 ```bash
 anhf manifest
 anhf capabilities
-make demo
+make final-proof
 make api
 curl -s http://127.0.0.1:8000/system/manifest
 curl -s http://127.0.0.1:8000/reviews/queue
@@ -27,7 +29,7 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 **What to show**
 
 1. Show `anhf manifest` and `anhf capabilities` first to anchor the discussion in real services and workflows rather than slides.
-2. Run `make demo` to prove the current local end-to-end path exists.
+2. Run `make final-proof` to prove the current local end-to-end path exists and that the repo can extend it into an explicit approval-only paper-ledger appendix.
 3. Start the API and show `GET /system/manifest` to demonstrate that the platform exposes an honest inspection surface.
 4. Show `GET /reviews/queue` and `GET /portfolio/proposals` to make the review-bound stopping point explicit.
 5. Show the proposal scorecard endpoint to demonstrate that the system produces inspectable downstream artifacts, not just a demo narrative.
@@ -57,6 +59,7 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 ```bash
 anhf capabilities
 anhf manifest
+make final-proof
 make api
 curl -s http://127.0.0.1:8000/system/manifest
 curl -s http://127.0.0.1:8000/system/capabilities
@@ -69,10 +72,10 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 **What to show**
 
 1. Start with `anhf capabilities` and call out the service boundaries: data quality, evaluation, operator review, reporting, paper ledger, and daily workflow.
-2. Show `anhf manifest` and `GET /system/manifest` to demonstrate that the interface surface is generated from the real service registry.
-3. Show the review queue and proposal listing endpoints to prove the API is not just health checks.
-4. Show a proposal scorecard and explain that it links back to construction, risk, validation, and reporting artifacts.
-5. Close by pointing to the fact that the system is local-filesystem based today and does not pretend otherwise.
+2. Run `make final-proof` and point out that the default branch stays review-bound while the appendix only proceeds through explicit approvals.
+3. Show `anhf manifest` and `GET /system/manifest` to demonstrate that the interface surface is generated from the real service registry.
+4. Show the review queue and proposal listing endpoints to prove the API is not just health checks.
+5. Show a proposal scorecard and explain that it links back to construction, risk, validation, and reporting artifacts.
 
 **Safe claims to make**
 
@@ -97,7 +100,7 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 **Exact commands**
 
 ```bash
-make demo
+make final-proof
 make daily-run
 make api
 curl -s http://127.0.0.1:8000/reviews/queue
@@ -109,7 +112,7 @@ curl -s http://127.0.0.1:8000/system/manifest
 
 **What to show**
 
-1. Run `make demo` to establish the deterministic local path.
+1. Run `make final-proof` to establish the deterministic local path and the explicit approval-only appendix.
 2. Run `make daily-run` to show that the operating workflow is review-bound and often ends in `attention_required`, which here is a visible stop state rather than fake “success.”
 3. Show `GET /reviews/queue` to make clear that proposals and trades do not skip human review.
 4. Show `GET /portfolio/proposals` and then the proposal scorecard to surface constraint handling, warnings, and measured dimensions.

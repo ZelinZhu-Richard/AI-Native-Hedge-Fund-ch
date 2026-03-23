@@ -6,6 +6,13 @@ ANHF Research OS is a local, deterministic research operating system for turning
 
 It is not a live trading system. It is not a brokerage integration. It does not claim alpha. The current product value is workflow discipline: the system forces research, risk, review, and paper execution into explicit artifacts instead of loose notes and hidden spreadsheets.
 
+## 30-Day Build Summary
+
+- What is real today: the repo can run from fixture-backed ingestion to review-bound proposals and, through an explicit approval-only appendix, into paper-trade and paper-ledger artifacts.
+- What this audience can safely conclude: the product wedge is disciplined research operations and auditability, not just “AI reads filings.”
+- What this audience must not conclude: this is not a live trading product, not a broker integration, and not evidence of validated market edge.
+- Next-phase focus: finish the downstream eligibility boundary and selected-artifact discipline before broadening data and operator scope.
+
 ## What Is Genuinely Strong
 
 - The artifact chain is real and inspectable: ingestion, parsing, research, features, signals, portfolio construction, risk review, paper-trade candidates, paper ledger, and reporting all persist typed objects.

@@ -43,6 +43,31 @@ python -m pipelines.demo.end_to_end_demo \
 
 If you want to inspect the demo over HTTP, start `make api` in a separate terminal. The demo run and the API server are separate local processes.
 
+## Full Build-Cycle Proof
+
+Use this when you want the strongest single proof artifact for the first 30-day build:
+
+```bash
+make final-proof
+```
+
+Direct module entrypoint:
+
+```bash
+python -m pipelines.demo.final_30_day_proof \
+  --frozen-time 2026-04-01T12:00:00Z \
+  --base-root artifacts/demo_runs/final_30_day_proof
+```
+
+The final proof reuses the normal review-bound demo path, then adds an explicit approval-only appendix that:
+
+1. creates an approved proposal
+2. creates and approves a paper trade
+3. admits that trade into the paper ledger
+4. records one fill placeholder, one close event, one trade outcome, and one daily paper summary
+
+The final proof manifest is a convenience proof artifact. The stage-specific artifact roots remain the source of truth.
+
 ## Inputs Used
 
 The default demo uses:
@@ -95,6 +120,14 @@ artifacts/demo_runs/release_candidate/
 
 The manifest under `demo/manifests/` is a convenience summary. The normal stage-specific artifact directories remain the source of truth.
 
+For the final build-cycle proof path, the same workspace root also includes the explicit paper-ledger appendix artifacts under:
+
+- `portfolio/paper_trades/`
+- `portfolio/paper_position_states/`
+- `portfolio/position_lifecycle_events/`
+- `portfolio/trade_outcomes/`
+- `portfolio/daily_paper_summaries/`
+
 ## What To Inspect After A Run
 
 Useful artifact categories:
@@ -117,6 +150,8 @@ Useful artifact categories:
 
 `portfolio/paper_trades/` is only populated on an explicit approved-proposal path. The default demo does not create trade candidates.
 
+The final proof path does populate the paper-ledger categories above, but only through explicit approval and explicit local lifecycle events.
+
 Useful API inspection endpoints:
 
 - `/system/manifest`
@@ -132,7 +167,7 @@ Useful API inspection endpoints:
 - the current typed workflow layers connect end to end
 - temporal, audit, and review artifacts are persisted rather than implied
 - signal arbitration, proposal attribution, and simple stress testing are real implemented layers
-- downstream work remains review-bound and paper-only
+- downstream work remains review-bound by default and paper-only even in the stronger appendix path
 
 ## What The Demo Does Not Prove
 

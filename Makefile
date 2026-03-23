@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: install format lint typecheck test api demo daily-run
+.PHONY: install format lint typecheck test api demo final-proof daily-run
 
 install:
 	$(PYTHON) -m pip install --upgrade pip
@@ -23,6 +23,9 @@ api:
 
 demo:
 	$(PYTHON) -m apps.cli demo run --frozen-time 2026-04-01T12:00:00Z --base-root artifacts/demo_runs/release_candidate
+
+final-proof:
+	$(PYTHON) -m pipelines.demo.final_30_day_proof --frozen-time 2026-04-01T12:00:00Z --base-root artifacts/demo_runs/final_30_day_proof
 
 daily-run:
 	$(PYTHON) -m apps.cli daily run --artifact-root artifacts/daily_runs/latest --requested-by make_daily_run

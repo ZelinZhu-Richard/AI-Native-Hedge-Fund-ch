@@ -6,6 +6,13 @@ The repo is a structured research and paper-trading system with explicit evidenc
 
 It does not claim live-trading readiness or market edge. It is a disciplined research operating system, not a performance-marketing shell.
 
+## 30-Day Build Summary
+
+- What is real today: the repo can trace fixture-backed research into signals, proposals, reconciliation artifacts, and an explicit approval-only paper-ledger appendix.
+- What this audience can safely conclude: the system is serious about lineage, timing, review state, and research-process integrity.
+- What this audience must not conclude: the repo does not prove validated alpha, realistic execution, or a completed downstream promotion gate.
+- Next-phase focus: harden eligibility, selected-artifact discipline, evaluation, and backtest-to-paper realism before broadening strategy complexity.
+
 ## What Is Genuinely Strong
 
 - Evidence, hypotheses, counter-hypotheses, features, signals, and proposals are separate artifacts with explicit lineage.

@@ -29,6 +29,7 @@ The short version:
 ## What The Release Candidate Actually Proves
 
 - the repo can run deterministically from ingestion to a review-bound portfolio proposal
+- the repo now has one stronger final proof path that extends the same workspace into an explicit approval-only paper-trade and paper-ledger appendix
 - important artifacts are typed, persisted, and traceable
 - validation, review, reporting, monitoring, and paper-ledger layers are real subsystems rather than slideware
 - the local demo and daily workflow are honest enough for skeptical technical review
@@ -39,5 +40,5 @@ The short version:
 - no full selected-artifact or snapshot-native enforcement yet
 - no first-class instrument/security layer
 - no live trading or broker execution
-- no validated market edge or performance claim
+- no validated alpha and no validated market edge or performance claim
 - no production operator or infrastructure maturity

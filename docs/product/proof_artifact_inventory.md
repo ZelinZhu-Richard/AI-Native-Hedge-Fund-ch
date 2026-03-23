@@ -32,10 +32,10 @@ These names are taken directly from `anhf capabilities --json` and anchor the in
 ### Deterministic local demo and daily operating path
 
 - Area or capability: end-to-end workflow wiring from fixtures to review-bound proposal and paper-trade surfaces
-- Strongest proof artifacts: `demo manifest`, `WorkflowExecution`, `RunSummary`, `PortfolioProposal`, `ReviewQueueItem`
-- Key files/docs/tests: `pipelines/demo/end_to_end_demo.py`, `pipelines/daily_operations/daily_workflow.py`, `docs/product/end_to_end_demo.md`, `docs/architecture/daily_orchestration.md`, `tests/integration/test_end_to_end_demo.py`, `tests/integration/test_daily_workflow.py`
+- Strongest proof artifacts: `demo manifest`, `final proof manifest`, `WorkflowExecution`, `RunSummary`, `PortfolioProposal`, `PaperPositionState`, `ReviewQueueItem`
+- Key files/docs/tests: `pipelines/demo/end_to_end_demo.py`, `pipelines/demo/final_30_day_proof.py`, `pipelines/daily_operations/daily_workflow.py`, `docs/product/end_to_end_demo.md`, `docs/reviews/final_30_day_review.md`, `docs/architecture/daily_orchestration.md`, `tests/integration/test_end_to_end_demo.py`, `tests/integration/test_final_30_day_proof.py`, `tests/integration/test_daily_workflow.py`
 - Status: real
-- Main caveat: the workflows are honest local proofs, not production deployment paths
+- Main caveat: the workflows are honest local proofs, not production deployment paths, and the paper-ledger appendix still relies on explicit approvals and manual local lifecycle events
 
 ## Reproducibility Support
 
