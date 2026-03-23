@@ -34,11 +34,19 @@ def test_end_to_end_demo_runs_full_stack_and_persists_manifest(tmp_path: Path) -
     assert response.ablation.ablation_result.ablation_result_id
     assert response.ablation.evaluation_report is not None
     assert response.portfolio_review.final_portfolio_proposal.portfolio_proposal_id
+    assert response.portfolio_review.risk_summary is not None
+    assert response.portfolio_review.proposal_scorecard is not None
+    assert (
+        response.portfolio_review.final_portfolio_proposal.proposal_scorecard_id
+        == response.portfolio_review.proposal_scorecard.proposal_scorecard_id
+    )
     assert response.portfolio_review.paper_trades == []
     assert response.review_queue.queue_items
     assert response.review_note.review_note.review_note_id
     assert response.review_action.review_decision.review_decision_id
     assert (response.base_root / "audit" / "audit_logs").exists()
+    assert any((response.base_root / "reporting" / "risk_summaries").glob("*.json"))
+    assert any((response.base_root / "reporting" / "proposal_scorecards").glob("*.json"))
 
     workflow_names = {summary.workflow_name for summary in response.recent_run_summaries.items}
     assert {
@@ -63,6 +71,7 @@ def test_end_to_end_demo_runs_full_stack_and_persists_manifest(tmp_path: Path) -
             "automatic paper-trade creation",
         ]
     )
+    assert any("review-bound portfolio proposal" in note for note in response.notes)
 
 
 def test_end_to_end_demo_cli_smoke(tmp_path: Path, capsys: CaptureFixture[str]) -> None:

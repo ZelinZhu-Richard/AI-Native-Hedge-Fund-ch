@@ -168,6 +168,9 @@ class PaperExecutionService(BaseService):
             notes.append(
                 "Portfolio proposal is not approved, so zero paper-trade candidates were created."
             )
+            notes.append(
+                "This is a review-bound stop, not a silent success or autonomous execution path."
+            )
             notes.append(f"proposal_status={proposal.status.value}")
             notes.extend(realism_notes)
             return PaperTradeProposalResponse(
@@ -195,6 +198,9 @@ class PaperExecutionService(BaseService):
             ) = build_realism_bundle(proposed_trades=[])
             storage_locations.extend(realism_storage_locations)
             notes.append("Proposal has blocking risk checks and cannot create paper trades.")
+            notes.append(
+                "This is a blocked stop, not the normal review-bound zero-trade outcome."
+            )
             notes.extend(realism_notes)
             return PaperTradeProposalResponse(
                 trade_batch_id=trade_batch_id,
@@ -353,6 +359,9 @@ class PaperExecutionService(BaseService):
         }:
             notes.append(
                 "Generated paper-trade candidates were blocked by data-quality validation and were not returned."
+            )
+            notes.append(
+                "This is a blocked stop, not the normal review-bound zero-trade outcome."
             )
             return PaperTradeProposalResponse(
                 trade_batch_id=trade_batch_id,

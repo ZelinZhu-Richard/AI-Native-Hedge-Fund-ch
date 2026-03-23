@@ -4,7 +4,7 @@
 
 The demo should be easy to run and inspect without overstating what it proves.
 
-Day 28 improves usability by giving the repo one obvious command-line surface and one obvious API surface for the demo and related inspection paths.
+The repo now exposes one obvious command-line surface and one obvious API surface for the demo and related inspection paths.
 
 ## Shortest Demo Path
 
@@ -19,7 +19,7 @@ Equivalent direct CLI:
 ```bash
 anhf demo run \
   --frozen-time 2026-04-01T12:00:00Z \
-  --base-root artifacts/demo_runs/week3_demo
+  --base-root artifacts/demo_runs/release_candidate
 ```
 
 Equivalent API invocation:
@@ -31,7 +31,7 @@ curl -X POST http://127.0.0.1:8000/workflows/demo/run \
   -H "content-type: application/json" \
   -d '{
     "frozen_time": "2026-04-01T12:00:00Z",
-    "base_root": "artifacts/demo_runs/week3_demo",
+    "base_root": "artifacts/demo_runs/release_candidate",
     "requested_by": "demo_api"
   }'
 ```
@@ -70,7 +70,7 @@ Useful API surfaces after the demo:
 
 When you want to inspect those HTTP endpoints, keep `make api` running in a separate terminal. The demo run itself does not start the API server.
 
-## What Improved In Day 28
+## What Is Better About The Current Interface
 
 - there is now one unified CLI surface instead of only pipeline-module entrypoints
 - canonical API routes are namespaced and easier to predict

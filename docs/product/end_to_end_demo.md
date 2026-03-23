@@ -30,7 +30,7 @@ Direct CLI entrypoint:
 ```bash
 anhf demo run \
   --frozen-time 2026-04-01T12:00:00Z \
-  --base-root artifacts/demo_runs/week3_demo
+  --base-root artifacts/demo_runs/release_candidate
 ```
 
 Legacy module entrypoint:
@@ -38,7 +38,7 @@ Legacy module entrypoint:
 ```bash
 python -m pipelines.demo.end_to_end_demo \
   --frozen-time 2026-04-01T12:00:00Z \
-  --base-root artifacts/demo_runs/week3_demo
+  --base-root artifacts/demo_runs/release_candidate
 ```
 
 If you want to inspect the demo over HTTP, start `make api` in a separate terminal. The demo run and the API server are separate local processes.
@@ -51,6 +51,7 @@ The default demo uses:
 - `tests/fixtures/backtesting/apex_synthetic_daily_prices.json`
 
 The run is local, deterministic, single-company, and synthetic-price-backed.
+The default terminal status is `attention_required`, which is expected here because the demo stops at a visible review-bound point instead of silently promoting paper trades.
 
 ## What The Demo Runs
 
@@ -73,12 +74,11 @@ In order, the demo executes:
 The demo writes beneath one isolated base root, for example:
 
 ```text
-artifacts/demo_runs/week3_demo/
+artifacts/demo_runs/release_candidate/
   ingestion/
   parsing/
   research/
   signal_generation/
-  signal_arbitration/
   backtesting/
   ablation/
   experiments/
@@ -107,6 +107,8 @@ Useful artifact categories:
 - `portfolio/portfolio_proposals/`
 - `portfolio_analysis/portfolio_attributions/`
 - `portfolio_analysis/stress_test_results/`
+- `reporting/risk_summaries/`
+- `reporting/proposal_scorecards/`
 - `review/queue_items/`
 - `review/review_notes/`
 - `review/review_decisions/`

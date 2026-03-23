@@ -13,7 +13,10 @@ from libraries.schemas import (
     DailySystemReport,
     DataRefreshMode,
     ManualInterventionRequirement,
+    PortfolioProposalStatus,
     ProposalScorecard,
+    QualityDecision,
+    RefusalReason,
     ReviewFollowup,
     ReviewFollowupStatus,
     RiskSummary,
@@ -425,45 +428,90 @@ def execute_paper_trade_candidate_generation(state: DailyWorkflowState) -> StepE
         output_root=context.roots.data_quality_root,
     )
     state.outputs.paper_trade_candidate_generation = response
+    gate_artifact_ids = (
+        [response.validation_gate.validation_gate_id]
+        if response.validation_gate is not None
+        else []
+    )
     if response.proposed_trades:
         return StepExecutionOutcome(
             status=WorkflowStatus.SUCCEEDED,
             notes=list(response.notes),
             produced_artifact_ids=[
                 *[trade.paper_trade_id for trade in response.proposed_trades],
-                *(
-                    [response.validation_gate.validation_gate_id]
-                    if response.validation_gate is not None
-                    else []
-                ),
+                *gate_artifact_ids,
             ],
+        )
+    base_notes = [
+        *response.notes,
+        *(
+            [f"quality_decision={response.quality_decision.value}"]
+            if response.quality_decision is not None
+            else []
+        ),
+        *(
+            [f"refusal_reason={response.refusal_reason.value}"]
+            if response.refusal_reason is not None
+            else []
+        ),
+        *[f"validation_gate_id={artifact_id}" for artifact_id in gate_artifact_ids],
+    ]
+    is_review_bound_stop = (
+        proposal.status is not PortfolioProposalStatus.APPROVED
+        and not proposal.blocking_issues
+        and not any(check.blocking for check in proposal.risk_checks)
+        and response.refusal_reason is RefusalReason.INVALID_REVIEW_STATE
+    )
+    if is_review_bound_stop:
+        return StepExecutionOutcome(
+            status=WorkflowStatus.ATTENTION_REQUIRED,
+            notes=[
+                *base_notes,
+                "Paper-trade candidate generation stopped intentionally at the review-bound approval gate.",
+            ],
+            produced_artifact_ids=gate_artifact_ids,
+            manual_intervention_requirement=ManualInterventionRequirement(
+                gate_reason=(
+                    "Review-bound stop: portfolio proposal requires explicit human approval "
+                    "before paper-trade creation."
+                ),
+                blocking=True,
+                required_role="portfolio_reviewer",
+                related_artifact_ids=[
+                    proposal.portfolio_proposal_id,
+                    *gate_artifact_ids,
+                ],
+                operator_instructions=[
+                    "Review the portfolio proposal, attribution, stress results, and risk checks.",
+                    "Apply an explicit portfolio review decision before requesting paper-trade candidates again.",
+                ],
+            ),
+        )
+    blocked_reason = (
+        "Paper-trade candidate creation is blocked by hard proposal, risk, or validation conditions."
+    )
+    if response.quality_decision in {QualityDecision.REFUSE, QualityDecision.QUARANTINE}:
+        blocked_reason = (
+            "Paper-trade candidate creation is blocked by the current validation gate or policy state."
         )
     return StepExecutionOutcome(
         status=WorkflowStatus.ATTENTION_REQUIRED,
         notes=[
-            *response.notes,
-            *(
-                [f"validation_gate_id={response.validation_gate.validation_gate_id}"]
-                if response.validation_gate is not None
-                else []
-            ),
-            "Paper-trade candidate generation stopped intentionally at the review gate.",
+            *base_notes,
+            "Paper-trade candidate generation stopped in a blocked state, not the normal review-bound stop.",
         ],
+        produced_artifact_ids=gate_artifact_ids,
         manual_intervention_requirement=ManualInterventionRequirement(
-            gate_reason="Portfolio proposal requires explicit human approval before paper-trade creation.",
+            gate_reason=f"Blocked stop: {blocked_reason}",
             blocking=True,
             required_role="portfolio_reviewer",
             related_artifact_ids=[
                 proposal.portfolio_proposal_id,
-                *(
-                    [response.validation_gate.validation_gate_id]
-                    if response.validation_gate is not None
-                    else []
-                ),
+                *gate_artifact_ids,
             ],
             operator_instructions=[
-                "Review the portfolio proposal, attribution, stress results, and risk checks.",
-                "Apply an explicit portfolio review decision before requesting paper-trade candidates again.",
+                "Inspect the portfolio proposal, blocking risk checks, and any linked validation gate artifacts.",
+                "Resolve the blocking condition before requesting paper-trade candidates again.",
             ],
         ),
     )

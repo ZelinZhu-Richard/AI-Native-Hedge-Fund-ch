@@ -4,6 +4,8 @@ Deterministic local research operating system for AI-assisted equity research, r
 
 This repository is not a live trading system, not a brokerage integration, and not a performance-marketing demo. It is a serious local stack for building and reviewing research workflows with explicit provenance, timing, risk controls, and human oversight.
 
+Treat the current repo as a release candidate for a 30-day local build, not as a production trading platform. It proves that the current workflow layers connect coherently and can be inspected honestly. It does not prove validated edge, live-market readiness, or complete downstream policy enforcement.
+
 Execution sequencing and phase intent are anchored in `PLAN.md`. Repository guardrails are anchored in `AGENTS.md`. Rolling implementation history lives in `docs/plans/work_log.md`.
 
 ## What Is Real Today
@@ -52,7 +54,7 @@ Primary direct CLI:
 ```bash
 anhf demo run \
   --frozen-time 2026-04-01T12:00:00Z \
-  --base-root artifacts/demo_runs/week3_demo
+  --base-root artifacts/demo_runs/release_candidate
 ```
 
 Legacy module entrypoint still works:
@@ -60,7 +62,7 @@ Legacy module entrypoint still works:
 ```bash
 python -m pipelines.demo.end_to_end_demo \
   --frozen-time 2026-04-01T12:00:00Z \
-  --base-root artifacts/demo_runs/week3_demo
+  --base-root artifacts/demo_runs/release_candidate
 ```
 
 This proves that the current layers connect coherently. It does not prove alpha, production readiness, or autonomous execution.
@@ -69,7 +71,8 @@ See:
 
 - `docs/product/end_to_end_demo.md`
 - `docs/product/demo_usability.md`
-- `docs/product/week3_demo_status.md`
+- `docs/product/release_candidate_status.md`
+- `docs/product/known_limitations.md`
 
 ### Daily local workflow
 
@@ -124,16 +127,28 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-### 4. Run quality checks
+### 4. Run verification checks first
 
 ```bash
-make format
 make lint
 make typecheck
 make test
 ```
 
-### 5. Start the API
+Optional maintenance:
+
+```bash
+make format
+```
+
+### 5. Run the demo or daily workflow
+
+```bash
+make demo
+make daily-run
+```
+
+### 6. Start the API
 
 ```bash
 make api
@@ -145,7 +160,7 @@ See:
 
 - `docs/product/api_and_interface_contracts.md`
 
-### 6. Inspect the interface surface
+### 7. Inspect the interface surface
 
 ```bash
 anhf capabilities
@@ -163,6 +178,8 @@ Use these docs when you need to explain the repo to skeptical external readers w
 - [Operator And Risk Narrative](docs/product/operator_and_risk_narrative.md)
 - [Proof Artifact Inventory](docs/product/proof_artifact_inventory.md)
 - [Project Maturity Scorecard](docs/product/project_maturity_scorecard.md)
+- [Release Candidate Status](docs/product/release_candidate_status.md)
+- [Known Limitations](docs/product/known_limitations.md)
 - [Demo Script](docs/product/demo_script.md)
 
 ## Practical Repo Map
@@ -230,16 +247,19 @@ artifacts/
 - Prefer explicit service boundaries over convenience coupling.
 - When in doubt, preserve auditability and point-in-time discipline over speed.
 
-## Week 3 Review Focus
+## Release Candidate Focus
 
-The most important review questions now are:
+The most important release-candidate questions now are:
 
 1. Where candidate artifacts still flow downstream without a true eligibility gate.
-2. Where snapshot-native selection is still incomplete.
+2. Where selected-artifact or snapshot-native selection is still incomplete.
 3. Where issuer identity still stands in for instrument identity.
-4. Where local-filesystem ergonomics are acceptable for development but not durable enough long term.
+4. Where evaluation, reconciliation, and paper-ledger followups are still inspectable rather than policy-driving.
+5. Where local-filesystem ergonomics are acceptable for development but not durable enough long term.
 
 See:
 
-- `docs/product/week3_demo_status.md`
-- `docs/plans/week3_review_plan.md`
+- `docs/reviews/week4_review.md`
+- `docs/plans/final_30_day_push.md`
+- `docs/product/release_candidate_status.md`
+- `docs/product/known_limitations.md`

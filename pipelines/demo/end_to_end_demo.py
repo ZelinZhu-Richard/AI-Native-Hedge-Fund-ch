@@ -115,7 +115,9 @@ def run_end_to_end_demo(
     """Run the current research OS stack end to end over local fixtures."""
 
     resolved_time = ensure_utc(frozen_time or DEFAULT_FROZEN_TIME)
-    demo_run_id = make_canonical_id("demo", "week3_end_to_end", isoformat_z(resolved_time))
+    demo_run_id = make_canonical_id(
+        "demo", "release_candidate_end_to_end", isoformat_z(resolved_time)
+    )
     resolved_fixtures_root = fixtures_root or DEFAULT_FIXTURES_ROOT
     resolved_price_fixture = price_fixture_path or DEFAULT_PRICE_FIXTURE_PATH
     resolved_base_root = base_root or (
@@ -362,12 +364,12 @@ def _build_demo_backtest_config(*, now: datetime) -> BacktestConfig:
     return BacktestConfig(
         backtest_config_id=make_canonical_id(
             "btcfg",
-            "week3_end_to_end_demo",
+            "release_candidate_end_to_end_demo",
             "text_only_candidate_signal",
             "2026-03-17",
             "2026-03-31",
         ),
-        strategy_name="week3_demo_text_signal_exploratory",
+        strategy_name="release_candidate_text_signal_exploratory",
         signal_family="text_only_candidate_signal",
         ablation_view=AblationView.TEXT_ONLY,
         test_start=date(2026, 3, 17),
@@ -400,11 +402,13 @@ def _build_demo_ablation_config(
     requested_by: str,
 ) -> AblationConfig:
     return AblationConfig(
-        ablation_config_id=make_canonical_id("abcfg", "week3_end_to_end_demo"),
-        name="week3_end_to_end_demo_ablation",
+        ablation_config_id=make_canonical_id("abcfg", "release_candidate_end_to_end_demo"),
+        name="release_candidate_end_to_end_demo_ablation",
         strategy_variants=strategy_variants,
         evaluation_slice=EvaluationSlice(
-            evaluation_slice_id=make_canonical_id("eslice", "week3_end_to_end_demo"),
+            evaluation_slice_id=make_canonical_id(
+                "eslice", "release_candidate_end_to_end_demo"
+            ),
             company_id=company_id,
             test_start=date(2026, 3, 17),
             test_end=date(2026, 3, 31),
@@ -415,8 +419,10 @@ def _build_demo_ablation_config(
             updated_at=now,
         ),
         shared_backtest_config=BacktestConfig(
-            backtest_config_id=make_canonical_id("btcfg", "week3_end_to_end_demo", "ablation"),
-            strategy_name="week3_demo_shared_ablation_backtest",
+            backtest_config_id=make_canonical_id(
+                "btcfg", "release_candidate_end_to_end_demo", "ablation"
+            ),
+            strategy_name="release_candidate_shared_ablation_backtest",
             signal_family="shared_ablation_signal_family",
             ablation_view=AblationView.COMBINED,
             test_start=date(2026, 3, 17),

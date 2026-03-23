@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Day 28 makes the local interface layer easier to consume without pretending the repo is a production platform.
+The local interface layer is meant to be easy to consume without pretending the repo is a production platform.
 
 The API and CLI are both:
 
@@ -63,6 +63,8 @@ Current stable error-code families:
 - `http_error`
 
 The API no longer falls back to unstructured FastAPI detail strings for the documented error paths.
+
+For workflow invocation responses, `attention_required` means the workflow stopped in a visible manual-attention state. Inspect notes and any linked manual-intervention requirements to distinguish a healthy review-bound stop from a harder blocked stop.
 
 ## Canonical Routes
 

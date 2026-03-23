@@ -67,7 +67,7 @@ The daily orchestration workflow now persists:
 
 under `artifacts/reporting/`.
 
-The default daily path will often still end in `attention_required` because paper-trade creation remains review-gated. The daily report should make that state easier to inspect, not make it disappear.
+The default daily path will often still end in `attention_required` because paper-trade creation remains review-gated. In the current repo, that status means a visible manual-attention stop, so operators should inspect notes and manual-intervention requirements to distinguish a healthy review-bound stop from a blocked stop. The daily report should make that state easier to inspect, not make it disappear.
 
 ## Current Simplifications
 

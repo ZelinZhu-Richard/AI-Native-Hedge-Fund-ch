@@ -89,6 +89,16 @@ def build_demo_run_result(
     produced_artifact_ids = _dedupe(
         [
             response.portfolio_review.final_portfolio_proposal.portfolio_proposal_id,
+            *(
+                [response.portfolio_review.risk_summary.risk_summary_id]
+                if response.portfolio_review.risk_summary is not None
+                else []
+            ),
+            *(
+                [response.portfolio_review.proposal_scorecard.proposal_scorecard_id]
+                if response.portfolio_review.proposal_scorecard is not None
+                else []
+            ),
             *[idea.position_idea_id for idea in response.portfolio_review.final_position_ideas],
             *[trade.paper_trade_id for trade in response.portfolio_review.paper_trades],
             *[check.risk_check_id for check in response.portfolio_review.risk_checks],
@@ -157,7 +167,7 @@ def build_daily_workflow_result(
         warnings.append(
             InterfaceWarning(
                 warning_code="review_required",
-                message="The daily workflow completed in a review-facing stop state.",
+                message="The daily workflow completed in an attention_required stop state. Inspect run notes and manual-intervention requirements to distinguish a healthy review gate from a harder blocked stop.",
                 scope="daily_workflow",
                 related_ids=response.workflow_execution.produced_artifact_ids,
             )
@@ -238,7 +248,7 @@ def _workflow_descriptors() -> list[CapabilityDescriptor]:
             cli_commands=["anhf daily run", "make daily-run"],
             config_keys=["ARTIFACT_ROOT", "DEFAULT_TIMEZONE"],
             notes=[
-                "The default healthy local outcome is often attention_required because paper-trade candidates remain review-gated."
+                "The default healthy local outcome is often attention_required, which indicates a visible review-bound stop rather than a workflow failure, because paper-trade candidates remain review-gated."
             ],
         ),
         CapabilityDescriptor(

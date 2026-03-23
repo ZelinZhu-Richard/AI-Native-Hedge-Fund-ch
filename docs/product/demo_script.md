@@ -110,7 +110,7 @@ curl -s http://127.0.0.1:8000/system/manifest
 **What to show**
 
 1. Run `make demo` to establish the deterministic local path.
-2. Run `make daily-run` to show that the operating workflow is review-bound and often ends in `attention_required` rather than fake “success.”
+2. Run `make daily-run` to show that the operating workflow is review-bound and often ends in `attention_required`, which here is a visible stop state rather than fake “success.”
 3. Show `GET /reviews/queue` to make clear that proposals and trades do not skip human review.
 4. Show `GET /portfolio/proposals` and then the proposal scorecard to surface constraint handling, warnings, and measured dimensions.
 5. Use `GET /system/manifest` at the end to show that the system exposes its real operating surface and is not hiding unsupported capabilities.

@@ -264,10 +264,19 @@ def test_workflow_entrypoints_return_compact_invocation_results(
             },
         )
         assert demo_response.status_code == 200
-        demo_data = demo_response.json()["data"]
+        demo_payload = demo_response.json()
+        demo_data = demo_payload["data"]
         assert demo_data["workflow_name"] == "demo_end_to_end"
         assert demo_data["demo_run_id"]
         assert Path(demo_data["manifest_path"]).exists()
+        assert demo_data["paper_trade_candidate_count"] == 0
+        assert any(
+            artifact_id.startswith("risksum_") or artifact_id.startswith("propsc_")
+            for artifact_id in demo_data["produced_artifact_ids"]
+        )
+        assert any(
+            warning["warning_code"] == "review_bound" for warning in demo_payload["warnings"]
+        )
 
         daily_response = client.post(
             "/workflows/daily/run",
@@ -278,10 +287,14 @@ def test_workflow_entrypoints_return_compact_invocation_results(
             },
         )
         assert daily_response.status_code == 200
-        daily_data = daily_response.json()["data"]
+        daily_payload = daily_response.json()
+        daily_data = daily_payload["data"]
         assert daily_data["workflow_name"] == "daily_workflow"
         assert daily_data["workflow_run_id"]
         assert daily_data["artifact_root"] == str(tmp_path / "daily_run")
+        assert any(
+            warning["warning_code"] == "review_required" for warning in daily_payload["warnings"]
+        )
     finally:
         get_settings.cache_clear()
 

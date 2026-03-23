@@ -21,6 +21,17 @@ def test_capabilities_cli_json_outputs_normalized_descriptors(capsys: pytest.Cap
     assert any(item["kind"] == "workflow" and item["name"] == "daily_workflow" for item in payload["items"])
 
 
+def test_manifest_cli_json_outputs_local_manifest(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["manifest", "--json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["project_name"] == "ANHF Research OS"
+    assert "ARTIFACT_ROOT" in payload["config_surface"]
+    assert any(item["warning_code"] == "local_only" for item in payload["warnings"])
+
+
 def test_demo_and_daily_cli_json_smoke(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -43,6 +54,11 @@ def test_demo_and_daily_cli_json_smoke(
         assert demo_exit == 0
         assert demo_payload["workflow_name"] == "demo_end_to_end"
         assert Path(demo_payload["manifest_path"]).exists()
+        assert demo_payload["paper_trade_candidate_count"] == 0
+        assert any(
+            "proposal_scorecards" in location["uri"]
+            for location in demo_payload["storage_locations"]
+        )
 
         daily_exit = main(
             [

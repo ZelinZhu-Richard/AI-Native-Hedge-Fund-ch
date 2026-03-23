@@ -36,6 +36,7 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     assert response.proposal_scorecard is not None
     assert response.daily_system_report is not None
     assert response.paper_trade_candidate_generation.proposed_trades == []
+    assert response.paper_trade_candidate_generation.validation_gate is not None
     assert response.workflow_execution.linked_run_summary_ids
     assert response.portfolio_workflow is not None
     assert response.portfolio_workflow.portfolio_proposal.proposal_scorecard_id == (
@@ -67,6 +68,16 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     )
     assert paper_trade_step.status is WorkflowStatus.ATTENTION_REQUIRED
     assert paper_trade_step.manual_intervention_requirement is not None
+    assert paper_trade_step.manual_intervention_requirement.gate_reason.startswith(
+        "Review-bound stop:"
+    )
+    assert response.paper_trade_candidate_generation.validation_gate.validation_gate_id in (
+        paper_trade_step.produced_artifact_ids
+    )
+    assert response.paper_trade_candidate_generation.validation_gate.validation_gate_id in (
+        response.workflow_execution.produced_artifact_ids
+    )
+    assert any("review-bound approval gate" in note for note in paper_trade_step.notes)
     assert any(step.child_run_summary_ids for step in response.run_steps)
     assert any((artifact_root / "reporting" / "risk_summaries").glob("*.json"))
     assert any((artifact_root / "reporting" / "proposal_scorecards").glob("*.json"))

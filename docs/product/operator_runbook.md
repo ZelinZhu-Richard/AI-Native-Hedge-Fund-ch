@@ -24,6 +24,12 @@ Important defaults:
 - advisory retrieval context is enabled by default
 - no step auto-approves a proposal or trade
 
+## How To Read Stop States
+
+- `attention_required` means the workflow stopped visibly and needs human attention. In the current local stack, that can mean either a healthy review-bound stop or a harder blocked stop.
+- `review_required` is the state of a reviewable object such as a proposal or trade candidate. It is not a workflow failure.
+- `blocked` is currently conveyed through step notes, validation gates, risk checks, and manual-intervention reasons rather than through a separate workflow-status enum.
+
 ## Expected Daily Order
 
 1. Refresh fixtures and normalize canonical ingestion artifacts.
@@ -143,6 +149,7 @@ Default expectation:
 
 - this step usually ends in `attention_required`
 - zero trades is the correct default outcome for unapproved proposals
+- inspect the step notes and manual-intervention reason to distinguish the normal review-bound stop from a blocked stop
 
 If it fails or stops:
 
