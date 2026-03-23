@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         PositionSizingRationale,
         SelectionConflict,
     )
+    from libraries.schemas.reporting import ProposalScorecard, ResearchSummary, RiskSummary
     from libraries.schemas.research import (
         CounterHypothesis,
         EvidenceAssessment,
@@ -277,6 +278,18 @@ class ReviewContext(StrictModel):
         default=None,
         description="Paper-trade payload when the target is a trade review.",
     )
+    research_summary: ResearchSummary | None = Field(
+        default=None,
+        description="Latest grounded research summary when available.",
+    )
+    risk_summary: RiskSummary | None = Field(
+        default=None,
+        description="Latest grounded risk summary when available.",
+    )
+    proposal_scorecard: ProposalScorecard | None = Field(
+        default=None,
+        description="Latest grounded proposal scorecard when available.",
+    )
     supporting_evidence_links: list[SupportingEvidenceLink] = Field(
         default_factory=list,
         description="Exact supporting evidence links relevant to the target.",
@@ -453,6 +466,7 @@ def _rebuild_review_context() -> None:
         PositionSizingRationale,
         SelectionConflict,
     )
+    from libraries.schemas.reporting import ProposalScorecard, ResearchSummary, RiskSummary
     from libraries.schemas.research import (
         CounterHypothesis,
         EvidenceAssessment,
@@ -467,6 +481,9 @@ def _rebuild_review_context() -> None:
     ReviewContext.model_rebuild(
         _types_namespace={
             "PaperTrade": PaperTrade,
+            "ResearchSummary": ResearchSummary,
+            "RiskSummary": RiskSummary,
+            "ProposalScorecard": ProposalScorecard,
             "PaperLedgerEntry": PaperLedgerEntry,
             "PaperPositionState": PaperPositionState,
             "PositionLifecycleEvent": PositionLifecycleEvent,

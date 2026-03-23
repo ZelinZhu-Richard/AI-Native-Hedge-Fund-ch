@@ -42,6 +42,7 @@ from libraries.schemas import (
     ExperimentMetric,
     ExperimentParameter,
     ExperimentParameterValueType,
+    ExperimentScorecard,
     ExperimentStatus,
     FailureCase,
     FillAssumption,
@@ -59,6 +60,7 @@ from libraries.schemas import (
     StrategyVariant,
     StrictModel,
     TimingAnomaly,
+    ValidationGate,
     WorkflowStatus,
 )
 from libraries.schemas.base import ProvenanceRecord
@@ -87,6 +89,7 @@ from services.evaluation import (
     EvaluationService,
 )
 from services.experiment_registry import (
+    AppendExperimentContextRequest,
     BeginExperimentRequest,
     ExperimentRegistryService,
     FinalizeExperimentRequest,
@@ -96,6 +99,7 @@ from services.monitoring import (
     RecordPipelineEventRequest,
     RecordRunSummaryRequest,
 )
+from services.reporting import GenerateExperimentScorecardRequest, ReportingService
 from services.signal_arbitration.loaders import load_latest_signal_bundle
 from services.signal_arbitration.storage import load_models as load_signal_arbitration_models
 from services.timing import TimingService
@@ -234,6 +238,10 @@ class RunBacktestWorkflowResponse(StrictModel):
         default_factory=list,
         description="Structured experiment metrics recorded for the run.",
     )
+    experiment_scorecard: ExperimentScorecard | None = Field(
+        default=None,
+        description="Grounded experiment scorecard when experiment recording completed.",
+    )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Artifact storage locations written by the workflow.",
@@ -320,6 +328,10 @@ class RunStrategyAblationWorkflowResponse(StrictModel):
     coverage_summaries: list[CoverageSummary] = Field(
         default_factory=list,
         description="Coverage summaries recorded for the ablation output.",
+    )
+    experiment_scorecard: ExperimentScorecard | None = Field(
+        default=None,
+        description="Grounded experiment scorecard when experiment recording completed.",
     )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
@@ -411,6 +423,8 @@ class BacktestingService(BaseService):
         dataset_references: list[DatasetReference] = []
         experiment_artifacts: list[ExperimentArtifact] = []
         experiment_metrics: list[ExperimentMetric] = []
+        experiment_scorecard: ExperimentScorecard | None = None
+        experiment_validation_gates: list[ValidationGate] = []
 
         storage_locations.append(
             store.persist_model(
@@ -513,6 +527,8 @@ class BacktestingService(BaseService):
             )
             experiment = begin_response.experiment
             storage_locations.extend(begin_response.storage_locations)
+            if begin_response.validation_gate is not None:
+                experiment_validation_gates.append(begin_response.validation_gate)
         for decision in result.strategy_decisions:
             storage_locations.append(
                 self._persist_model(store=store, category="decisions", model=decision)
@@ -694,6 +710,44 @@ class BacktestingService(BaseService):
                 output_root=audit_root,
             )
             storage_locations.append(experiment_audit_response.storage_location)
+            scorecard_response = ReportingService(clock=self.clock).generate_experiment_scorecard(
+                GenerateExperimentScorecardRequest(
+                    experiment=experiment,
+                    evaluation_report=None,
+                    experiment_metrics=experiment_metrics,
+                    failure_cases=[],
+                    robustness_checks=[],
+                    realism_warnings=realism_bundle.realism_warnings,
+                    validation_gates=experiment_validation_gates,
+                    requested_by=request.requested_by,
+                ),
+                output_root=workspace.reporting_root,
+            )
+            experiment_scorecard = scorecard_response.experiment_scorecard
+            storage_locations.extend(scorecard_response.storage_locations)
+            append_response = ExperimentRegistryService(clock=self.clock).append_experiment_context(
+                AppendExperimentContextRequest(
+                    experiment_id=experiment.experiment_id,
+                    experiment_artifacts=[
+                        self._build_reporting_experiment_artifact(
+                            experiment_id=experiment.experiment_id,
+                            artifact_id=experiment_scorecard.experiment_scorecard_id,
+                            artifact_type="ExperimentScorecard",
+                            artifact_role=ExperimentArtifactRole.SUMMARY,
+                            artifact_uri=scorecard_response.storage_locations[0].uri,
+                            provenance=experiment_scorecard.provenance,
+                            workflow_run_id=backtest_run.backtest_run_id,
+                        )
+                    ],
+                    notes=[
+                        f"experiment_scorecard_id={experiment_scorecard.experiment_scorecard_id}",
+                    ],
+                ),
+                output_root=experiment_root,
+            )
+            storage_locations.extend(append_response.storage_locations)
+            experiment_artifacts.extend(append_response.experiment_artifacts)
+            experiment = append_response.experiment
 
         return RunBacktestWorkflowResponse(
             backtest_run=backtest_run,
@@ -714,6 +768,7 @@ class BacktestingService(BaseService):
             dataset_references=dataset_references,
             experiment_artifacts=experiment_artifacts,
             experiment_metrics=experiment_metrics,
+            experiment_scorecard=experiment_scorecard,
             storage_locations=storage_locations,
             notes=notes,
         )
@@ -926,6 +981,7 @@ class BacktestingService(BaseService):
     ) -> RunStrategyAblationWorkflowResponse:
         """Execute the deterministic Day 9 baseline and ablation workflow."""
 
+        workspace = resolve_artifact_workspace_from_stage_root(request.feature_root)
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
         notes: list[str] = [
@@ -1011,6 +1067,7 @@ class BacktestingService(BaseService):
         child_backtest_responses: list[RunBacktestWorkflowResponse] = []
         child_experiments: list[Experiment] = []
         variant_run_evaluations: list[AblationVariantRunEvaluationInput] = []
+        ablation_validation_gates: list[ValidationGate] = []
 
         for strategy_variant in request.ablation_config.strategy_variants:
             strategy_spec = spec_by_id[strategy_variant.strategy_spec_id]
@@ -1219,6 +1276,8 @@ class BacktestingService(BaseService):
             )
             parent_experiment = begin_response.experiment
             storage_locations.extend(begin_response.storage_locations)
+            if begin_response.validation_gate is not None:
+                ablation_validation_gates.append(begin_response.validation_gate)
 
             storage_by_artifact_id = {
                 location.artifact_id: location for location in storage_locations
@@ -1287,6 +1346,49 @@ class BacktestingService(BaseService):
         )
         storage_locations.extend(evaluation_response.storage_locations)
         notes.extend(evaluation_response.notes)
+        experiment_scorecard: ExperimentScorecard | None = None
+        if parent_experiment is not None:
+            scorecard_response = ReportingService(clock=self.clock).generate_experiment_scorecard(
+                GenerateExperimentScorecardRequest(
+                    experiment=parent_experiment,
+                    evaluation_report=evaluation_response.evaluation_report,
+                    experiment_metrics=[],
+                    failure_cases=evaluation_response.failure_cases,
+                    robustness_checks=evaluation_response.robustness_checks,
+                    realism_warnings=[
+                        warning
+                        for response in child_backtest_responses
+                        for warning in response.realism_warnings
+                    ],
+                    validation_gates=ablation_validation_gates,
+                    requested_by=request.ablation_config.requested_by,
+                ),
+                output_root=workspace.reporting_root,
+            )
+            experiment_scorecard = scorecard_response.experiment_scorecard
+            storage_locations.extend(scorecard_response.storage_locations)
+            append_response = ExperimentRegistryService(clock=self.clock).append_experiment_context(
+                AppendExperimentContextRequest(
+                    experiment_id=parent_experiment.experiment_id,
+                    experiment_artifacts=[
+                        self._build_reporting_experiment_artifact(
+                            experiment_id=parent_experiment.experiment_id,
+                            artifact_id=experiment_scorecard.experiment_scorecard_id,
+                            artifact_type="ExperimentScorecard",
+                            artifact_role=ExperimentArtifactRole.SUMMARY,
+                            artifact_uri=scorecard_response.storage_locations[0].uri,
+                            provenance=experiment_scorecard.provenance,
+                            workflow_run_id=ablation_run_id,
+                        )
+                    ],
+                    notes=[
+                        f"experiment_scorecard_id={experiment_scorecard.experiment_scorecard_id}",
+                    ],
+                ),
+                output_root=experiment_root,
+            )
+            storage_locations.extend(append_response.storage_locations)
+            parent_experiment = append_response.experiment
 
         audit_response = AuditLoggingService(clock=self.clock).record_event(
             AuditEventRequest(
@@ -1404,6 +1506,7 @@ class BacktestingService(BaseService):
             robustness_checks=evaluation_response.robustness_checks,
             comparison_summary=evaluation_response.comparison_summary,
             coverage_summaries=evaluation_response.coverage_summaries,
+            experiment_scorecard=experiment_scorecard,
             storage_locations=storage_locations,
             notes=notes,
         )
@@ -1424,6 +1527,45 @@ class BacktestingService(BaseService):
             category=category,
             model=model,
             source_reference_ids=source_reference_ids,
+        )
+
+    def _build_reporting_experiment_artifact(
+        self,
+        *,
+        experiment_id: str,
+        artifact_id: str,
+        artifact_type: str,
+        artifact_role: ExperimentArtifactRole,
+        artifact_uri: str,
+        provenance: ProvenanceRecord,
+        workflow_run_id: str,
+    ) -> ExperimentArtifact:
+        """Build one experiment-context artifact pointing at a reporting artifact."""
+
+        now = self.clock.now()
+        return ExperimentArtifact(
+            experiment_artifact_id=make_canonical_id(
+                "eart",
+                experiment_id,
+                artifact_type,
+                artifact_id,
+            ),
+            experiment_id=experiment_id,
+            artifact_id=artifact_id,
+            artifact_type=artifact_type,
+            artifact_role=artifact_role,
+            artifact_storage_location_id=None,
+            uri=artifact_uri,
+            produced_at=now,
+            provenance=provenance.model_copy(
+                update={
+                    "transformation_name": "day27_experiment_artifact_from_reporting",
+                    "upstream_artifact_ids": [experiment_id, artifact_id],
+                    "workflow_run_id": workflow_run_id,
+                }
+            ),
+            created_at=now,
+            updated_at=now,
         )
 
     def _build_dataset_registry_records(

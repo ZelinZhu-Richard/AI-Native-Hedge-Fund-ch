@@ -32,6 +32,7 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     assert response.paper_trade_candidate_generation is not None
     assert response.operations_health_checks is not None
     assert response.recent_run_summaries is not None
+    assert response.daily_system_report is not None
     assert response.paper_trade_candidate_generation.proposed_trades == []
     assert response.workflow_execution.linked_run_summary_ids
 
@@ -58,6 +59,8 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     assert paper_trade_step.status is WorkflowStatus.ATTENTION_REQUIRED
     assert paper_trade_step.manual_intervention_requirement is not None
     assert any(step.child_run_summary_ids for step in response.run_steps)
+    assert any((artifact_root / "reporting" / "review_queue_summaries").glob("*.json"))
+    assert any((artifact_root / "reporting" / "daily_system_reports").glob("*.json"))
 
     assert any(
         location.uri.startswith("file://") for location in response.storage_locations

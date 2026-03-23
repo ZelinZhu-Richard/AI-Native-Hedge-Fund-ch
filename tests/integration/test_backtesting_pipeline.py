@@ -76,6 +76,7 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
     )
     assert response.experiment is not None
     assert response.experiment_config is not None
+    assert response.experiment_scorecard is not None
     experiment_path = (
         artifact_root / "experiments" / "experiments" / f"{response.experiment.experiment_id}.json"
     )
@@ -85,10 +86,17 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
         / "experiment_configs"
         / f"{response.experiment_config.experiment_config_id}.json"
     )
+    scorecard_path = (
+        artifact_root
+        / "reporting"
+        / "experiment_scorecards"
+        / f"{response.experiment_scorecard.experiment_scorecard_id}.json"
+    )
     assert run_path.exists()
     assert summary_path.exists()
     assert experiment_path.exists()
     assert config_path.exists()
+    assert scorecard_path.exists()
 
     run_payload = json.loads(run_path.read_text(encoding="utf-8"))
     assert run_payload["exploratory_only"] is True
@@ -153,6 +161,13 @@ def test_backtesting_pipeline_persists_exploratory_artifacts(tmp_path: Path) -> 
         )
     )
     assert partition_payload["storage_location_id"] is not None
+    experiment_artifact_payloads = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((artifact_root / "experiments" / "experiment_artifacts").glob("*.json"))
+    ]
+    assert "ExperimentScorecard" in {
+        payload["artifact_type"] for payload in experiment_artifact_payloads
+    }
 
 
 def _backtest_config() -> BacktestConfig:

@@ -85,6 +85,8 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
     assert response.final_position_ideas
     assert response.final_portfolio_proposal.risk_checks
     assert response.paper_trades == []
+    assert response.risk_summary is not None
+    assert response.proposal_scorecard is not None
     assert response.strategy_to_paper_mapping is not None
     assert response.reconciliation_report is not None
     assert response.realism_warnings
@@ -100,6 +102,9 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
     )
     assert response.final_portfolio_proposal.portfolio_selection_summary_id == (
         response.portfolio_selection_summary.portfolio_selection_summary_id
+    )
+    assert response.final_portfolio_proposal.proposal_scorecard_id == (
+        response.proposal_scorecard.proposal_scorecard_id
     )
 
     position_idea = response.final_position_ideas[0]
@@ -127,11 +132,25 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
         / "portfolio_selection_summaries"
         / f"{response.portfolio_selection_summary.portfolio_selection_summary_id}.json"
     )
+    risk_summary_path = (
+        artifact_root
+        / "reporting"
+        / "risk_summaries"
+        / f"{response.risk_summary.risk_summary_id}.json"
+    )
+    proposal_scorecard_path = (
+        artifact_root
+        / "reporting"
+        / "proposal_scorecards"
+        / f"{response.proposal_scorecard.proposal_scorecard_id}.json"
+    )
     assert position_idea_path.exists()
     assert proposal_path.exists()
     assert audit_directory.exists()
     assert reconciliation_report_path.exists()
     assert selection_summary_path.exists()
+    assert risk_summary_path.exists()
+    assert proposal_scorecard_path.exists()
 
     position_payload = json.loads(position_idea_path.read_text(encoding="utf-8"))
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
@@ -212,6 +231,8 @@ def test_portfolio_review_pipeline_creates_paper_trades_only_after_explicit_appr
     )
 
     assert response.paper_trades
+    assert response.risk_summary is not None
+    assert response.proposal_scorecard is not None
     assert response.strategy_to_paper_mapping is not None
     assert response.reconciliation_report is not None
     assert response.assumption_mismatches

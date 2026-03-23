@@ -105,6 +105,7 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
     assert response.experiment is not None
     assert response.evaluation_report is not None
     assert response.comparison_summary is not None
+    assert response.experiment_scorecard is not None
     assert len(response.variant_backtest_runs) == 4
     assert all(run.experiment_id is not None for run in response.variant_backtest_runs)
     assert {spec.family for spec in response.strategy_specs} == {
@@ -144,6 +145,12 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
         / "comparison_summaries"
         / f"{response.comparison_summary.comparison_summary_id}.json"
     ).exists()
+    assert (
+        artifact_root
+        / "reporting"
+        / "experiment_scorecards"
+        / f"{response.experiment_scorecard.experiment_scorecard_id}.json"
+    ).exists()
 
     experiment_payload = json.loads(
         (
@@ -161,7 +168,7 @@ def test_strategy_ablation_pipeline_persists_all_variant_and_experiment_artifact
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted((artifact_root / "experiments" / "experiment_artifacts").glob("*.json"))
     ]
-    assert {"SignalBundle", "ArbitrationDecision"}.issubset(
+    assert {"SignalBundle", "ArbitrationDecision", "ExperimentScorecard"}.issubset(
         {payload["artifact_type"] for payload in experiment_artifact_payloads}
     )
 

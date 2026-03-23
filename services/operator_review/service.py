@@ -41,10 +41,12 @@ from libraries.schemas import (
     PositionIdea,
     PositionLifecycleEvent,
     PositionSizingRationale,
+    ProposalScorecard,
     RealismWarning,
     ReconciliationReport,
     ResearchBrief,
     ResearchReviewStatus,
+    ResearchSummary,
     RetrievalContext,
     RetrievalQuery,
     ReviewAssignment,
@@ -57,6 +59,7 @@ from libraries.schemas import (
     ReviewQueueStatus,
     ReviewTargetType,
     RiskCheck,
+    RiskSummary,
     SelectionConflict,
     Signal,
     SignalStatus,
@@ -87,6 +90,12 @@ from services.operator_review.loaders import (
 )
 from services.operator_review.storage import LocalReviewArtifactStore
 from services.paper_ledger import AdmitApprovedTradeRequest, PaperLedgerService
+from services.reporting.loaders import (
+    latest_proposal_scorecard,
+    latest_research_summary,
+    latest_risk_summary,
+    load_reporting_workspace,
+)
 from services.research_memory import ResearchMemoryService, SearchResearchMemoryRequest
 
 TTarget = TypeVar("TTarget")
@@ -146,6 +155,7 @@ class GetReviewContextRequest(StrictModel):
     portfolio_root: Path | None = Field(default=None)
     portfolio_analysis_root: Path | None = Field(default=None)
     reconciliation_root: Path | None = Field(default=None)
+    reporting_root: Path | None = Field(default=None)
     review_root: Path | None = Field(default=None)
     audit_root: Path | None = Field(default=None)
     sync: bool = Field(default=True)
@@ -423,6 +433,7 @@ class OperatorReviewService(BaseService):
             audit_root=request.audit_root,
             portfolio_analysis_root=request.portfolio_analysis_root,
             reconciliation_root=request.reconciliation_root,
+            reporting_root=request.reporting_root,
         )
         artifact_workspace = self._resolve_workspace(
             research_root=request.research_root,
@@ -432,11 +443,13 @@ class OperatorReviewService(BaseService):
             audit_root=request.audit_root,
             portfolio_analysis_root=request.portfolio_analysis_root,
             reconciliation_root=request.reconciliation_root,
+            reporting_root=request.reporting_root,
         )
         portfolio_analysis_root = (
             request.portfolio_analysis_root or artifact_workspace.portfolio_analysis_root
         )
         reconciliation_root = request.reconciliation_root or artifact_workspace.reconciliation_root
+        reporting_root = request.reporting_root or artifact_workspace.reporting_root
         if request.sync:
             self.sync_review_queue(
                 SyncReviewQueueRequest(
@@ -457,6 +470,7 @@ class OperatorReviewService(BaseService):
             portfolio_analysis_root=portfolio_analysis_root,
             reconciliation_root=reconciliation_root,
         )
+        reporting_workspace = load_reporting_workspace(reporting_root)
         key = target_key(request.target_type, request.target_id)
         queue_item = workspace.queue_items_by_target_key.get(key)
         if queue_item is None:
@@ -479,6 +493,9 @@ class OperatorReviewService(BaseService):
         signal = None
         portfolio_proposal = None
         paper_trade = None
+        research_summary: ResearchSummary | None = None
+        risk_summary: RiskSummary | None = None
+        proposal_scorecard: ProposalScorecard | None = None
         supporting_evidence_links: list[SupportingEvidenceLink] = []
         risk_checks: list[RiskCheck] = []
         related_signals: list[Signal] = []
@@ -508,6 +525,10 @@ class OperatorReviewService(BaseService):
 
         if request.target_type is ReviewTargetType.RESEARCH_BRIEF:
             research_brief = self._require_target(workspace.research_briefs_by_id, request.target_id)
+            research_summary = latest_research_summary(
+                reporting_workspace,
+                research_brief.research_brief_id,
+            )
             hypothesis = workspace.hypotheses_by_id.get(research_brief.hypothesis_id)
             counter_hypothesis = workspace.counter_hypotheses_by_id.get(
                 research_brief.counter_hypothesis_id
@@ -528,6 +549,14 @@ class OperatorReviewService(BaseService):
             portfolio_proposal = self._require_target(
                 workspace.portfolio_proposals_by_id,
                 request.target_id,
+            )
+            risk_summary = latest_risk_summary(
+                reporting_workspace,
+                portfolio_proposal.portfolio_proposal_id,
+            )
+            proposal_scorecard = latest_proposal_scorecard(
+                reporting_workspace,
+                portfolio_proposal.portfolio_proposal_id,
             )
             risk_checks = list(portfolio_proposal.risk_checks)
             position_ideas = list(portfolio_proposal.position_ideas)
@@ -583,6 +612,14 @@ class OperatorReviewService(BaseService):
             paper_trade = self._require_target(workspace.paper_trades_by_id, request.target_id)
             portfolio_proposal = workspace.portfolio_proposals_by_id.get(paper_trade.portfolio_proposal_id)
             if portfolio_proposal is not None:
+                risk_summary = latest_risk_summary(
+                    reporting_workspace,
+                    portfolio_proposal.portfolio_proposal_id,
+                )
+                proposal_scorecard = latest_proposal_scorecard(
+                    reporting_workspace,
+                    portfolio_proposal.portfolio_proposal_id,
+                )
                 risk_checks = list(portfolio_proposal.risk_checks)
                 (
                     constraint_set,
@@ -648,6 +685,9 @@ class OperatorReviewService(BaseService):
             signal=signal,
             portfolio_proposal=portfolio_proposal,
             paper_trade=paper_trade,
+            research_summary=research_summary,
+            risk_summary=risk_summary,
+            proposal_scorecard=proposal_scorecard,
             constraint_set=constraint_set,
             constraint_results=constraint_results,
             position_sizing_rationales=position_sizing_rationales,
@@ -1234,6 +1274,7 @@ class OperatorReviewService(BaseService):
         audit_root: Path | None,
         portfolio_analysis_root: Path | None = None,
         reconciliation_root: Path | None = None,
+        reporting_root: Path | None = None,
     ) -> tuple[Path, Path, Path, Path, Path]:
         """Resolve artifact roots for operator review workflows."""
 
@@ -1245,6 +1286,7 @@ class OperatorReviewService(BaseService):
             audit_root=audit_root,
             portfolio_analysis_root=portfolio_analysis_root,
             reconciliation_root=reconciliation_root,
+            reporting_root=reporting_root,
         )
         return (
             research_root or workspace.research_root,
@@ -1264,6 +1306,7 @@ class OperatorReviewService(BaseService):
         audit_root: Path | None,
         portfolio_analysis_root: Path | None = None,
         reconciliation_root: Path | None = None,
+        reporting_root: Path | None = None,
     ) -> ArtifactWorkspace:
         """Resolve one shared workspace and reject mismatched explicit review roots."""
 
@@ -1277,6 +1320,7 @@ class OperatorReviewService(BaseService):
                 audit_root,
                 portfolio_analysis_root,
                 reconciliation_root,
+                reporting_root,
             )
             if root is not None
         ]

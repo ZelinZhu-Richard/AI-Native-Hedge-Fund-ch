@@ -10,6 +10,7 @@ from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     AblationView,
     ArtifactStorageLocation,
+    DailySystemReport,
     DataRefreshMode,
     ManualInterventionRequirement,
     PipelineEventType,
@@ -148,6 +149,10 @@ class RunDailyWorkflowResponse(StrictModel):
     recent_run_summaries: ListRecentRunSummariesResponse | None = Field(
         default=None,
         description="Recent run-summary listing captured by the operations summary step.",
+    )
+    daily_system_report: DailySystemReport | None = Field(
+        default=None,
+        description="Grounded daily system report generated from monitoring and review outputs.",
     )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
@@ -511,6 +516,7 @@ class DailyOrchestrationService(BaseService):
             paper_trade_candidate_generation=state.outputs.paper_trade_candidate_generation,
             operations_health_checks=state.outputs.operations_health_checks,
             recent_run_summaries=state.outputs.recent_run_summaries,
+            daily_system_report=state.outputs.daily_system_report,
             storage_locations=storage_locations,
             notes=workflow_notes,
         )
@@ -537,6 +543,7 @@ class DailyOrchestrationService(BaseService):
             "review_root": workspace.review_root,
             "monitoring_root": workspace.monitoring_root,
             "orchestration_root": workspace.orchestration_root,
+            "reporting_root": workspace.reporting_root,
         }
         schedule_mode = ScheduleMode.MANUAL_LOCAL
         config_id = make_canonical_id(

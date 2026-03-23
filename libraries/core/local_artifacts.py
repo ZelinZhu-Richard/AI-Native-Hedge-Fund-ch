@@ -46,6 +46,7 @@ class ArtifactWorkspace:
     review_root: Path
     audit_root: Path
     monitoring_root: Path
+    reporting_root: Path
     timing_root: Path
     data_quality_root: Path
     reconciliation_root: Path
@@ -74,6 +75,7 @@ def resolve_artifact_workspace(*, workspace_root: Path | None = None) -> Artifac
         review_root=resolved_root / "review",
         audit_root=resolved_root / "audit",
         monitoring_root=resolved_root / "monitoring",
+        reporting_root=resolved_root / "reporting",
         timing_root=resolved_root / "timing",
         data_quality_root=resolved_root / "data_quality",
         reconciliation_root=resolved_root / "reconciliation",

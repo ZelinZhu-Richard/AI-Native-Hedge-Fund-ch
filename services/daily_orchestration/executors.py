@@ -5,12 +5,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from libraries.core import resolve_artifact_workspace
+from libraries.core import load_local_models, resolve_artifact_workspace
 from libraries.schemas import (
     AblationView,
     ArtifactStorageLocation,
+    DailyPaperSummary,
+    DailySystemReport,
     DataRefreshMode,
     ManualInterventionRequirement,
+    ReviewFollowup,
+    ReviewFollowupStatus,
     WorkflowStatus,
 )
 from libraries.time import Clock
@@ -49,6 +53,12 @@ from services.portfolio import (
     RunPortfolioWorkflowRequest,
     RunPortfolioWorkflowResponse,
 )
+from services.reporting import (
+    GenerateDailySystemReportRequest,
+    GenerateReviewQueueSummaryRequest,
+    ReportingService,
+)
+from services.reporting.loaders import load_reporting_workspace
 from services.research_orchestrator import RunResearchWorkflowResponse
 
 
@@ -70,6 +80,7 @@ class WorkflowRoots:
     data_quality_root: Path
     orchestration_root: Path
     backtesting_root: Path
+    reporting_root: Path
 
 
 @dataclass
@@ -103,6 +114,7 @@ class DailyWorkflowOutputs:
     paper_trade_candidate_generation: PaperTradeProposalResponse | None = None
     operations_health_checks: RunHealthChecksResponse | None = None
     recent_run_summaries: ListRecentRunSummariesResponse | None = None
+    daily_system_report: DailySystemReport | None = None
 
 
 @dataclass
@@ -396,13 +408,72 @@ def execute_operations_summary(state: DailyWorkflowState) -> StepExecutionOutcom
     )
     state.outputs.operations_health_checks = health_checks
     state.outputs.recent_run_summaries = recent_run_summaries
+    reporting_service = ReportingService(clock=context.clock)
+    review_queue_summary = reporting_service.generate_review_queue_summary(
+        GenerateReviewQueueSummaryRequest(
+            queue_items=(
+                state.outputs.review_queue_sync.queue_items
+                if state.outputs.review_queue_sync is not None
+                else []
+            ),
+            requested_by=context.requested_by,
+        ),
+        output_root=context.roots.reporting_root,
+    ).review_queue_summary
+    reporting_workspace = load_reporting_workspace(context.roots.reporting_root)
+    daily_paper_summaries = load_local_models(
+        context.roots.portfolio_root / "daily_paper_summaries",
+        DailyPaperSummary,
+    )
+    review_followups = load_local_models(
+        context.roots.portfolio_root / "review_followups",
+        ReviewFollowup,
+    )
+    daily_system_report = reporting_service.generate_daily_system_report(
+        GenerateDailySystemReportRequest(
+            report_date=context.clock.now().date(),
+            run_summaries=recent_run_summaries.items,
+            alert_records=health_checks.alert_records,
+            service_statuses=health_checks.service_statuses,
+            review_queue_summary=review_queue_summary,
+            daily_paper_summaries=daily_paper_summaries,
+            review_followups=review_followups,
+            proposal_scorecards=[
+                scorecard
+                for scorecards in reporting_workspace.proposal_scorecards_by_proposal_id.values()
+                for scorecard in scorecards[:1]
+            ],
+            experiment_scorecards=[
+                scorecard
+                for scorecards in reporting_workspace.experiment_scorecards_by_experiment_id.values()
+                for scorecard in scorecards[:1]
+            ],
+            requested_by=context.requested_by,
+        ),
+        output_root=context.roots.reporting_root,
+    ).daily_system_report
+    state.outputs.daily_system_report = daily_system_report
     return StepExecutionOutcome(
         status=WorkflowStatus.SUCCEEDED,
         notes=[
             f"health_checks={len(health_checks.health_checks)}",
             f"recent_run_summaries={recent_run_summaries.total}",
+            f"open_review_followups={len([f for f in review_followups if f.status is ReviewFollowupStatus.OPEN])}",
+            *(
+                [f"daily_system_report_id={daily_system_report.daily_system_report_id}"]
+                if daily_system_report is not None
+                else []
+            ),
         ],
-        produced_artifact_ids=[check.health_check_id for check in health_checks.health_checks],
+        produced_artifact_ids=[
+            *[check.health_check_id for check in health_checks.health_checks],
+            *(
+                [review_queue_summary.review_queue_summary_id]
+                if review_queue_summary is not None
+                else []
+            ),
+            *( [daily_system_report.daily_system_report_id] if daily_system_report is not None else [] ),
+        ],
     )
 
 
@@ -440,6 +511,7 @@ def build_workflow_roots(*, artifact_root: Path) -> WorkflowRoots:
         data_quality_root=workspace.data_quality_root,
         orchestration_root=workspace.orchestration_root,
         backtesting_root=workspace.backtesting_root,
+        reporting_root=workspace.reporting_root,
     )
 
 

@@ -268,6 +268,10 @@ class PortfolioProposal(TimestampedModel):
         default=None,
         description="Backtest-to-paper reconciliation report identifier when available.",
     )
+    proposal_scorecard_id: str | None = Field(
+        default=None,
+        description="Proposal-scorecard identifier when reporting has run for the proposal.",
+    )
     review_required: bool = Field(
         default=True,
         description="Whether the proposal requires explicit human approval.",

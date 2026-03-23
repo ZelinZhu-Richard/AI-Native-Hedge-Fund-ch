@@ -25,6 +25,7 @@ from libraries.schemas import (
     PositionAttribution,
     PositionIdea,
     PositionSizingRationale,
+    ProposalScorecard,
     QualityDecision,
     RealismWarning,
     ReconciliationReport,
@@ -32,6 +33,7 @@ from libraries.schemas import (
     ReviewOutcome,
     ReviewTargetType,
     RiskCheck,
+    RiskSummary,
     ScenarioDefinition,
     SelectionConflict,
     SelectionRule,
@@ -65,6 +67,11 @@ from services.portfolio import (
     RunPortfolioWorkflowResponse,
 )
 from services.portfolio.storage import LocalPortfolioArtifactStore
+from services.reporting import (
+    GenerateProposalScorecardRequest,
+    GenerateRiskSummaryRequest,
+    ReportingService,
+)
 
 
 class PortfolioReviewPipelineResponse(StrictModel):
@@ -139,6 +146,14 @@ class PortfolioReviewPipelineResponse(StrictModel):
     paper_trades: list[PaperTrade] = Field(
         default_factory=list,
         description="Paper-trade candidates created from the final proposal.",
+    )
+    risk_summary: RiskSummary | None = Field(
+        default=None,
+        description="Grounded risk summary for the final proposal when reporting ran.",
+    )
+    proposal_scorecard: ProposalScorecard | None = Field(
+        default=None,
+        description="Grounded proposal scorecard when reporting ran.",
     )
     strategy_to_paper_mapping: StrategyToPaperMapping | None = Field(
         default=None,
@@ -264,6 +279,8 @@ def run_portfolio_review_pipeline(
         assumption_mismatches: list[AssumptionMismatch] = []
         availability_mismatches: list[AvailabilityMismatch] = []
         realism_warnings: list[RealismWarning] = []
+        risk_summary: RiskSummary | None = None
+        proposal_scorecard: ProposalScorecard | None = None
 
         review_decision = None
         if proposal_review_outcome is not None:
@@ -409,6 +426,70 @@ def run_portfolio_review_pipeline(
                 notes.extend(reconciliation_response.notes)
             except ValueError as exc:
                 notes.append(f"reconciliation_skipped={exc}")
+        validation_gates = [
+            gate
+            for gate in (
+                workflow_response.validation_gate,
+                paper_trade_response.validation_gate,
+            )
+            if gate is not None
+        ]
+        reporting_service = ReportingService(clock=resolved_clock)
+        risk_summary_response = reporting_service.generate_risk_summary(
+            GenerateRiskSummaryRequest(
+                portfolio_proposal=final_portfolio_proposal,
+                risk_checks=final_portfolio_proposal.risk_checks,
+                stress_test_results=workflow_response.stress_test_results,
+                validation_gates=validation_gates,
+                reconciliation_report=reconciliation_report,
+                requested_by=requested_by,
+            ),
+            output_root=workspace.reporting_root,
+        )
+        risk_summary = risk_summary_response.risk_summary
+        storage_locations.extend(risk_summary_response.storage_locations)
+        notes.extend(risk_summary_response.notes)
+        proposal_scorecard_response = reporting_service.generate_proposal_scorecard(
+            GenerateProposalScorecardRequest(
+                portfolio_proposal=final_portfolio_proposal,
+                portfolio_selection_summary=workflow_response.portfolio_selection_summary,
+                construction_decisions=workflow_response.construction_decisions,
+                position_sizing_rationales=workflow_response.position_sizing_rationales,
+                portfolio_attribution=workflow_response.portfolio_attribution,
+                stress_test_run=workflow_response.stress_test_run,
+                stress_test_results=workflow_response.stress_test_results,
+                risk_checks=final_portfolio_proposal.risk_checks,
+                validation_gates=validation_gates,
+                reconciliation_report=reconciliation_report,
+                realism_warnings=realism_warnings,
+                paper_trades=paper_trade_response.proposed_trades,
+                requested_by=requested_by,
+            ),
+            output_root=workspace.reporting_root,
+        )
+        proposal_scorecard = proposal_scorecard_response.proposal_scorecard
+        storage_locations.extend(proposal_scorecard_response.storage_locations)
+        notes.extend(proposal_scorecard_response.notes)
+        final_portfolio_proposal = final_portfolio_proposal.model_copy(
+            update={
+                "proposal_scorecard_id": proposal_scorecard.proposal_scorecard_id,
+                "updated_at": resolved_clock.now(),
+            }
+        )
+        storage_locations.append(
+            store.persist_model(
+                artifact_id=final_portfolio_proposal.portfolio_proposal_id,
+                category="portfolio_proposals",
+                model=final_portfolio_proposal,
+                source_reference_ids=final_portfolio_proposal.provenance.source_reference_ids,
+            )
+        )
+        notes.extend(
+            [
+                f"risk_summary_id={risk_summary.risk_summary_id}",
+                f"proposal_scorecard_id={proposal_scorecard.proposal_scorecard_id}",
+            ]
+        )
         audit_service = AuditLoggingService(clock=resolved_clock)
         if paper_trade_response.proposed_trades:
             audit_response = audit_service.record_event(
@@ -475,6 +556,12 @@ def run_portfolio_review_pipeline(
                         if reconciliation_report is not None
                         else []
                     ),
+                    *( [risk_summary.risk_summary_id] if risk_summary is not None else [] ),
+                    *(
+                        [proposal_scorecard.proposal_scorecard_id]
+                        if proposal_scorecard is not None
+                        else []
+                    ),
                     *(
                         [paper_trade_response.validation_gate.validation_gate_id]
                         if paper_trade_response.validation_gate is not None
@@ -507,6 +594,12 @@ def run_portfolio_review_pipeline(
                     *(
                         [reconciliation_report.reconciliation_report_id]
                         if reconciliation_report is not None
+                        else []
+                    ),
+                    *( [risk_summary.risk_summary_id] if risk_summary is not None else [] ),
+                    *(
+                        [proposal_scorecard.proposal_scorecard_id]
+                        if proposal_scorecard is not None
                         else []
                     ),
                     *(
@@ -625,6 +718,12 @@ def run_portfolio_review_pipeline(
                         for mismatch in availability_mismatches
                     ],
                     *[warning.realism_warning_id for warning in realism_warnings],
+                    *( [risk_summary.risk_summary_id] if risk_summary is not None else [] ),
+                    *(
+                        [proposal_scorecard.proposal_scorecard_id]
+                        if proposal_scorecard is not None
+                        else []
+                    ),
                     *(
                         [paper_trade_response.validation_gate.validation_gate_id]
                         if paper_trade_response.validation_gate is not None
@@ -657,6 +756,8 @@ def run_portfolio_review_pipeline(
             risk_checks=final_portfolio_proposal.risk_checks,
             review_decision=review_decision,
             paper_trades=paper_trade_response.proposed_trades,
+            risk_summary=risk_summary,
+            proposal_scorecard=proposal_scorecard,
             strategy_to_paper_mapping=strategy_to_paper_mapping,
             reconciliation_report=reconciliation_report,
             assumption_mismatches=assumption_mismatches,
