@@ -1,6 +1,8 @@
 """Experiment registry service and local reproducibility workflow."""
 
 from services.experiment_registry.service import (
+    AppendExperimentContextRequest,
+    AppendExperimentContextResponse,
     BeginExperimentRequest,
     BeginExperimentResponse,
     ExperimentRegistryService,
@@ -9,6 +11,8 @@ from services.experiment_registry.service import (
 )
 
 __all__ = [
+    "AppendExperimentContextRequest",
+    "AppendExperimentContextResponse",
     "BeginExperimentRequest",
     "BeginExperimentResponse",
     "ExperimentRegistryService",

@@ -15,8 +15,10 @@ from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ActionRecommendationSummary,
     ArtifactStorageLocation,
+    AssumptionMismatch,
     AuditLog,
     AuditOutcome,
+    AvailabilityMismatch,
     DerivedArtifactValidationStatus,
     EscalationStatus,
     EvidenceGrade,
@@ -29,6 +31,8 @@ from libraries.schemas import (
     PortfolioProposalStatus,
     PositionAttribution,
     PositionIdea,
+    RealismWarning,
+    ReconciliationReport,
     ResearchBrief,
     ResearchReviewStatus,
     RetrievalContext,
@@ -44,6 +48,7 @@ from libraries.schemas import (
     RiskCheck,
     Signal,
     SignalStatus,
+    StrategyToPaperMapping,
     StressTestResult,
     StressTestRun,
     StrictModel,
@@ -126,6 +131,7 @@ class GetReviewContextRequest(StrictModel):
     signal_root: Path | None = Field(default=None)
     portfolio_root: Path | None = Field(default=None)
     portfolio_analysis_root: Path | None = Field(default=None)
+    reconciliation_root: Path | None = Field(default=None)
     review_root: Path | None = Field(default=None)
     audit_root: Path | None = Field(default=None)
     sync: bool = Field(default=True)
@@ -402,6 +408,7 @@ class OperatorReviewService(BaseService):
             review_root=request.review_root,
             audit_root=request.audit_root,
             portfolio_analysis_root=request.portfolio_analysis_root,
+            reconciliation_root=request.reconciliation_root,
         )
         artifact_workspace = self._resolve_workspace(
             research_root=request.research_root,
@@ -410,10 +417,12 @@ class OperatorReviewService(BaseService):
             review_root=request.review_root,
             audit_root=request.audit_root,
             portfolio_analysis_root=request.portfolio_analysis_root,
+            reconciliation_root=request.reconciliation_root,
         )
         portfolio_analysis_root = (
             request.portfolio_analysis_root or artifact_workspace.portfolio_analysis_root
         )
+        reconciliation_root = request.reconciliation_root or artifact_workspace.reconciliation_root
         if request.sync:
             self.sync_review_queue(
                 SyncReviewQueueRequest(
@@ -432,6 +441,7 @@ class OperatorReviewService(BaseService):
             review_root=review_root,
             audit_root=audit_root,
             portfolio_analysis_root=portfolio_analysis_root,
+            reconciliation_root=reconciliation_root,
         )
         key = target_key(request.target_type, request.target_id)
         queue_item = workspace.queue_items_by_target_key.get(key)
@@ -463,6 +473,11 @@ class OperatorReviewService(BaseService):
         position_attributions: list[PositionAttribution] = []
         stress_test_run: StressTestRun | None = None
         stress_test_results: list[StressTestResult] = []
+        strategy_to_paper_mapping: StrategyToPaperMapping | None = None
+        reconciliation_report: ReconciliationReport | None = None
+        assumption_mismatches: list[AssumptionMismatch] = []
+        availability_mismatches: list[AvailabilityMismatch] = []
+        realism_warnings: list[RealismWarning] = []
 
         if request.target_type is ReviewTargetType.RESEARCH_BRIEF:
             research_brief = self._require_target(workspace.research_briefs_by_id, request.target_id)
@@ -503,6 +518,16 @@ class OperatorReviewService(BaseService):
                 portfolio_proposal=portfolio_proposal,
                 workspace=workspace,
             )
+            (
+                strategy_to_paper_mapping,
+                reconciliation_report,
+                assumption_mismatches,
+                availability_mismatches,
+                realism_warnings,
+            ) = self._reconciliation_for_proposal(
+                portfolio_proposal=portfolio_proposal,
+                workspace=workspace,
+            )
         elif request.target_type is ReviewTargetType.PAPER_TRADE:
             paper_trade = self._require_target(workspace.paper_trades_by_id, request.target_id)
             portfolio_proposal = workspace.portfolio_proposals_by_id.get(paper_trade.portfolio_proposal_id)
@@ -514,6 +539,16 @@ class OperatorReviewService(BaseService):
                     stress_test_run,
                     stress_test_results,
                 ) = self._portfolio_analysis_for_proposal(
+                    portfolio_proposal=portfolio_proposal,
+                    workspace=workspace,
+                )
+                (
+                    strategy_to_paper_mapping,
+                    reconciliation_report,
+                    assumption_mismatches,
+                    availability_mismatches,
+                    realism_warnings,
+                ) = self._reconciliation_for_proposal(
                     portfolio_proposal=portfolio_proposal,
                     workspace=workspace,
                 )
@@ -542,6 +577,11 @@ class OperatorReviewService(BaseService):
             position_attributions=position_attributions,
             stress_test_run=stress_test_run,
             stress_test_results=stress_test_results,
+            strategy_to_paper_mapping=strategy_to_paper_mapping,
+            reconciliation_report=reconciliation_report,
+            assumption_mismatches=assumption_mismatches,
+            availability_mismatches=availability_mismatches,
+            realism_warnings=realism_warnings,
             supporting_evidence_links=supporting_evidence_links,
             risk_checks=risk_checks,
             related_signals=related_signals,
@@ -1078,6 +1118,7 @@ class OperatorReviewService(BaseService):
         review_root: Path | None,
         audit_root: Path | None,
         portfolio_analysis_root: Path | None = None,
+        reconciliation_root: Path | None = None,
     ) -> tuple[Path, Path, Path, Path, Path]:
         """Resolve artifact roots for operator review workflows."""
 
@@ -1088,6 +1129,7 @@ class OperatorReviewService(BaseService):
             review_root=review_root,
             audit_root=audit_root,
             portfolio_analysis_root=portfolio_analysis_root,
+            reconciliation_root=reconciliation_root,
         )
         return (
             research_root or workspace.research_root,
@@ -1106,6 +1148,7 @@ class OperatorReviewService(BaseService):
         review_root: Path | None,
         audit_root: Path | None,
         portfolio_analysis_root: Path | None = None,
+        reconciliation_root: Path | None = None,
     ) -> ArtifactWorkspace:
         """Resolve one shared workspace and reject mismatched explicit review roots."""
 
@@ -1118,6 +1161,7 @@ class OperatorReviewService(BaseService):
                 review_root,
                 audit_root,
                 portfolio_analysis_root,
+                reconciliation_root,
             )
             if root is not None
         ]
@@ -1760,6 +1804,75 @@ class OperatorReviewService(BaseService):
             else []
         )
         return portfolio_attribution, position_attributions, stress_test_run, stress_test_results
+
+    def _reconciliation_for_proposal(
+        self,
+        *,
+        portfolio_proposal: PortfolioProposal,
+        workspace: LoadedReviewWorkspace,
+    ) -> tuple[
+        StrategyToPaperMapping | None,
+        ReconciliationReport | None,
+        list[AssumptionMismatch],
+        list[AvailabilityMismatch],
+        list[RealismWarning],
+    ]:
+        """Resolve proposal-linked backtest reconciliation artifacts when available."""
+
+        strategy_to_paper_mapping = (
+            workspace.strategy_to_paper_mappings_by_id.get(
+                portfolio_proposal.strategy_to_paper_mapping_id
+            )
+            if portfolio_proposal.strategy_to_paper_mapping_id is not None
+            else None
+        )
+        reconciliation_report = (
+            workspace.reconciliation_reports_by_id.get(portfolio_proposal.reconciliation_report_id)
+            if portfolio_proposal.reconciliation_report_id is not None
+            else None
+        )
+        assumption_mismatches = (
+            [
+                assumption_mismatch
+                for mismatch_id in reconciliation_report.assumption_mismatch_ids
+                if (
+                    assumption_mismatch := workspace.assumption_mismatches_by_id.get(mismatch_id)
+                )
+                is not None
+            ]
+            if reconciliation_report is not None
+            else []
+        )
+        availability_mismatches = (
+            [
+                availability_mismatch
+                for mismatch_id in reconciliation_report.availability_mismatch_ids
+                if (
+                    availability_mismatch := workspace.availability_mismatches_by_id.get(
+                        mismatch_id
+                    )
+                )
+                is not None
+            ]
+            if reconciliation_report is not None
+            else []
+        )
+        realism_warnings = (
+            [
+                warning
+                for warning_id in reconciliation_report.realism_warning_ids
+                if (warning := workspace.realism_warnings_by_id.get(warning_id)) is not None
+            ]
+            if reconciliation_report is not None
+            else []
+        )
+        return (
+            strategy_to_paper_mapping,
+            reconciliation_report,
+            assumption_mismatches,
+            availability_mismatches,
+            realism_warnings,
+        )
 
     def _company_id_for_review_target(
         self,

@@ -24,6 +24,7 @@ from libraries.schemas import (
     BacktestRun,
     BenchmarkReference,
     ComparisonSummary,
+    CostModel,
     CoverageSummary,
     DatasetManifest,
     DatasetPartition,
@@ -33,6 +34,7 @@ from libraries.schemas import (
     DecisionCutoff,
     EvaluationMetric,
     EvaluationReport,
+    ExecutionTimingRule,
     Experiment,
     ExperimentArtifact,
     ExperimentArtifactRole,
@@ -42,8 +44,10 @@ from libraries.schemas import (
     ExperimentParameterValueType,
     ExperimentStatus,
     FailureCase,
+    FillAssumption,
     PerformanceSummary,
     PipelineEventType,
+    RealismWarning,
     RobustnessCheck,
     RunContext,
     SignalCalibration,
@@ -60,6 +64,7 @@ from libraries.schemas import (
 from libraries.schemas.base import ProvenanceRecord
 from libraries.utils import make_canonical_id, make_prefixed_id
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.backtest_reconciliation import BacktestReconciliationService
 from services.backtesting.ablation import (
     build_parent_experiment_artifacts,
     build_parent_experiment_config,
@@ -192,6 +197,22 @@ class RunBacktestWorkflowResponse(StrictModel):
     benchmark_references: list[BenchmarkReference] = Field(
         default_factory=list,
         description="Mechanical benchmarks emitted alongside the run.",
+    )
+    execution_timing_rule: ExecutionTimingRule | None = Field(
+        default=None,
+        description="Explicit backtest-side execution timing rule when recorded.",
+    )
+    fill_assumption: FillAssumption | None = Field(
+        default=None,
+        description="Explicit backtest-side fill assumption when recorded.",
+    )
+    cost_model: CostModel | None = Field(
+        default=None,
+        description="Explicit backtest-side cost model when recorded.",
+    )
+    realism_warnings: list[RealismWarning] = Field(
+        default_factory=list,
+        description="Structured realism warnings recorded for the backtest path.",
     )
     experiment: Experiment | None = Field(
         default=None,
@@ -368,13 +389,23 @@ class BacktestingService(BaseService):
             workflow_run_id=backtest_run_id,
             backtest_run_id=backtest_run_id,
         )
-        workspace = resolve_artifact_workspace_from_stage_root(request.feature_root)
+        workspace_anchor = request.output_root or request.feature_root
+        workspace = resolve_artifact_workspace_from_stage_root(workspace_anchor)
         output_root = request.output_root or workspace.backtesting_root
         experiment_root = request.experiment_root or workspace.experiments_root
         audit_root = workspace.audit_root
         timing_root = workspace.timing_root
         store = LocalBacktestArtifactStore(root=output_root, clock=self.clock)
         storage_locations: list[ArtifactStorageLocation] = []
+        realism_bundle = BacktestReconciliationService(clock=self.clock).build_backtest_realism_context(
+            backtest_run_id=backtest_run_id,
+            company_id=inputs.company_id,
+            execution_assumption=request.backtest_config.execution_assumption,
+            source_reference_ids=result.backtest_run.provenance.source_reference_ids,
+            output_root=workspace.reconciliation_root,
+            workflow_run_id=backtest_run_id,
+        )
+        storage_locations.extend(realism_bundle.storage_locations)
         experiment: Experiment | None = None
         experiment_config: ExperimentConfig | None = None
         dataset_references: list[DatasetReference] = []
@@ -501,14 +532,29 @@ class BacktestingService(BaseService):
             storage_locations.append(
                 self._persist_model(store=store, category="benchmarks", model=benchmark)
             )
-        backtest_run = result.backtest_run
+        backtest_run = result.backtest_run.model_copy(
+            update={
+                "execution_timing_rule_id": realism_bundle.execution_timing_rule.execution_timing_rule_id,
+                "fill_assumption_id": realism_bundle.fill_assumption.fill_assumption_id,
+                "cost_model_id": realism_bundle.cost_model.cost_model_id,
+                "notes": [
+                    *result.backtest_run.notes,
+                    *realism_bundle.notes,
+                    *[
+                        f"realism_warning_id={warning.realism_warning_id}"
+                        for warning in realism_bundle.realism_warnings
+                    ],
+                ],
+                "updated_at": self.clock.now(),
+            }
+        )
         if experiment is not None:
             now = self.clock.now()
-            backtest_run = result.backtest_run.model_copy(
+            backtest_run = backtest_run.model_copy(
                 update={
                     "experiment_id": experiment.experiment_id,
                     "updated_at": now,
-                    "provenance": result.backtest_run.provenance.model_copy(
+                    "provenance": backtest_run.provenance.model_copy(
                         update={"experiment_id": experiment.experiment_id, "processing_time": now}
                     ),
                 }
@@ -572,7 +618,15 @@ class BacktestingService(BaseService):
             experiment = finalize_response.experiment
             storage_locations.extend(finalize_response.storage_locations)
 
-        notes = [f"requested_by={request.requested_by}", *result.notes]
+        notes = [
+            f"requested_by={request.requested_by}",
+            *result.notes,
+            *realism_bundle.notes,
+            *[
+                f"realism_warning_id={warning.realism_warning_id}"
+                for warning in realism_bundle.realism_warnings
+            ],
+        ]
         if result.timing_anomalies:
             notes.append(f"timing_anomaly_count={len(result.timing_anomalies)}")
         if experiment is not None:
@@ -597,6 +651,13 @@ class BacktestingService(BaseService):
                     *[event.simulation_event_id for event in result.simulation_events],
                     result.performance_summary.performance_summary_id,
                     *[benchmark.benchmark_reference_id for benchmark in result.benchmark_references],
+                    realism_bundle.execution_timing_rule.execution_timing_rule_id,
+                    realism_bundle.fill_assumption.fill_assumption_id,
+                    realism_bundle.cost_model.cost_model_id,
+                    *[
+                        warning.realism_warning_id
+                        for warning in realism_bundle.realism_warnings
+                    ],
                     *[dataset_reference.dataset_reference_id for dataset_reference in dataset_references],
                     *(
                         [experiment.experiment_id, experiment.experiment_config_id]
@@ -644,6 +705,10 @@ class BacktestingService(BaseService):
             timing_anomalies=result.timing_anomalies,
             performance_summary=result.performance_summary,
             benchmark_references=result.benchmark_references,
+            execution_timing_rule=realism_bundle.execution_timing_rule,
+            fill_assumption=realism_bundle.fill_assumption,
+            cost_model=realism_bundle.cost_model,
+            realism_warnings=realism_bundle.realism_warnings,
             experiment=experiment,
             experiment_config=experiment_config,
             dataset_references=dataset_references,

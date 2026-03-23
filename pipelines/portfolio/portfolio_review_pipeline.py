@@ -9,7 +9,9 @@ from libraries.config import get_settings
 from libraries.core import resolve_artifact_workspace, resolve_artifact_workspace_from_stage_root
 from libraries.schemas import (
     ArtifactStorageLocation,
+    AssumptionMismatch,
     AuditOutcome,
+    AvailabilityMismatch,
     PaperTrade,
     PipelineEventType,
     PortfolioAttribution,
@@ -19,11 +21,14 @@ from libraries.schemas import (
     PositionAttribution,
     PositionIdea,
     QualityDecision,
+    RealismWarning,
+    ReconciliationReport,
     ReviewDecision,
     ReviewOutcome,
     ReviewTargetType,
     RiskCheck,
     ScenarioDefinition,
+    StrategyToPaperMapping,
     StressTestResult,
     StressTestRun,
     StrictModel,
@@ -35,6 +40,10 @@ from libraries.utils import (
     make_prefixed_id,
 )
 from services.audit import AuditEventRequest, AuditLoggingService
+from services.backtest_reconciliation import (
+    BacktestReconciliationService,
+    RunBacktestPaperReconciliationRequest,
+)
 from services.data_quality import DataQualityRefusalError
 from services.monitoring import (
     MonitoringService,
@@ -95,6 +104,26 @@ class PortfolioReviewPipelineResponse(StrictModel):
     paper_trades: list[PaperTrade] = Field(
         default_factory=list,
         description="Paper-trade candidates created from the final proposal.",
+    )
+    strategy_to_paper_mapping: StrategyToPaperMapping | None = Field(
+        default=None,
+        description="Backtest-to-paper mapping artifact when reconciliation has run.",
+    )
+    reconciliation_report: ReconciliationReport | None = Field(
+        default=None,
+        description="Backtest-to-paper reconciliation report when available.",
+    )
+    assumption_mismatches: list[AssumptionMismatch] = Field(
+        default_factory=list,
+        description="Structured assumption mismatches when reconciliation has run.",
+    )
+    availability_mismatches: list[AvailabilityMismatch] = Field(
+        default_factory=list,
+        description="Structured timing mismatches when reconciliation has run.",
+    )
+    realism_warnings: list[RealismWarning] = Field(
+        default_factory=list,
+        description="Structured realism warnings when reconciliation has run.",
     )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
@@ -195,6 +224,11 @@ def run_portfolio_review_pipeline(
         notes = list(workflow_response.notes)
         final_position_ideas = list(workflow_response.position_ideas)
         final_portfolio_proposal = workflow_response.portfolio_proposal
+        strategy_to_paper_mapping: StrategyToPaperMapping | None = None
+        reconciliation_report: ReconciliationReport | None = None
+        assumption_mismatches: list[AssumptionMismatch] = []
+        availability_mismatches: list[AvailabilityMismatch] = []
+        realism_warnings: list[RealismWarning] = []
 
         review_decision = None
         if proposal_review_outcome is not None:
@@ -291,6 +325,55 @@ def run_portfolio_review_pipeline(
                     source_reference_ids=paper_trade.provenance.source_reference_ids,
                 )
             )
+        if backtesting_root is not None or resolved_backtesting_root.exists():
+            try:
+                reconciliation_response = BacktestReconciliationService(
+                    clock=resolved_clock
+                ).run_backtest_paper_reconciliation(
+                    RunBacktestPaperReconciliationRequest(
+                        backtesting_root=resolved_backtesting_root,
+                        portfolio_root=resolved_output_root,
+                        review_root=workspace.review_root,
+                        experiments_root=workspace.experiments_root,
+                        monitoring_root=workspace.monitoring_root,
+                        output_root=workspace.reconciliation_root,
+                        company_id=company_id,
+                        portfolio_proposal_id=final_portfolio_proposal.portfolio_proposal_id,
+                        paper_trade_ids=[
+                            trade.paper_trade_id for trade in paper_trade_response.proposed_trades
+                        ],
+                        as_of_time=as_of_time,
+                        requested_by=requested_by,
+                    )
+                )
+                strategy_to_paper_mapping = reconciliation_response.strategy_to_paper_mapping
+                reconciliation_report = reconciliation_response.reconciliation_report
+                assumption_mismatches = reconciliation_response.assumption_mismatches
+                availability_mismatches = reconciliation_response.availability_mismatches
+                realism_warnings = reconciliation_response.realism_warnings
+                storage_locations.extend(reconciliation_response.storage_locations)
+                final_portfolio_proposal = final_portfolio_proposal.model_copy(
+                    update={
+                        "strategy_to_paper_mapping_id": (
+                            strategy_to_paper_mapping.strategy_to_paper_mapping_id
+                        ),
+                        "reconciliation_report_id": (
+                            reconciliation_report.reconciliation_report_id
+                        ),
+                        "updated_at": resolved_clock.now(),
+                    }
+                )
+                storage_locations.append(
+                    store.persist_model(
+                        artifact_id=final_portfolio_proposal.portfolio_proposal_id,
+                        category="portfolio_proposals",
+                        model=final_portfolio_proposal,
+                        source_reference_ids=final_portfolio_proposal.provenance.source_reference_ids,
+                    )
+                )
+                notes.extend(reconciliation_response.notes)
+            except ValueError as exc:
+                notes.append(f"reconciliation_skipped={exc}")
         audit_service = AuditLoggingService(clock=resolved_clock)
         if paper_trade_response.proposed_trades:
             audit_response = audit_service.record_event(
@@ -348,6 +431,16 @@ def run_portfolio_review_pipeline(
                     *([review_decision.review_decision_id] if review_decision is not None else []),
                     *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
                     *(
+                        [strategy_to_paper_mapping.strategy_to_paper_mapping_id]
+                        if strategy_to_paper_mapping is not None
+                        else []
+                    ),
+                    *(
+                        [reconciliation_report.reconciliation_report_id]
+                        if reconciliation_report is not None
+                        else []
+                    ),
+                    *(
                         [paper_trade_response.validation_gate.validation_gate_id]
                         if paper_trade_response.validation_gate is not None
                         else []
@@ -372,6 +465,16 @@ def run_portfolio_review_pipeline(
                     *[check.risk_check_id for check in final_portfolio_proposal.risk_checks],
                     *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
                     *(
+                        [strategy_to_paper_mapping.strategy_to_paper_mapping_id]
+                        if strategy_to_paper_mapping is not None
+                        else []
+                    ),
+                    *(
+                        [reconciliation_report.reconciliation_report_id]
+                        if reconciliation_report is not None
+                        else []
+                    ),
+                    *(
                         [paper_trade_response.validation_gate.validation_gate_id]
                         if paper_trade_response.validation_gate is not None
                         else []
@@ -393,8 +496,21 @@ def run_portfolio_review_pipeline(
             if paper_trade_response.quality_decision is not None
             else False
         )
+        reconciliation_high_severity = (
+            reconciliation_report is not None
+            and reconciliation_report.highest_severity.value in {"high", "critical"}
+        )
         requires_attention = bool(final_portfolio_proposal.blocking_issues) or (
             not paper_trade_response.proposed_trades
+        ) or reconciliation_high_severity
+        attention_message = (
+            final_portfolio_proposal.blocking_issues[0]
+            if final_portfolio_proposal.blocking_issues
+            else reconciliation_report.summary
+            if reconciliation_high_severity and reconciliation_report is not None
+            else paper_trade_response.notes[0]
+            if paper_trade_response.notes
+            else "Approved portfolio proposal produced no paper-trade candidates."
         )
         if requires_attention:
             attention_event = monitoring_service.record_pipeline_event(
@@ -404,15 +520,19 @@ def run_portfolio_review_pipeline(
                     service_name="portfolio",
                     event_type=PipelineEventType.ATTENTION_REQUIRED,
                     status=WorkflowStatus.ATTENTION_REQUIRED,
-                    message=(
-                        final_portfolio_proposal.blocking_issues[0]
-                        if final_portfolio_proposal.blocking_issues
-                        else paper_trade_response.notes[0]
-                        if paper_trade_response.notes
-                        else "Approved portfolio proposal produced no paper-trade candidates."
-                    ),
+                    message=attention_message,
                     related_artifact_ids=[
                         final_portfolio_proposal.portfolio_proposal_id,
+                        *(
+                            [strategy_to_paper_mapping.strategy_to_paper_mapping_id]
+                            if strategy_to_paper_mapping is not None
+                            else []
+                        ),
+                        *(
+                            [reconciliation_report.reconciliation_report_id]
+                            if reconciliation_report is not None
+                            else []
+                        ),
                         *(
                             [paper_trade_response.validation_gate.validation_gate_id]
                             if paper_trade_response.validation_gate is not None
@@ -432,6 +552,8 @@ def run_portfolio_review_pipeline(
                 attention_reasons.append("paper_trade_quality_refusal")
             if proposal_is_approved and not paper_trade_response.proposed_trades:
                 attention_reasons.append("no_paper_trade_candidates")
+            if reconciliation_high_severity:
+                attention_reasons.append("reconciliation_high_severity_mismatch")
         monitoring_service.record_run_summary(
             RecordRunSummaryRequest(
                 workflow_name="portfolio_review_pipeline",
@@ -449,6 +571,25 @@ def run_portfolio_review_pipeline(
                     *[check.risk_check_id for check in final_portfolio_proposal.risk_checks],
                     *([review_decision.review_decision_id] if review_decision is not None else []),
                     *[trade.paper_trade_id for trade in paper_trade_response.proposed_trades],
+                    *(
+                        [strategy_to_paper_mapping.strategy_to_paper_mapping_id]
+                        if strategy_to_paper_mapping is not None
+                        else []
+                    ),
+                    *(
+                        [reconciliation_report.reconciliation_report_id]
+                        if reconciliation_report is not None
+                        else []
+                    ),
+                    *[
+                        mismatch.assumption_mismatch_id
+                        for mismatch in assumption_mismatches
+                    ],
+                    *[
+                        mismatch.availability_mismatch_id
+                        for mismatch in availability_mismatches
+                    ],
+                    *[warning.realism_warning_id for warning in realism_warnings],
                     *(
                         [paper_trade_response.validation_gate.validation_gate_id]
                         if paper_trade_response.validation_gate is not None
@@ -474,6 +615,11 @@ def run_portfolio_review_pipeline(
             risk_checks=final_portfolio_proposal.risk_checks,
             review_decision=review_decision,
             paper_trades=paper_trade_response.proposed_trades,
+            strategy_to_paper_mapping=strategy_to_paper_mapping,
+            reconciliation_report=reconciliation_report,
+            assumption_mismatches=assumption_mismatches,
+            availability_mismatches=availability_mismatches,
+            realism_warnings=realism_warnings,
             storage_locations=storage_locations,
             notes=notes,
         )

@@ -4,21 +4,26 @@ from pathlib import Path
 
 from pydantic import Field
 
-from libraries.core import build_provenance
+from libraries.core import build_provenance, resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
+    CostModel,
+    ExecutionTimingRule,
+    FillAssumption,
     PaperTrade,
     PaperTradeStatus,
     PortfolioProposal,
     PortfolioProposalStatus,
     PositionSide,
     QualityDecision,
+    RealismWarning,
     RefusalReason,
     StrictModel,
     ValidationGate,
 )
 from libraries.utils import make_canonical_id, make_prefixed_id
+from services.backtest_reconciliation import BacktestReconciliationService
 from services.data_quality import DataQualityService
 
 
@@ -60,6 +65,22 @@ class PaperTradeProposalResponse(StrictModel):
         default=None,
         description="Primary refusal reason when paper-trade creation was blocked.",
     )
+    execution_timing_rule: ExecutionTimingRule | None = Field(
+        default=None,
+        description="Explicit paper-side execution timing rule when recorded.",
+    )
+    fill_assumption: FillAssumption | None = Field(
+        default=None,
+        description="Explicit paper-side fill assumption when recorded.",
+    )
+    cost_model: CostModel | None = Field(
+        default=None,
+        description="Explicit paper-side cost model when recorded.",
+    )
+    realism_warnings: list[RealismWarning] = Field(
+        default_factory=list,
+        description="Structured realism warnings recorded for the paper path.",
+    )
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Data-quality artifact storage locations written while validating paper-trade creation.",
@@ -94,6 +115,11 @@ class PaperExecutionService(BaseService):
         proposal = request.portfolio_proposal
         notes: list[str] = []
         quality_service = DataQualityService(clock=self.clock)
+        reconciliation_root = (
+            resolve_artifact_workspace_from_stage_root(output_root).reconciliation_root
+            if output_root is not None
+            else None
+        )
         trade_batch_id = make_prefixed_id("tradebatch")
         pre_validation = quality_service.validate_paper_trade_request(
             portfolio_proposal=proposal,
@@ -104,11 +130,46 @@ class PaperExecutionService(BaseService):
             raise_on_failure=False,
         )
         storage_locations = list(pre_validation.storage_locations)
+
+        def build_realism_bundle(*, proposed_trades: list[PaperTrade]) -> tuple[
+            ExecutionTimingRule,
+            FillAssumption,
+            CostModel,
+            list[RealismWarning],
+            list[ArtifactStorageLocation],
+            list[str],
+        ]:
+            realism_bundle = BacktestReconciliationService(clock=self.clock).build_paper_realism_context(
+                portfolio_proposal=proposal,
+                proposed_trades=proposed_trades,
+                trade_batch_id=trade_batch_id,
+                output_root=reconciliation_root,
+                workflow_run_id=trade_batch_id,
+            )
+            return (
+                realism_bundle.execution_timing_rule,
+                realism_bundle.fill_assumption,
+                realism_bundle.cost_model,
+                realism_bundle.realism_warnings,
+                realism_bundle.storage_locations,
+                realism_bundle.notes,
+            )
+
         if proposal.status is not PortfolioProposalStatus.APPROVED:
+            (
+                execution_timing_rule,
+                fill_assumption,
+                cost_model,
+                realism_warnings,
+                realism_storage_locations,
+                realism_notes,
+            ) = build_realism_bundle(proposed_trades=[])
+            storage_locations.extend(realism_storage_locations)
             notes.append(
                 "Portfolio proposal is not approved, so zero paper-trade candidates were created."
             )
             notes.append(f"proposal_status={proposal.status.value}")
+            notes.extend(realism_notes)
             return PaperTradeProposalResponse(
                 trade_batch_id=trade_batch_id,
                 proposed_trades=[],
@@ -117,10 +178,24 @@ class PaperExecutionService(BaseService):
                 validation_gate=pre_validation.validation_gate,
                 quality_decision=pre_validation.validation_gate.decision,
                 refusal_reason=pre_validation.validation_gate.refusal_reason,
+                execution_timing_rule=execution_timing_rule,
+                fill_assumption=fill_assumption,
+                cost_model=cost_model,
+                realism_warnings=realism_warnings,
                 storage_locations=storage_locations,
             )
         if proposal.blocking_issues or any(check.blocking for check in proposal.risk_checks):
+            (
+                execution_timing_rule,
+                fill_assumption,
+                cost_model,
+                realism_warnings,
+                realism_storage_locations,
+                realism_notes,
+            ) = build_realism_bundle(proposed_trades=[])
+            storage_locations.extend(realism_storage_locations)
             notes.append("Proposal has blocking risk checks and cannot create paper trades.")
+            notes.extend(realism_notes)
             return PaperTradeProposalResponse(
                 trade_batch_id=trade_batch_id,
                 proposed_trades=[],
@@ -129,6 +204,10 @@ class PaperExecutionService(BaseService):
                 validation_gate=pre_validation.validation_gate,
                 quality_decision=pre_validation.validation_gate.decision,
                 refusal_reason=pre_validation.validation_gate.refusal_reason,
+                execution_timing_rule=execution_timing_rule,
+                fill_assumption=fill_assumption,
+                cost_model=cost_model,
+                realism_warnings=realism_warnings,
                 storage_locations=storage_locations,
             )
 
@@ -195,6 +274,38 @@ class PaperExecutionService(BaseService):
                     updated_at=now,
                 )
             )
+        (
+            execution_timing_rule,
+            fill_assumption,
+            cost_model,
+            realism_warnings,
+            realism_storage_locations,
+            realism_notes,
+        ) = build_realism_bundle(proposed_trades=trades)
+        storage_locations.extend(realism_storage_locations)
+        notes.extend(realism_notes)
+        trades = [
+            trade.model_copy(
+                update={
+                    "execution_timing_rule_id": execution_timing_rule.execution_timing_rule_id,
+                    "fill_assumption_id": fill_assumption.fill_assumption_id,
+                    "cost_model_id": cost_model.cost_model_id,
+                    "slippage_bps_estimate": (
+                        cost_model.slippage_bps
+                        if cost_model.slippage_bps is not None
+                        else trade.slippage_bps_estimate
+                    ),
+                    "execution_notes": [
+                        *trade.execution_notes,
+                        f"execution_timing_rule_id={execution_timing_rule.execution_timing_rule_id}",
+                        f"fill_assumption_id={fill_assumption.fill_assumption_id}",
+                        f"cost_model_id={cost_model.cost_model_id}",
+                    ],
+                    "updated_at": now,
+                }
+            )
+            for trade in trades
+        ]
         if not trades:
             notes.append("No directional position ideas were eligible for paper-trade creation.")
         post_validation = quality_service.validate_paper_trade_request(
@@ -221,6 +332,10 @@ class PaperExecutionService(BaseService):
                 validation_gate=post_validation.validation_gate,
                 quality_decision=post_validation.validation_gate.decision,
                 refusal_reason=post_validation.validation_gate.refusal_reason,
+                execution_timing_rule=execution_timing_rule,
+                fill_assumption=fill_assumption,
+                cost_model=cost_model,
+                realism_warnings=realism_warnings,
                 storage_locations=storage_locations,
             )
         return PaperTradeProposalResponse(
@@ -231,5 +346,9 @@ class PaperExecutionService(BaseService):
             validation_gate=post_validation.validation_gate,
             quality_decision=post_validation.validation_gate.decision,
             refusal_reason=post_validation.validation_gate.refusal_reason,
+            execution_timing_rule=execution_timing_rule,
+            fill_assumption=fill_assumption,
+            cost_model=cost_model,
+            realism_warnings=realism_warnings,
             storage_locations=storage_locations,
         )

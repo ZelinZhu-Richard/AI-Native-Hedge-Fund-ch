@@ -1015,6 +1015,18 @@ class BacktestRun(TimestampedModel):
     execution_assumption_id: str = Field(
         description="Execution assumption identifier applied by the run."
     )
+    execution_timing_rule_id: str | None = Field(
+        default=None,
+        description="Execution-timing rule identifier describing the backtest timing semantics.",
+    )
+    fill_assumption_id: str | None = Field(
+        default=None,
+        description="Fill-assumption identifier describing the backtest fill model.",
+    )
+    cost_model_id: str | None = Field(
+        default=None,
+        description="Cost-model identifier describing the backtest transaction-cost model.",
+    )
     performance_summary_id: str = Field(description="Performance summary identifier.")
     benchmark_reference_ids: list[str] = Field(
         default_factory=list,

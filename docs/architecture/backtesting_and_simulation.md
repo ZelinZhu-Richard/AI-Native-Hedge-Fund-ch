@@ -72,10 +72,11 @@ Day 6 intentionally keeps the rule simple:
   - `negative -> -1`
   - `mixed | monitor -> 0`
 - execute changes at next-bar open using `execution_lag_bars = 1`
+- record fill events at the next-session open timestamp instead of reusing the bar-close decision timestamp
 
 ## Artifact Flow
 
-Day 6 persists:
+Day 24 backtesting now persists:
 
 - `BacktestConfig`
 - `ExecutionAssumption`
@@ -85,6 +86,10 @@ Day 6 persists:
 - `PerformanceSummary`
 - `BenchmarkReference`
 - `BacktestRun`
+- `ExecutionTimingRule`
+- `FillAssumption`
+- `CostModel`
+- `RealismWarning`
 
 Local storage layout:
 
@@ -95,6 +100,10 @@ Local storage layout:
 - `artifacts/backtesting/events/`
 - `artifacts/backtesting/performance_summaries/`
 - `artifacts/backtesting/benchmarks/`
+- `artifacts/reconciliation/execution_timing_rules/`
+- `artifacts/reconciliation/fill_assumptions/`
+- `artifacts/reconciliation/cost_models/`
+- `artifacts/reconciliation/realism_warnings/`
 
 ## Benchmarks
 
@@ -118,6 +127,7 @@ These are engine-validation baselines, not investment recommendations.
 - every Day 6 run is `exploratory_only`
 - synthetic prices are test infrastructure only
 - ending account value is marked to market, not forced liquidation
+- execution timing, fill basis, cost assumptions, and realism warnings are now persisted explicitly
 
 ## What Day 6 Does Not Do
 
@@ -137,3 +147,4 @@ Day 6 does not provide:
 - transaction costs and slippage are simple basis-point assumptions
 - the price fixture is synthetic and intentionally small
 - there is no promotion gate yet between exploratory runs and validated signal research
+- approval delay and paper-workflow assumptions are still surfaced separately through reconciliation rather than simulated inside the backtest path

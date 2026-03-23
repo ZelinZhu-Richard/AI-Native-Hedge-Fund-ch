@@ -3,6 +3,7 @@ from __future__ import annotations
 from libraries.core.service_framework import BaseService
 from libraries.time import Clock
 from services.audit import AuditLoggingService
+from services.backtest_reconciliation import BacktestReconciliationService
 from services.backtesting import BacktestingService
 from services.daily_orchestration import DailyOrchestrationService
 from services.data_quality import DataQualityService
@@ -40,6 +41,7 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         SignalGenerationService(clock=clock),
         SignalArbitrationService(clock=clock),
         BacktestingService(clock=clock),
+        BacktestReconciliationService(clock=clock),
         EntityResolutionService(clock=clock),
         EvaluationService(clock=clock),
         ExperimentRegistryService(clock=clock),

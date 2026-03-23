@@ -99,6 +99,9 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
     assert proposal_context.position_attributions
     assert proposal_context.stress_test_run is not None
     assert proposal_context.stress_test_results
+    assert proposal_context.strategy_to_paper_mapping is not None
+    assert proposal_context.reconciliation_report is not None
+    assert proposal_context.realism_warnings
 
     note_response = service.add_review_note(
         AddReviewNoteRequest(

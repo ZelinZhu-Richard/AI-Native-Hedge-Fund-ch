@@ -9,6 +9,7 @@ from libraries.schemas import (
     BacktestConfig,
     BenchmarkKind,
     ExecutionAssumption,
+    RealismWarningKind,
     SignalStatus,
 )
 from libraries.schemas.base import ProvenanceRecord
@@ -56,6 +57,19 @@ def test_backtesting_workflow_generates_run_events_and_benchmarks(tmp_path: Path
     assert {benchmark.benchmark_kind for benchmark in response.benchmark_references} == {
         BenchmarkKind.FLAT_BASELINE,
         BenchmarkKind.BUY_AND_HOLD,
+    }
+    assert response.execution_timing_rule is not None
+    assert response.fill_assumption is not None
+    assert response.cost_model is not None
+    assert response.realism_warnings
+    assert response.backtest_run.execution_timing_rule_id == response.execution_timing_rule.execution_timing_rule_id
+    assert response.backtest_run.fill_assumption_id == response.fill_assumption.fill_assumption_id
+    assert response.backtest_run.cost_model_id == response.cost_model.cost_model_id
+    assert {warning.warning_kind for warning in response.realism_warnings} >= {
+        RealismWarningKind.SYNTHETIC_PRICE_FIXTURE,
+        RealismWarningKind.UNIT_POSITION_SIMPLIFICATION,
+        RealismWarningKind.FIXED_BPS_COSTS,
+        RealismWarningKind.NO_INTRADAY_MICROSTRUCTURE,
     }
 
 
@@ -237,6 +251,7 @@ def test_execution_lag_and_costs_reduce_net_pnl(tmp_path: Path) -> None:
     )
     fill_event = next(event for event in response.simulation_events if event.event_type.value == "fill")
     assert fill_event.event_time > decision_event.event_time
+    assert fill_event.event_time == datetime(2026, 3, 18, 13, 30, tzinfo=UTC)
     assert fill_event.price == 101.2
     assert response.performance_summary.net_pnl < response.performance_summary.gross_pnl
 

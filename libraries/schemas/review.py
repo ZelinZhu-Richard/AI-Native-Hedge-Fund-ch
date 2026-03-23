@@ -9,6 +9,13 @@ from pydantic import Field, model_validator
 from libraries.schemas.base import ProvenanceRecord, ReviewOutcome, StrictModel, TimestampedModel
 
 if TYPE_CHECKING:
+    from libraries.schemas.backtest_reconciliation import (
+        AssumptionMismatch,
+        AvailabilityMismatch,
+        RealismWarning,
+        ReconciliationReport,
+        StrategyToPaperMapping,
+    )
     from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, RiskCheck
     from libraries.schemas.portfolio_analysis import (
         PortfolioAttribution,
@@ -285,6 +292,26 @@ class ReviewContext(StrictModel):
         default_factory=list,
         description="Scenario-level stress results linked to the proposal when available.",
     )
+    strategy_to_paper_mapping: StrategyToPaperMapping | None = Field(
+        default=None,
+        description="Backtest-to-paper mapping artifact when reconciliation has run.",
+    )
+    reconciliation_report: ReconciliationReport | None = Field(
+        default=None,
+        description="Backtest-to-paper reconciliation report when available.",
+    )
+    assumption_mismatches: list[AssumptionMismatch] = Field(
+        default_factory=list,
+        description="Structured backtest-to-paper assumption mismatches when available.",
+    )
+    availability_mismatches: list[AvailabilityMismatch] = Field(
+        default_factory=list,
+        description="Structured backtest-to-paper timing mismatches when available.",
+    )
+    realism_warnings: list[RealismWarning] = Field(
+        default_factory=list,
+        description="Structured realism warnings attached to the compared workflows when available.",
+    )
     review_notes: list[ReviewNote] = Field(
         default_factory=list,
         description="Persisted review notes for the target.",
@@ -326,6 +353,13 @@ class ReviewContext(StrictModel):
 def _rebuild_review_context() -> None:
     """Resolve cross-module references for the derived review context model."""
 
+    from libraries.schemas.backtest_reconciliation import (
+        AssumptionMismatch,
+        AvailabilityMismatch,
+        RealismWarning,
+        ReconciliationReport,
+        StrategyToPaperMapping,
+    )
     from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, RiskCheck
     from libraries.schemas.portfolio_analysis import (
         PortfolioAttribution,
@@ -354,6 +388,11 @@ def _rebuild_review_context() -> None:
             "RiskCheck": RiskCheck,
             "StressTestRun": StressTestRun,
             "StressTestResult": StressTestResult,
+            "StrategyToPaperMapping": StrategyToPaperMapping,
+            "ReconciliationReport": ReconciliationReport,
+            "AssumptionMismatch": AssumptionMismatch,
+            "AvailabilityMismatch": AvailabilityMismatch,
+            "RealismWarning": RealismWarning,
             "CounterHypothesis": CounterHypothesis,
             "EvidenceAssessment": EvidenceAssessment,
             "Hypothesis": Hypothesis,

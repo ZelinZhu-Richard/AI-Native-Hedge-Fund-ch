@@ -8,6 +8,7 @@ from pydantic import Field
 from libraries.config import get_settings
 from libraries.core import (
     build_provenance,
+    load_local_models,
     resolve_artifact_workspace,
     resolve_artifact_workspace_from_stage_root,
 )
@@ -159,6 +160,34 @@ class FinalizeExperimentResponse(StrictModel):
     storage_locations: list[ArtifactStorageLocation] = Field(
         default_factory=list,
         description="Storage locations written while finalizing the experiment.",
+    )
+
+
+class AppendExperimentContextRequest(StrictModel):
+    """Request to append experiment-context artifacts without changing completion state."""
+
+    experiment_id: str = Field(description="Existing experiment identifier.")
+    experiment_artifacts: list[ExperimentArtifact] = Field(
+        default_factory=list,
+        description="Additional structured artifacts to append to the experiment context.",
+    )
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Additional notes to append to the experiment record.",
+    )
+
+
+class AppendExperimentContextResponse(StrictModel):
+    """Persisted state returned after appending experiment context."""
+
+    experiment: Experiment = Field(description="Updated experiment record.")
+    experiment_artifacts: list[ExperimentArtifact] = Field(
+        default_factory=list,
+        description="Persisted experiment-artifact records appended to the experiment.",
+    )
+    storage_locations: list[ArtifactStorageLocation] = Field(
+        default_factory=list,
+        description="Storage locations written while appending experiment context.",
     )
 
 
@@ -424,6 +453,83 @@ class ExperimentRegistryService(BaseService):
             experiment=experiment,
             experiment_artifacts=request.experiment_artifacts,
             experiment_metrics=request.experiment_metrics,
+            storage_locations=storage_locations,
+        )
+
+    def append_experiment_context(
+        self,
+        request: AppendExperimentContextRequest,
+        *,
+        output_root: Path | None = None,
+    ) -> AppendExperimentContextResponse:
+        """Append context artifacts to an existing experiment without resetting completion state."""
+
+        experiments_root = output_root or (get_settings().resolved_artifact_root / "experiments")
+        store = LocalExperimentRegistryArtifactStore(root=experiments_root, clock=self.clock)
+        experiments = load_local_models(
+            experiments_root / "experiments",
+            Experiment,
+            required=True,
+            label="Experiment registry experiment category",
+        )
+        experiment = next(
+            (candidate for candidate in experiments if candidate.experiment_id == request.experiment_id),
+            None,
+        )
+        if experiment is None:
+            raise ValueError(f"Experiment `{request.experiment_id}` was not found.")
+
+        storage_locations: list[ArtifactStorageLocation] = []
+        for experiment_artifact in request.experiment_artifacts:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="experiment_artifacts",
+                    model=experiment_artifact,
+                )
+            )
+
+        now = max(self.clock.now(), experiment.updated_at, experiment.created_at)
+        updated_experiment = experiment.model_copy(
+            update={
+                "experiment_artifact_ids": list(
+                    dict.fromkeys(
+                        [
+                            *experiment.experiment_artifact_ids,
+                            *[
+                                artifact.experiment_artifact_id
+                                for artifact in request.experiment_artifacts
+                            ],
+                        ]
+                    )
+                ),
+                "notes": [*experiment.notes, *request.notes],
+                "updated_at": now,
+                "provenance": experiment.provenance.model_copy(
+                    update={
+                        "upstream_artifact_ids": list(
+                            dict.fromkeys(
+                                [
+                                    *experiment.provenance.upstream_artifact_ids,
+                                    *[
+                                        artifact.experiment_artifact_id
+                                        for artifact in request.experiment_artifacts
+                                    ],
+                                ]
+                            )
+                        ),
+                        "processing_time": now,
+                        "notes": [*experiment.provenance.notes, *request.notes],
+                    }
+                ),
+            }
+        )
+        storage_locations.append(
+            self._persist_model(store=store, category="experiments", model=updated_experiment)
+        )
+        return AppendExperimentContextResponse(
+            experiment=updated_experiment,
+            experiment_artifacts=request.experiment_artifacts,
             storage_locations=storage_locations,
         )
 

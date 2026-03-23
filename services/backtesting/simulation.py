@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from pydantic import Field
 
@@ -36,6 +37,8 @@ from services.backtesting.loaders import (
     SyntheticDailyPriceBar,
 )
 from services.timing import TimingService
+from services.timing.calendar import regular_session_bounds
+from services.timing.rules import US_EQUITIES_TIMEZONE
 
 
 @dataclass(frozen=True)
@@ -201,6 +204,7 @@ def run_backtest_simulation(
             pending_fill = pending_fills.pop(index)
             fill_quantity = pending_fill.target_units - current_units
             notional = float(fill_quantity) * bar.open
+            fill_event_time = _bar_session_open(bar)
             transaction_cost = abs(notional) * (
                 execution_assumption.transaction_cost_bps / 10_000.0
             )
@@ -219,7 +223,7 @@ def run_backtest_simulation(
                     ),
                     strategy_decision_id=pending_fill.strategy_decision_id,
                     event_type=SimulationEventType.FILL,
-                    event_time=decision_time,
+                    event_time=fill_event_time,
                     symbol=symbol,
                     quantity=fill_quantity,
                     price=bar.open,
@@ -503,6 +507,14 @@ def _bars_in_window(
     if len(bars) < 2:
         raise ValueError("Backtesting requires at least two price bars inside the test window.")
     return bars
+
+
+def _bar_session_open(bar: SyntheticDailyPriceBar) -> datetime:
+    """Return the regular-session open timestamp for one synthetic daily bar."""
+
+    local_timestamp = ensure_utc(bar.timestamp_dt).astimezone(ZoneInfo(US_EQUITIES_TIMEZONE))
+    bounds = regular_session_bounds(session_date=local_timestamp.date())
+    return bounds.open_at.astimezone(UTC)
 
 
 def _build_signal_snapshot(

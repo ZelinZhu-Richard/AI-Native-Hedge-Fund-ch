@@ -34,6 +34,15 @@ If a caller supplies an `assumed_reference_price_usd`, the workflow also materia
 
 If no reference price is provided, quantity remains `null`.
 
+Day 24 also records explicit paper-side realism artifacts:
+
+- `ExecutionTimingRule`
+- `FillAssumption`
+- `CostModel`
+- `RealismWarning`
+
+These artifacts make the current paper assumptions inspectable. They do not simulate execution.
+
 ## Review Boundary
 
 Proposal approval does not auto-approve trades.
@@ -60,7 +69,12 @@ Each `PaperTrade` preserves:
 - optional `assumed_reference_price_usd`
 - optional `quantity`
 - explicit `execution_notes`
+- optional `execution_timing_rule_id`
+- optional `fill_assumption_id`
+- optional `cost_model_id`
 - provenance back to the proposal, position idea, and signal
+
+Paper-trade proposal responses now also surface the paper-side timing rule, fill assumption, cost model, and realism warnings directly.
 
 ## Non-Goals
 
@@ -77,3 +91,5 @@ Day 7 does not include:
 - Quantity is only available when a caller passes a reference price.
 - Trade-level review exists through the generic operator review layer, but there is still no dedicated console or richer operator workflow for it.
 - Day 7 does not simulate paper-trade fills from this workflow.
+- Costs remain estimate-only.
+- Human approval delay is explicit but still not modeled as a simulated fill path.

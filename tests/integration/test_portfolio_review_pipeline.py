@@ -9,7 +9,9 @@ from libraries.schemas import (
     BacktestConfig,
     BenchmarkKind,
     ExecutionAssumption,
+    ExperimentArtifact,
     ReviewOutcome,
+    Severity,
     SignalStatus,
 )
 from libraries.schemas.base import ProvenanceRecord
@@ -83,6 +85,15 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
     assert response.final_position_ideas
     assert response.final_portfolio_proposal.risk_checks
     assert response.paper_trades == []
+    assert response.strategy_to_paper_mapping is not None
+    assert response.reconciliation_report is not None
+    assert response.realism_warnings
+    assert response.final_portfolio_proposal.strategy_to_paper_mapping_id == (
+        response.strategy_to_paper_mapping.strategy_to_paper_mapping_id
+    )
+    assert response.final_portfolio_proposal.reconciliation_report_id == (
+        response.reconciliation_report.reconciliation_report_id
+    )
 
     position_idea = response.final_position_ideas[0]
     proposal = response.final_portfolio_proposal
@@ -97,9 +108,16 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
         / f"{proposal.portfolio_proposal_id}.json"
     )
     audit_directory = artifact_root / "audit" / "audit_logs"
+    reconciliation_report_path = (
+        artifact_root
+        / "reconciliation"
+        / "reconciliation_reports"
+        / f"{response.reconciliation_report.reconciliation_report_id}.json"
+    )
     assert position_idea_path.exists()
     assert proposal_path.exists()
     assert audit_directory.exists()
+    assert reconciliation_report_path.exists()
 
     position_payload = json.loads(position_idea_path.read_text(encoding="utf-8"))
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
@@ -180,17 +198,100 @@ def test_portfolio_review_pipeline_creates_paper_trades_only_after_explicit_appr
     )
 
     assert response.paper_trades
+    assert response.strategy_to_paper_mapping is not None
+    assert response.reconciliation_report is not None
+    assert response.assumption_mismatches
+    assert response.realism_warnings
     paper_trade = response.paper_trades[0]
     paper_trade_path = (
         artifact_root / "portfolio" / "paper_trades" / f"{paper_trade.paper_trade_id}.json"
     )
+    reconciliation_report_path = (
+        artifact_root
+        / "reconciliation"
+        / "reconciliation_reports"
+        / f"{response.reconciliation_report.reconciliation_report_id}.json"
+    )
     assert paper_trade_path.exists()
+    assert reconciliation_report_path.exists()
 
     paper_trade_payload = json.loads(paper_trade_path.read_text(encoding="utf-8"))
     assert paper_trade_payload["portfolio_proposal_id"] == response.final_portfolio_proposal.portfolio_proposal_id
     assert paper_trade_payload["execution_mode"] == "paper_only"
+    assert paper_trade_payload["execution_timing_rule_id"] is not None
+    assert paper_trade_payload["fill_assumption_id"] is not None
+    assert paper_trade_payload["cost_model_id"] is not None
     assert "live" not in "".join(paper_trade_payload["execution_notes"]).lower().replace(
         "no live routing", ""
+    )
+    experiment_artifacts = [
+        ExperimentArtifact.model_validate_json(path.read_text(encoding="utf-8"))
+        for path in sorted((artifact_root / "experiments" / "experiment_artifacts").glob("*.json"))
+    ]
+    assert "ReconciliationReport" in {
+        artifact.artifact_type for artifact in experiment_artifacts
+    }
+
+
+def test_portfolio_review_pipeline_surfaces_high_severity_reconciliation_attention(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+
+    run_fixture_ingestion_pipeline(
+        fixtures_root=FIXTURE_ROOT,
+        output_root=artifact_root / "ingestion",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_evidence_extraction_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        output_root=artifact_root / "parsing",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_hypothesis_workflow_pipeline(
+        ingestion_root=artifact_root / "ingestion",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "research",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_feature_signal_pipeline(
+        research_root=artifact_root / "research",
+        parsing_root=artifact_root / "parsing",
+        output_root=artifact_root / "signal_generation",
+        clock=FrozenClock(FIXED_NOW),
+    )
+    run_backtest_pipeline(
+        signal_root=artifact_root / "signal_generation",
+        feature_root=artifact_root / "signal_generation",
+        output_root=artifact_root / "backtesting",
+        price_fixture_path=PRICE_FIXTURE_PATH,
+        backtest_config=_backtest_config(),
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    response = run_portfolio_review_pipeline(
+        signal_root=artifact_root / "signal_generation",
+        research_root=artifact_root / "research",
+        ingestion_root=artifact_root / "ingestion",
+        backtesting_root=artifact_root / "backtesting",
+        output_root=artifact_root / "portfolio",
+        proposal_review_outcome=ReviewOutcome.APPROVE,
+        reviewer_id="pm_test",
+        review_notes=["Approved for paper-trade candidate creation."],
+        assumed_reference_prices={"APEX": 103.0},
+        clock=FrozenClock(datetime(2026, 3, 17, 7, 0, tzinfo=UTC)),
+    )
+
+    assert response.reconciliation_report is not None
+    assert response.reconciliation_report.highest_severity in {Severity.HIGH, Severity.CRITICAL}
+    monitoring_payloads = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((artifact_root / "monitoring" / "run_summaries").glob("*.json"))
+    ]
+    assert any(
+        payload["workflow_name"] == "portfolio_review_pipeline"
+        and "reconciliation_high_severity_mismatch" in payload["attention_reasons"]
+        for payload in monitoring_payloads
     )
 
 

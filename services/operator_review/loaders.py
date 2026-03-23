@@ -7,15 +7,22 @@ from pydantic import Field
 
 from libraries.core import load_local_models
 from libraries.schemas import (
+    AssumptionMismatch,
     AuditLog,
+    AvailabilityMismatch,
+    CostModel,
     CounterHypothesis,
     EvidenceAssessment,
+    ExecutionTimingRule,
+    FillAssumption,
     Hypothesis,
     PaperTrade,
     PortfolioAttribution,
     PortfolioProposal,
     PositionAttribution,
     PositionIdea,
+    RealismWarning,
+    ReconciliationReport,
     ResearchBrief,
     ReviewAssignment,
     ReviewDecision,
@@ -23,6 +30,7 @@ from libraries.schemas import (
     ReviewQueueItem,
     ReviewTargetType,
     Signal,
+    StrategyToPaperMapping,
     StressTestResult,
     StressTestRun,
     StrictModel,
@@ -47,6 +55,14 @@ class LoadedReviewWorkspace(StrictModel):
     position_attributions_by_id: dict[str, PositionAttribution] = Field(default_factory=dict)
     stress_test_runs_by_id: dict[str, StressTestRun] = Field(default_factory=dict)
     stress_test_results_by_id: dict[str, StressTestResult] = Field(default_factory=dict)
+    execution_timing_rules_by_id: dict[str, ExecutionTimingRule] = Field(default_factory=dict)
+    fill_assumptions_by_id: dict[str, FillAssumption] = Field(default_factory=dict)
+    cost_models_by_id: dict[str, CostModel] = Field(default_factory=dict)
+    strategy_to_paper_mappings_by_id: dict[str, StrategyToPaperMapping] = Field(default_factory=dict)
+    reconciliation_reports_by_id: dict[str, ReconciliationReport] = Field(default_factory=dict)
+    assumption_mismatches_by_id: dict[str, AssumptionMismatch] = Field(default_factory=dict)
+    availability_mismatches_by_id: dict[str, AvailabilityMismatch] = Field(default_factory=dict)
+    realism_warnings_by_id: dict[str, RealismWarning] = Field(default_factory=dict)
     queue_items_by_target_key: dict[str, ReviewQueueItem] = Field(default_factory=dict)
     review_notes_by_id: dict[str, ReviewNote] = Field(default_factory=dict)
     review_notes_by_target_key: dict[str, list[ReviewNote]] = Field(default_factory=dict)
@@ -64,6 +80,7 @@ def load_review_workspace(
     review_root: Path,
     audit_root: Path,
     portfolio_analysis_root: Path | None = None,
+    reconciliation_root: Path | None = None,
 ) -> LoadedReviewWorkspace:
     """Load persisted reviewable artifacts and review metadata."""
 
@@ -93,6 +110,46 @@ def load_review_workspace(
     stress_test_results = (
         _load_models(portfolio_analysis_root / "stress_test_results", StressTestResult)
         if portfolio_analysis_root is not None
+        else []
+    )
+    execution_timing_rules = (
+        _load_models(reconciliation_root / "execution_timing_rules", ExecutionTimingRule)
+        if reconciliation_root is not None
+        else []
+    )
+    fill_assumptions = (
+        _load_models(reconciliation_root / "fill_assumptions", FillAssumption)
+        if reconciliation_root is not None
+        else []
+    )
+    cost_models = (
+        _load_models(reconciliation_root / "cost_models", CostModel)
+        if reconciliation_root is not None
+        else []
+    )
+    strategy_to_paper_mappings = (
+        _load_models(reconciliation_root / "strategy_to_paper_mappings", StrategyToPaperMapping)
+        if reconciliation_root is not None
+        else []
+    )
+    reconciliation_reports = (
+        _load_models(reconciliation_root / "reconciliation_reports", ReconciliationReport)
+        if reconciliation_root is not None
+        else []
+    )
+    assumption_mismatches = (
+        _load_models(reconciliation_root / "assumption_mismatches", AssumptionMismatch)
+        if reconciliation_root is not None
+        else []
+    )
+    availability_mismatches = (
+        _load_models(reconciliation_root / "availability_mismatches", AvailabilityMismatch)
+        if reconciliation_root is not None
+        else []
+    )
+    realism_warnings = (
+        _load_models(reconciliation_root / "realism_warnings", RealismWarning)
+        if reconciliation_root is not None
         else []
     )
     queue_items = _load_models(review_root / "queue_items", ReviewQueueItem)
@@ -133,6 +190,26 @@ def load_review_workspace(
             stress_test_result.stress_test_result_id: stress_test_result
             for stress_test_result in stress_test_results
         },
+        execution_timing_rules_by_id={
+            rule.execution_timing_rule_id: rule for rule in execution_timing_rules
+        },
+        fill_assumptions_by_id={
+            assumption.fill_assumption_id: assumption for assumption in fill_assumptions
+        },
+        cost_models_by_id={cost_model.cost_model_id: cost_model for cost_model in cost_models},
+        strategy_to_paper_mappings_by_id={
+            mapping.strategy_to_paper_mapping_id: mapping for mapping in strategy_to_paper_mappings
+        },
+        reconciliation_reports_by_id={
+            report.reconciliation_report_id: report for report in reconciliation_reports
+        },
+        assumption_mismatches_by_id={
+            mismatch.assumption_mismatch_id: mismatch for mismatch in assumption_mismatches
+        },
+        availability_mismatches_by_id={
+            mismatch.availability_mismatch_id: mismatch for mismatch in availability_mismatches
+        },
+        realism_warnings_by_id={warning.realism_warning_id: warning for warning in realism_warnings},
         queue_items_by_target_key={
             target_key(item.target_type, item.target_id): item for item in queue_items
         },

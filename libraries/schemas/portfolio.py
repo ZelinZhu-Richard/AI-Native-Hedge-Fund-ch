@@ -248,6 +248,14 @@ class PortfolioProposal(TimestampedModel):
         default=None,
         description="Stress-test run identifier when proposal analysis has run.",
     )
+    strategy_to_paper_mapping_id: str | None = Field(
+        default=None,
+        description="Strategy-to-paper mapping identifier when backtest reconciliation has run.",
+    )
+    reconciliation_report_id: str | None = Field(
+        default=None,
+        description="Backtest-to-paper reconciliation report identifier when available.",
+    )
     review_required: bool = Field(
         default=True,
         description="Whether the proposal requires explicit human approval.",
@@ -316,6 +324,18 @@ class PaperTrade(TimestampedModel):
         default=None,
         ge=0.0,
         description="Estimated slippage in basis points for the simulated fill.",
+    )
+    execution_timing_rule_id: str | None = Field(
+        default=None,
+        description="Execution-timing rule identifier describing the paper-trade timing semantics.",
+    )
+    fill_assumption_id: str | None = Field(
+        default=None,
+        description="Fill-assumption identifier describing the paper-trade fill basis.",
+    )
+    cost_model_id: str | None = Field(
+        default=None,
+        description="Cost-model identifier describing the paper-trade cost estimate.",
     )
     provenance: ProvenanceRecord = Field(description="Traceability for the paper trade.")
 
