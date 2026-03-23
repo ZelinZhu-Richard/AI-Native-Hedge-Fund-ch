@@ -22,10 +22,14 @@ from libraries.schemas import (
     ConstraintResult,
     ConstraintSet,
     ConstructionDecision,
+    DailyPaperSummary,
     DerivedArtifactValidationStatus,
     EscalationStatus,
     EvidenceGrade,
     MemoryScope,
+    OutcomeAttribution,
+    PaperLedgerEntry,
+    PaperPositionState,
     PaperTrade,
     PaperTradeStatus,
     PipelineEventType,
@@ -35,6 +39,7 @@ from libraries.schemas import (
     PortfolioSelectionSummary,
     PositionAttribution,
     PositionIdea,
+    PositionLifecycleEvent,
     PositionSizingRationale,
     RealismWarning,
     ReconciliationReport,
@@ -45,6 +50,7 @@ from libraries.schemas import (
     ReviewAssignment,
     ReviewContext,
     ReviewDecision,
+    ReviewFollowup,
     ReviewNote,
     ReviewOutcome,
     ReviewQueueItem,
@@ -59,6 +65,7 @@ from libraries.schemas import (
     StressTestRun,
     StrictModel,
     SupportingEvidenceLink,
+    TradeOutcome,
     WorkflowStatus,
 )
 from libraries.utils import (
@@ -79,6 +86,7 @@ from services.operator_review.loaders import (
     target_key,
 )
 from services.operator_review.storage import LocalReviewArtifactStore
+from services.paper_ledger import AdmitApprovedTradeRequest, PaperLedgerService
 from services.research_memory import ResearchMemoryService, SearchResearchMemoryRequest
 
 TTarget = TypeVar("TTarget")
@@ -490,6 +498,13 @@ class OperatorReviewService(BaseService):
         assumption_mismatches: list[AssumptionMismatch] = []
         availability_mismatches: list[AvailabilityMismatch] = []
         realism_warnings: list[RealismWarning] = []
+        paper_position_states: list[PaperPositionState] = []
+        paper_ledger_entries: list[PaperLedgerEntry] = []
+        position_lifecycle_events: list[PositionLifecycleEvent] = []
+        trade_outcomes: list[TradeOutcome] = []
+        outcome_attributions: list[OutcomeAttribution] = []
+        review_followups: list[ReviewFollowup] = []
+        daily_paper_summaries: list[DailyPaperSummary] = []
 
         if request.target_type is ReviewTargetType.RESEARCH_BRIEF:
             research_brief = self._require_target(workspace.research_briefs_by_id, request.target_id)
@@ -551,6 +566,19 @@ class OperatorReviewService(BaseService):
                 portfolio_proposal=portfolio_proposal,
                 workspace=workspace,
             )
+            (
+                paper_position_states,
+                paper_ledger_entries,
+                position_lifecycle_events,
+                trade_outcomes,
+                outcome_attributions,
+                review_followups,
+                daily_paper_summaries,
+            ) = self._paper_ledger_context(
+                portfolio_proposal=portfolio_proposal,
+                paper_trade=None,
+                workspace=workspace,
+            )
         elif request.target_type is ReviewTargetType.PAPER_TRADE:
             paper_trade = self._require_target(workspace.paper_trades_by_id, request.target_id)
             portfolio_proposal = workspace.portfolio_proposals_by_id.get(paper_trade.portfolio_proposal_id)
@@ -597,6 +625,19 @@ class OperatorReviewService(BaseService):
                     position_ideas=position_ideas,
                     workspace=workspace,
                 )
+            (
+                paper_position_states,
+                paper_ledger_entries,
+                position_lifecycle_events,
+                trade_outcomes,
+                outcome_attributions,
+                review_followups,
+                daily_paper_summaries,
+            ) = self._paper_ledger_context(
+                portfolio_proposal=portfolio_proposal,
+                paper_trade=paper_trade,
+                workspace=workspace,
+            )
 
         return ReviewContext(
             queue_item=queue_item,
@@ -622,6 +663,13 @@ class OperatorReviewService(BaseService):
             assumption_mismatches=assumption_mismatches,
             availability_mismatches=availability_mismatches,
             realism_warnings=realism_warnings,
+            paper_position_states=paper_position_states,
+            paper_ledger_entries=paper_ledger_entries,
+            position_lifecycle_events=position_lifecycle_events,
+            trade_outcomes=trade_outcomes,
+            outcome_attributions=outcome_attributions,
+            review_followups=review_followups,
+            daily_paper_summaries=daily_paper_summaries,
             supporting_evidence_links=supporting_evidence_links,
             risk_checks=risk_checks,
             related_signals=related_signals,
@@ -1141,6 +1189,33 @@ class OperatorReviewService(BaseService):
             output_root=audit_root,
         )
         storage_locations.append(audit_response.storage_location)
+        if (
+            request.target_type is ReviewTargetType.PAPER_TRADE
+            and request.outcome is ReviewOutcome.APPROVE
+        ):
+            assert isinstance(updated_target, PaperTrade)
+            parent_proposal = workspace.portfolio_proposals_by_id.get(updated_target.portfolio_proposal_id)
+            if parent_proposal is None:
+                raise ValueError("Approved paper trades require a parent portfolio proposal.")
+            position_idea = workspace.position_ideas_by_id.get(updated_target.position_idea_id)
+            if position_idea is None:
+                raise ValueError("Approved paper trades require a known parent position idea.")
+            signal = workspace.signals_by_id.get(position_idea.signal_id)
+            if signal is None:
+                raise ValueError("Approved paper trades require a known parent signal.")
+            ledger_response = PaperLedgerService(clock=self.clock).admit_approved_trade(
+                AdmitApprovedTradeRequest(
+                    paper_trade=updated_target,
+                    portfolio_proposal=parent_proposal,
+                    position_idea=position_idea,
+                    signal=signal,
+                    requested_by=request.reviewer_id,
+                    related_review_decision=review_decision,
+                ),
+                output_root=portfolio_root,
+            )
+            updated_target = ledger_response.updated_paper_trade
+            storage_locations.extend(ledger_response.storage_locations)
         return ApplyReviewActionResponse(
             review_decision=review_decision,
             queue_item=updated_queue_item,
@@ -1993,6 +2068,89 @@ class OperatorReviewService(BaseService):
             assumption_mismatches,
             availability_mismatches,
             realism_warnings,
+        )
+
+    def _paper_ledger_context(
+        self,
+        *,
+        portfolio_proposal: PortfolioProposal | None,
+        paper_trade: PaperTrade | None,
+        workspace: LoadedReviewWorkspace,
+    ) -> tuple[
+        list[PaperPositionState],
+        list[PaperLedgerEntry],
+        list[PositionLifecycleEvent],
+        list[TradeOutcome],
+        list[OutcomeAttribution],
+        list[ReviewFollowup],
+        list[DailyPaperSummary],
+    ]:
+        """Return paper-ledger artifacts linked to a proposal or trade when available."""
+
+        if paper_trade is not None:
+            related_trades = [paper_trade]
+        elif portfolio_proposal is not None:
+            related_trades = [
+                trade
+                for trade in workspace.paper_trades_by_id.values()
+                if trade.portfolio_proposal_id == portfolio_proposal.portfolio_proposal_id
+            ]
+        else:
+            related_trades = []
+        position_states = [
+            state
+            for trade in related_trades
+            if (state := workspace.paper_position_states_by_trade_id.get(trade.paper_trade_id)) is not None
+        ]
+        state_ids = {state.paper_position_state_id for state in position_states}
+        ledger_entries = [
+            entry
+            for state_id in state_ids
+            for entry in workspace.paper_ledger_entries_by_state_id.get(state_id, [])
+        ]
+        lifecycle_events = [
+            event
+            for state_id in state_ids
+            for event in workspace.position_lifecycle_events_by_state_id.get(state_id, [])
+        ]
+        trade_outcomes = [
+            outcome
+            for state_id in state_ids
+            for outcome in workspace.trade_outcomes_by_state_id.get(state_id, [])
+        ]
+        outcome_attributions = [
+            attribution
+            for outcome in trade_outcomes
+            if (
+                attribution := workspace.outcome_attributions_by_outcome_id.get(outcome.trade_outcome_id)
+            )
+            is not None
+        ]
+        review_followups = [
+            followup
+            for state_id in state_ids
+            for followup in workspace.review_followups_by_state_id.get(state_id, [])
+        ]
+        daily_summaries = [
+            summary
+            for summary in workspace.daily_paper_summaries
+            if state_ids.intersection(
+                {
+                    *summary.open_position_state_ids,
+                    *summary.closed_position_state_ids,
+                    *summary.cancelled_position_state_ids,
+                }
+            )
+        ]
+        daily_summaries.sort(key=lambda summary: summary.summary_date, reverse=True)
+        return (
+            position_states,
+            ledger_entries,
+            lifecycle_events,
+            trade_outcomes,
+            outcome_attributions,
+            review_followups,
+            daily_summaries,
         )
 
     def _company_id_for_review_target(

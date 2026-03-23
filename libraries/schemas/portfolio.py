@@ -349,6 +349,14 @@ class PaperTrade(TimestampedModel):
         default=None,
         description="Cost-model identifier describing the paper-trade cost estimate.",
     )
+    paper_position_state_id: str | None = Field(
+        default=None,
+        description="Paper-position state identifier once the approved trade has been admitted into the paper ledger.",
+    )
+    latest_trade_outcome_id: str | None = Field(
+        default=None,
+        description="Most recent trade-outcome identifier linked to the trade when recorded.",
+    )
     provenance: ProvenanceRecord = Field(description="Traceability for the paper trade.")
 
     @model_validator(mode="after")

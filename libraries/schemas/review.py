@@ -16,6 +16,15 @@ if TYPE_CHECKING:
         ReconciliationReport,
         StrategyToPaperMapping,
     )
+    from libraries.schemas.paper_ledger import (
+        DailyPaperSummary,
+        OutcomeAttribution,
+        PaperLedgerEntry,
+        PaperPositionState,
+        PositionLifecycleEvent,
+        ReviewFollowup,
+        TradeOutcome,
+    )
     from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, RiskCheck
     from libraries.schemas.portfolio_analysis import (
         PortfolioAttribution,
@@ -344,6 +353,34 @@ class ReviewContext(StrictModel):
         default_factory=list,
         description="Structured realism warnings attached to the compared workflows when available.",
     )
+    paper_position_states: list[PaperPositionState] = Field(
+        default_factory=list,
+        description="Paper-position states linked to the review target when available.",
+    )
+    paper_ledger_entries: list[PaperLedgerEntry] = Field(
+        default_factory=list,
+        description="Paper-ledger entries linked to the review target when available.",
+    )
+    position_lifecycle_events: list[PositionLifecycleEvent] = Field(
+        default_factory=list,
+        description="Paper-position lifecycle events linked to the review target when available.",
+    )
+    trade_outcomes: list[TradeOutcome] = Field(
+        default_factory=list,
+        description="Paper-trade outcomes linked to the review target when available.",
+    )
+    outcome_attributions: list[OutcomeAttribution] = Field(
+        default_factory=list,
+        description="Outcome-attribution artifacts linked to the review target when available.",
+    )
+    review_followups: list[ReviewFollowup] = Field(
+        default_factory=list,
+        description="Post-trade review followups linked to the review target when available.",
+    )
+    daily_paper_summaries: list[DailyPaperSummary] = Field(
+        default_factory=list,
+        description="Daily paper summaries linked to the review target when available.",
+    )
     review_notes: list[ReviewNote] = Field(
         default_factory=list,
         description="Persisted review notes for the target.",
@@ -392,6 +429,15 @@ def _rebuild_review_context() -> None:
         ReconciliationReport,
         StrategyToPaperMapping,
     )
+    from libraries.schemas.paper_ledger import (
+        DailyPaperSummary,
+        OutcomeAttribution,
+        PaperLedgerEntry,
+        PaperPositionState,
+        PositionLifecycleEvent,
+        ReviewFollowup,
+        TradeOutcome,
+    )
     from libraries.schemas.portfolio import PaperTrade, PortfolioProposal, PositionIdea, RiskCheck
     from libraries.schemas.portfolio_analysis import (
         PortfolioAttribution,
@@ -421,6 +467,13 @@ def _rebuild_review_context() -> None:
     ReviewContext.model_rebuild(
         _types_namespace={
             "PaperTrade": PaperTrade,
+            "PaperLedgerEntry": PaperLedgerEntry,
+            "PaperPositionState": PaperPositionState,
+            "PositionLifecycleEvent": PositionLifecycleEvent,
+            "TradeOutcome": TradeOutcome,
+            "OutcomeAttribution": OutcomeAttribution,
+            "ReviewFollowup": ReviewFollowup,
+            "DailyPaperSummary": DailyPaperSummary,
             "PortfolioProposal": PortfolioProposal,
             "ConstraintSet": ConstraintSet,
             "ConstraintResult": ConstraintResult,

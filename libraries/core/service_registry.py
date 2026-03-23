@@ -16,6 +16,7 @@ from services.memo import MemoGenerationService
 from services.monitoring import MonitoringService
 from services.operator_review import OperatorReviewService
 from services.paper_execution import PaperExecutionService
+from services.paper_ledger import PaperLedgerService
 from services.parsing import ParsingService
 from services.portfolio import PortfolioConstructionService
 from services.portfolio_analysis import PortfolioAnalysisService
@@ -49,6 +50,7 @@ def build_service_registry(clock: Clock | None = None) -> dict[str, BaseService]
         PortfolioConstructionService(clock=clock),
         PortfolioAnalysisService(clock=clock),
         PaperExecutionService(clock=clock),
+        PaperLedgerService(clock=clock),
         OperatorReviewService(clock=clock),
         MemoGenerationService(clock=clock),
         AuditLoggingService(clock=clock),

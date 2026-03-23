@@ -15,22 +15,28 @@ from libraries.schemas import (
     ConstructionDecision,
     CostModel,
     CounterHypothesis,
+    DailyPaperSummary,
     EvidenceAssessment,
     ExecutionTimingRule,
     FillAssumption,
     Hypothesis,
+    OutcomeAttribution,
+    PaperLedgerEntry,
+    PaperPositionState,
     PaperTrade,
     PortfolioAttribution,
     PortfolioProposal,
     PortfolioSelectionSummary,
     PositionAttribution,
     PositionIdea,
+    PositionLifecycleEvent,
     PositionSizingRationale,
     RealismWarning,
     ReconciliationReport,
     ResearchBrief,
     ReviewAssignment,
     ReviewDecision,
+    ReviewFollowup,
     ReviewNote,
     ReviewQueueItem,
     ReviewTargetType,
@@ -40,10 +46,18 @@ from libraries.schemas import (
     StressTestResult,
     StressTestRun,
     StrictModel,
+    TradeOutcome,
 )
 from libraries.schemas.base import TimestampedModel
 
 T = TypeVar("T", bound=TimestampedModel)
+TStateArtifact = TypeVar(
+    "TStateArtifact",
+    PaperLedgerEntry,
+    PositionLifecycleEvent,
+    ReviewFollowup,
+    TradeOutcome,
+)
 
 
 class LoadedReviewWorkspace(StrictModel):
@@ -56,6 +70,17 @@ class LoadedReviewWorkspace(StrictModel):
     signals_by_id: dict[str, Signal] = Field(default_factory=dict)
     portfolio_proposals_by_id: dict[str, PortfolioProposal] = Field(default_factory=dict)
     paper_trades_by_id: dict[str, PaperTrade] = Field(default_factory=dict)
+    paper_position_states_by_id: dict[str, PaperPositionState] = Field(default_factory=dict)
+    paper_position_states_by_trade_id: dict[str, PaperPositionState] = Field(default_factory=dict)
+    paper_ledger_entries_by_state_id: dict[str, list[PaperLedgerEntry]] = Field(default_factory=dict)
+    position_lifecycle_events_by_state_id: dict[str, list[PositionLifecycleEvent]] = Field(
+        default_factory=dict
+    )
+    trade_outcomes_by_id: dict[str, TradeOutcome] = Field(default_factory=dict)
+    trade_outcomes_by_state_id: dict[str, list[TradeOutcome]] = Field(default_factory=dict)
+    outcome_attributions_by_outcome_id: dict[str, OutcomeAttribution] = Field(default_factory=dict)
+    review_followups_by_state_id: dict[str, list[ReviewFollowup]] = Field(default_factory=dict)
+    daily_paper_summaries: list[DailyPaperSummary] = Field(default_factory=list)
     position_ideas_by_id: dict[str, PositionIdea] = Field(default_factory=dict)
     constraint_sets_by_id: dict[str, ConstraintSet] = Field(default_factory=dict)
     constraint_results_by_id: dict[str, ConstraintResult] = Field(default_factory=dict)
@@ -105,6 +130,15 @@ def load_review_workspace(
     signals = _load_models(signal_root / "signals", Signal)
     portfolio_proposals = _load_models(portfolio_root / "portfolio_proposals", PortfolioProposal)
     paper_trades = _load_models(portfolio_root / "paper_trades", PaperTrade)
+    paper_position_states = _load_models(portfolio_root / "paper_position_states", PaperPositionState)
+    paper_ledger_entries = _load_models(portfolio_root / "paper_ledger_entries", PaperLedgerEntry)
+    position_lifecycle_events = _load_models(
+        portfolio_root / "position_lifecycle_events", PositionLifecycleEvent
+    )
+    trade_outcomes = _load_models(portfolio_root / "trade_outcomes", TradeOutcome)
+    outcome_attributions = _load_models(portfolio_root / "outcome_attributions", OutcomeAttribution)
+    review_followups = _load_models(portfolio_root / "review_followups", ReviewFollowup)
+    daily_paper_summaries = _load_models(portfolio_root / "daily_paper_summaries", DailyPaperSummary)
     position_ideas = _load_models(portfolio_root / "position_ideas", PositionIdea)
     constraint_sets = _load_models(portfolio_root / "constraint_sets", ConstraintSet)
     constraint_results = _load_models(portfolio_root / "constraint_results", ConstraintResult)
@@ -199,6 +233,25 @@ def load_review_workspace(
             proposal.portfolio_proposal_id: proposal for proposal in portfolio_proposals
         },
         paper_trades_by_id={paper_trade.paper_trade_id: paper_trade for paper_trade in paper_trades},
+        paper_position_states_by_id={
+            paper_position_state.paper_position_state_id: paper_position_state
+            for paper_position_state in paper_position_states
+        },
+        paper_position_states_by_trade_id={
+            paper_position_state.paper_trade_id: paper_position_state
+            for paper_position_state in paper_position_states
+        },
+        paper_ledger_entries_by_state_id=_group_by_state(paper_ledger_entries),
+        position_lifecycle_events_by_state_id=_group_by_state(position_lifecycle_events),
+        trade_outcomes_by_id={
+            trade_outcome.trade_outcome_id: trade_outcome for trade_outcome in trade_outcomes
+        },
+        trade_outcomes_by_state_id=_group_by_state(trade_outcomes),
+        outcome_attributions_by_outcome_id={
+            attribution.trade_outcome_id: attribution for attribution in outcome_attributions
+        },
+        review_followups_by_state_id=_group_by_state(review_followups),
+        daily_paper_summaries=daily_paper_summaries,
         position_ideas_by_id={idea.position_idea_id: idea for idea in position_ideas},
         constraint_sets_by_id={
             constraint_set.constraint_set_id: constraint_set for constraint_set in constraint_sets
@@ -328,4 +381,16 @@ def _group_audit_logs_by_target(audit_logs: list[AuditLog]) -> dict[str, list[Au
         grouped.setdefault(key, []).append(audit_log)
     for target_logs in grouped.values():
         target_logs.sort(key=lambda audit_log: audit_log.occurred_at, reverse=True)
+    return grouped
+
+
+def _group_by_state(models: list[TStateArtifact]) -> dict[str, list[TStateArtifact]]:
+    """Group state-scoped artifacts by paper-position state identifier."""
+
+    grouped: dict[str, list[TStateArtifact]] = {}
+    for model in models:
+        state_id = model.paper_position_state_id
+        grouped.setdefault(state_id, []).append(model)
+    for items in grouped.values():
+        items.sort(key=lambda model: model.created_at)
     return grouped
