@@ -16,8 +16,12 @@ This is the first inspectable proposal layer downstream of signals.
 4. If arbitration intentionally withheld a primary signal, produce no `PositionIdea`.
 5. If no arbitration bundle exists, fall back to raw signals with an explicit warning note.
 6. Skip non-directional stances: `mixed` and `monitor`.
-7. Map each eligible signal into one `PositionIdea`.
-8. Assemble all position ideas into one `PortfolioProposal`.
+7. Run explicit portfolio construction:
+   - rank candidates deterministically
+   - record same-company competition
+   - record included and rejected decisions
+   - apply explicit sizing and hard constraints
+8. Assemble included ideas into one `PortfolioProposal`.
 9. Compute a `PortfolioExposureSummary`.
 10. Build proposal-level attribution and structured stress-test artifacts.
 11. Run explicit `RiskCheck` rules, including non-blocking proposal fragility warnings.
@@ -32,17 +36,26 @@ This is the first inspectable proposal layer downstream of signals.
 - `approved` and validated signal -> `500 bps`
 - `max_weight_bps` is fixed at `500`
 
-Each `PositionIdea` preserves:
+Each included `PositionIdea` preserves:
 
 - `signal_id`
 - `signal_bundle_id`
 - `arbitration_decision_id`
+- `construction_decision_id`
+- `position_sizing_rationale_id`
 - `supporting_evidence_link_ids`
 - `evidence_span_ids`
 - `research_artifact_ids`
 - `selection_reason`
 
-When arbitration is used, `selection_reason` explicitly points to the arbitrated primary selection rather than implying that raw signal ranking alone chose the idea.
+Day 25 also persists explicit construction artifacts for candidates that were not selected:
+
+- `ConstructionDecision`
+- `ProposalRejectionReason`
+- `SelectionConflict`
+- `PortfolioSelectionSummary`
+
+When arbitration is used, the selected primary signal now outranks other same-company candidates instead of making them disappear silently.
 
 The Day 7 implementation resolves symbols from normalized `Company` metadata. If no ticker is available, the workflow emits no position idea instead of inventing a tradable symbol.
 
@@ -108,6 +121,8 @@ The current stress set is intentionally simple:
 These artifacts are review-facing and advisory.
 They do not create a new approval gate by themselves.
 
+Day 25 now feeds construction artifacts into attribution as well, so proposal analysis can explain not only what is in the proposal, but which construction decisions and binding constraints shaped it.
+
 ## Review Boundary
 
 Portfolio proposals are created with:
@@ -129,6 +144,13 @@ Day 7 persists local artifacts under `artifacts/portfolio/`:
 
 - `position_ideas/`
 - `constraints/`
+- `selection_rules/`
+- `constraint_sets/`
+- `constraint_results/`
+- `position_sizing_rationales/`
+- `construction_decisions/`
+- `selection_conflicts/`
+- `portfolio_selection_summaries/`
 - `exposure_summaries/`
 - `portfolio_proposals/`
 - `risk_checks/`
@@ -149,6 +171,7 @@ Day 20 also persists local artifacts under `artifacts/portfolio_analysis/`:
 - No optimizer, covariance model, or holdings-aware turnover model.
 - Turnover is still measured from a flat-start assumption.
 - Sector, liquidity, and beta checks are not implemented yet.
+- Construction still allows only one active idea per company and current symbol path.
 - Stress testing is heuristic and deterministic, not a risk-model platform.
 - Candidate signals are still allowed into proposals, but they remain visibly provisional and review-gated.
 - Signal arbitration improves comparison and conflict visibility, but it is not the reviewed-and-evaluated eligibility gate yet.

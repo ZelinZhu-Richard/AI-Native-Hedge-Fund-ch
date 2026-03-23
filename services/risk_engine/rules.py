@@ -5,15 +5,21 @@ from pydantic import Field
 from libraries.core import build_provenance
 from libraries.schemas import (
     ArbitrationDecision,
+    ConstraintResult,
+    ConstraintSet,
     ConstraintType,
+    ConstructionDecision,
     EvidenceAssessment,
     EvidenceGrade,
     PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
+    PortfolioSelectionSummary,
     PositionIdea,
+    PositionSizingRationale,
     RiskCheck,
     RiskCheckStatus,
+    SelectionConflict,
     Severity,
     Signal,
     SignalBundle,
@@ -49,6 +55,12 @@ def evaluate_portfolio_risk(
     signal_bundle: SignalBundle | None,
     arbitration_decision: ArbitrationDecision | None,
     signal_conflicts: list[SignalConflict],
+    constraint_set: ConstraintSet | None,
+    constraint_results: list[ConstraintResult],
+    position_sizing_rationales: list[PositionSizingRationale],
+    construction_decisions: list[ConstructionDecision],
+    selection_conflicts: list[SelectionConflict],
+    portfolio_selection_summary: PortfolioSelectionSummary | None,
     portfolio_attribution: PortfolioAttribution | None,
     stress_test_run: StressTestRun | None,
     stress_test_results: list[StressTestResult],
@@ -58,6 +70,61 @@ def evaluate_portfolio_risk(
     """Evaluate the explicit Day 7 risk rules for a proposal and its positions."""
 
     risk_checks: list[RiskCheck] = []
+    if portfolio_proposal is not None and (
+        constraint_set is None
+        or portfolio_selection_summary is None
+        or not construction_decisions
+        or not constraint_results
+    ):
+        risk_checks.append(
+            _build_risk_check(
+                subject_type="portfolio_proposal",
+                subject_id=portfolio_proposal.portfolio_proposal_id,
+                rule_name="portfolio_construction_context_missing",
+                status=RiskCheckStatus.WARN,
+                severity=Severity.MEDIUM,
+                blocking=False,
+                message=(
+                    "Portfolio construction context is incomplete. Proposal review is less inspectable than intended."
+                ),
+                clock=clock,
+                workflow_run_id=workflow_run_id,
+                upstream_artifact_ids=[portfolio_proposal.portfolio_proposal_id],
+                source_reference_ids=portfolio_proposal.provenance.source_reference_ids,
+            )
+        )
+    elif portfolio_proposal is not None:
+        binding_constraint_results = [
+            result
+            for result in constraint_results
+            if result.binding and result.subject_id in {portfolio_proposal.portfolio_proposal_id, *[idea.signal_id for idea in position_ideas]}
+        ]
+        if binding_constraint_results:
+            risk_checks.append(
+                _build_risk_check(
+                    subject_type="portfolio_proposal",
+                    subject_id=portfolio_proposal.portfolio_proposal_id,
+                    rule_name="portfolio_construction_binding_constraints",
+                    status=RiskCheckStatus.WARN,
+                    severity=Severity.MEDIUM,
+                    blocking=False,
+                    message=(
+                        "Portfolio construction hit one or more binding constraints. Proposal review should inspect the explicit construction context."
+                    ),
+                    clock=clock,
+                    workflow_run_id=workflow_run_id,
+                    upstream_artifact_ids=[
+                        portfolio_proposal.portfolio_proposal_id,
+                        *( [constraint_set.constraint_set_id] if constraint_set is not None else [] ),
+                        *( [portfolio_selection_summary.portfolio_selection_summary_id] if portfolio_selection_summary is not None else [] ),
+                        *[decision.construction_decision_id for decision in construction_decisions],
+                        *[result.constraint_result_id for result in binding_constraint_results],
+                        *[rationale.position_sizing_rationale_id for rationale in position_sizing_rationales],
+                        *[conflict.selection_conflict_id for conflict in selection_conflicts],
+                    ],
+                    source_reference_ids=portfolio_proposal.provenance.source_reference_ids,
+                )
+            )
     if signal_bundle is None or arbitration_decision is None:
         risk_checks.append(
             _build_risk_check(

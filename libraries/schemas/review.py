@@ -23,6 +23,14 @@ if TYPE_CHECKING:
         StressTestResult,
         StressTestRun,
     )
+    from libraries.schemas.portfolio_construction import (
+        ConstraintResult,
+        ConstraintSet,
+        ConstructionDecision,
+        PortfolioSelectionSummary,
+        PositionSizingRationale,
+        SelectionConflict,
+    )
     from libraries.schemas.research import (
         CounterHypothesis,
         EvidenceAssessment,
@@ -276,6 +284,30 @@ class ReviewContext(StrictModel):
         default_factory=list,
         description="Position ideas relevant to the target.",
     )
+    constraint_set: ConstraintSet | None = Field(
+        default=None,
+        description="Applied construction constraint set when available.",
+    )
+    constraint_results: list[ConstraintResult] = Field(
+        default_factory=list,
+        description="Explicit construction constraint results when available.",
+    )
+    position_sizing_rationales: list[PositionSizingRationale] = Field(
+        default_factory=list,
+        description="Position-sizing rationales explaining included weights when available.",
+    )
+    construction_decisions: list[ConstructionDecision] = Field(
+        default_factory=list,
+        description="Construction decisions explaining included and rejected candidates when available.",
+    )
+    selection_conflicts: list[SelectionConflict] = Field(
+        default_factory=list,
+        description="Selection conflicts recorded during portfolio construction when available.",
+    )
+    portfolio_selection_summary: PortfolioSelectionSummary | None = Field(
+        default=None,
+        description="Portfolio-construction summary artifact when available.",
+    )
     portfolio_attribution: PortfolioAttribution | None = Field(
         default=None,
         description="Proposal attribution artifact when available.",
@@ -367,6 +399,14 @@ def _rebuild_review_context() -> None:
         StressTestResult,
         StressTestRun,
     )
+    from libraries.schemas.portfolio_construction import (
+        ConstraintResult,
+        ConstraintSet,
+        ConstructionDecision,
+        PortfolioSelectionSummary,
+        PositionSizingRationale,
+        SelectionConflict,
+    )
     from libraries.schemas.research import (
         CounterHypothesis,
         EvidenceAssessment,
@@ -382,6 +422,12 @@ def _rebuild_review_context() -> None:
         _types_namespace={
             "PaperTrade": PaperTrade,
             "PortfolioProposal": PortfolioProposal,
+            "ConstraintSet": ConstraintSet,
+            "ConstraintResult": ConstraintResult,
+            "PositionSizingRationale": PositionSizingRationale,
+            "ConstructionDecision": ConstructionDecision,
+            "SelectionConflict": SelectionConflict,
+            "PortfolioSelectionSummary": PortfolioSelectionSummary,
             "PositionIdea": PositionIdea,
             "PortfolioAttribution": PortfolioAttribution,
             "PositionAttribution": PositionAttribution,

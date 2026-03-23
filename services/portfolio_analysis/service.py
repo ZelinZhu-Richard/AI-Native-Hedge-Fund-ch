@@ -9,9 +9,14 @@ from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
     Company,
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
     PortfolioAttribution,
     PortfolioProposal,
+    PortfolioSelectionSummary,
     PositionAttribution,
+    PositionSizingRationale,
     ScenarioDefinition,
     Signal,
     StressTestResult,
@@ -115,6 +120,11 @@ class PortfolioAnalysisService(BaseService):
             portfolio_proposal=inputs.portfolio_proposal,
             signals_by_id=inputs.signals_by_id,
             companies_by_id=inputs.companies_by_id,
+            constraint_set=inputs.constraint_set,
+            constraint_results=list(inputs.constraint_results_by_id.values()),
+            position_sizing_rationales=list(inputs.position_sizing_rationales_by_id.values()),
+            construction_decisions=list(inputs.construction_decisions_by_id.values()),
+            portfolio_selection_summary=inputs.portfolio_selection_summary,
             output_root=request.output_root,
             requested_by=request.requested_by,
         )
@@ -125,6 +135,11 @@ class PortfolioAnalysisService(BaseService):
         portfolio_proposal: PortfolioProposal,
         signals_by_id: dict[str, Signal],
         companies_by_id: dict[str, Company],
+        constraint_set: ConstraintSet | None = None,
+        constraint_results: list[ConstraintResult] | None = None,
+        position_sizing_rationales: list[PositionSizingRationale] | None = None,
+        construction_decisions: list[ConstructionDecision] | None = None,
+        portfolio_selection_summary: PortfolioSelectionSummary | None = None,
         output_root: Path | None,
         requested_by: str,
     ) -> RunPortfolioAnalysisResponse:
@@ -137,11 +152,17 @@ class PortfolioAnalysisService(BaseService):
             notes.append("Portfolio proposal contains no positions; attribution and stress artifacts reflect an empty proposal.")
         if not companies_by_id:
             notes.append("Normalized company metadata was unavailable; sector-aware attribution and stress scenarios remain conservative.")
+        resolved_constraint_results = constraint_results or []
+        resolved_position_sizing_rationales = position_sizing_rationales or []
+        resolved_construction_decisions = construction_decisions or []
 
         position_attributions = build_position_attributions(
             portfolio_proposal=portfolio_proposal,
             signals_by_id=signals_by_id,
             companies_by_id=companies_by_id,
+            constraint_results=resolved_constraint_results,
+            position_sizing_rationales=resolved_position_sizing_rationales,
+            construction_decisions=resolved_construction_decisions,
             clock=self.clock,
             workflow_run_id=workflow_run_id,
         )
@@ -149,6 +170,10 @@ class PortfolioAnalysisService(BaseService):
             portfolio_proposal=portfolio_proposal,
             position_attributions=position_attributions,
             companies_by_id=companies_by_id,
+            constraint_set=constraint_set,
+            constraint_results=resolved_constraint_results,
+            construction_decisions=resolved_construction_decisions,
+            portfolio_selection_summary=portfolio_selection_summary,
             clock=self.clock,
             workflow_run_id=workflow_run_id,
         )

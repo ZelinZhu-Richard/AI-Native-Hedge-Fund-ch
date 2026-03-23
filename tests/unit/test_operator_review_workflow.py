@@ -99,6 +99,11 @@ def test_operator_review_workflow_syncs_queue_and_records_actions(tmp_path: Path
     assert proposal_context.position_attributions
     assert proposal_context.stress_test_run is not None
     assert proposal_context.stress_test_results
+    assert proposal_context.constraint_set is not None
+    assert proposal_context.constraint_results
+    assert proposal_context.position_sizing_rationales
+    assert proposal_context.construction_decisions
+    assert proposal_context.portfolio_selection_summary is not None
     assert proposal_context.strategy_to_paper_mapping is not None
     assert proposal_context.reconciliation_report is not None
     assert proposal_context.realism_warnings

@@ -7,12 +7,18 @@ from pydantic import Field
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArbitrationDecision,
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
     EvidenceAssessment,
     PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
+    PortfolioSelectionSummary,
     PositionIdea,
+    PositionSizingRationale,
     RiskCheck,
+    SelectionConflict,
     Signal,
     SignalBundle,
     SignalConflict,
@@ -58,6 +64,30 @@ class RiskEvaluationRequest(StrictModel):
     signal_conflicts: list[SignalConflict] = Field(
         default_factory=list,
         description="Optional signal conflicts that should remain visible in risk review.",
+    )
+    constraint_set: ConstraintSet | None = Field(
+        default=None,
+        description="Optional portfolio-construction constraint set for proposal explainability.",
+    )
+    constraint_results: list[ConstraintResult] = Field(
+        default_factory=list,
+        description="Optional portfolio-construction constraint results for proposal explainability.",
+    )
+    position_sizing_rationales: list[PositionSizingRationale] = Field(
+        default_factory=list,
+        description="Optional position-sizing rationales for included positions.",
+    )
+    construction_decisions: list[ConstructionDecision] = Field(
+        default_factory=list,
+        description="Optional construction decisions explaining included and rejected candidates.",
+    )
+    selection_conflicts: list[SelectionConflict] = Field(
+        default_factory=list,
+        description="Optional construction conflicts kept visible during risk review.",
+    )
+    portfolio_selection_summary: PortfolioSelectionSummary | None = Field(
+        default=None,
+        description="Optional parent portfolio-construction summary.",
     )
     portfolio_attribution: PortfolioAttribution | None = Field(
         default=None,
@@ -124,6 +154,12 @@ class RiskEngineService(BaseService):
             signal_bundle=request.signal_bundle,
             arbitration_decision=request.arbitration_decision,
             signal_conflicts=request.signal_conflicts,
+            constraint_set=request.constraint_set,
+            constraint_results=request.constraint_results,
+            position_sizing_rationales=request.position_sizing_rationales,
+            construction_decisions=request.construction_decisions,
+            selection_conflicts=request.selection_conflicts,
+            portfolio_selection_summary=request.portfolio_selection_summary,
             portfolio_attribution=request.portfolio_attribution,
             stress_test_run=request.stress_test_run,
             stress_test_results=request.stress_test_results,

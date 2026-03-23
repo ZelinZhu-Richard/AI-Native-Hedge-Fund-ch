@@ -89,6 +89,11 @@ def test_operator_review_pipeline_chains_research_signal_portfolio_and_trade_rev
         (ReviewTargetType.SIGNAL, signal.signal_id),
         (ReviewTargetType.PORTFOLIO_PROPOSAL, proposal.portfolio_proposal_id),
     }.issubset(queue_targets)
+    assert proposal_context.constraint_set is not None
+    assert proposal_context.constraint_results
+    assert proposal_context.position_sizing_rationales
+    assert proposal_context.construction_decisions
+    assert proposal_context.portfolio_selection_summary is not None
     assert proposal_context.portfolio_attribution is not None
     assert proposal_context.stress_test_run is not None
     assert proposal_context.stress_test_results
@@ -202,6 +207,11 @@ def test_operator_review_pipeline_handles_paper_trade_after_explicit_approval(
     assert (ReviewTargetType.PAPER_TRADE, paper_trade.paper_trade_id) in {
         (item.target_type, item.target_id) for item in sync_response.queue_items
     }
+    assert trade_context.constraint_set is not None
+    assert trade_context.constraint_results
+    assert trade_context.position_sizing_rationales
+    assert trade_context.construction_decisions
+    assert trade_context.portfolio_selection_summary is not None
     assert trade_context.portfolio_attribution is not None
     assert trade_context.stress_test_run is not None
     assert trade_context.stress_test_results

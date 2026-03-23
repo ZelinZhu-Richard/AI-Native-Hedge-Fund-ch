@@ -88,11 +88,18 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
     assert response.strategy_to_paper_mapping is not None
     assert response.reconciliation_report is not None
     assert response.realism_warnings
+    assert response.constraint_set is not None
+    assert response.construction_decisions
+    assert response.position_sizing_rationales
+    assert response.portfolio_selection_summary is not None
     assert response.final_portfolio_proposal.strategy_to_paper_mapping_id == (
         response.strategy_to_paper_mapping.strategy_to_paper_mapping_id
     )
     assert response.final_portfolio_proposal.reconciliation_report_id == (
         response.reconciliation_report.reconciliation_report_id
+    )
+    assert response.final_portfolio_proposal.portfolio_selection_summary_id == (
+        response.portfolio_selection_summary.portfolio_selection_summary_id
     )
 
     position_idea = response.final_position_ideas[0]
@@ -114,10 +121,17 @@ def test_portfolio_review_pipeline_persists_reviewable_portfolio_artifacts(
         / "reconciliation_reports"
         / f"{response.reconciliation_report.reconciliation_report_id}.json"
     )
+    selection_summary_path = (
+        artifact_root
+        / "portfolio"
+        / "portfolio_selection_summaries"
+        / f"{response.portfolio_selection_summary.portfolio_selection_summary_id}.json"
+    )
     assert position_idea_path.exists()
     assert proposal_path.exists()
     assert audit_directory.exists()
     assert reconciliation_report_path.exists()
+    assert selection_summary_path.exists()
 
     position_payload = json.loads(position_idea_path.read_text(encoding="utf-8"))
     proposal_payload = json.loads(proposal_path.read_text(encoding="utf-8"))
@@ -202,6 +216,7 @@ def test_portfolio_review_pipeline_creates_paper_trades_only_after_explicit_appr
     assert response.reconciliation_report is not None
     assert response.assumption_mismatches
     assert response.realism_warnings
+    assert response.portfolio_selection_summary is not None
     paper_trade = response.paper_trades[0]
     paper_trade_path = (
         artifact_root / "portfolio" / "paper_trades" / f"{paper_trade.paper_trade_id}.json"

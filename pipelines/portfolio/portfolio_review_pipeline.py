@@ -12,14 +12,19 @@ from libraries.schemas import (
     AssumptionMismatch,
     AuditOutcome,
     AvailabilityMismatch,
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
     PaperTrade,
     PipelineEventType,
     PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
     PortfolioProposalStatus,
+    PortfolioSelectionSummary,
     PositionAttribution,
     PositionIdea,
+    PositionSizingRationale,
     QualityDecision,
     RealismWarning,
     ReconciliationReport,
@@ -28,6 +33,8 @@ from libraries.schemas import (
     ReviewTargetType,
     RiskCheck,
     ScenarioDefinition,
+    SelectionConflict,
+    SelectionRule,
     StrategyToPaperMapping,
     StressTestResult,
     StressTestRun,
@@ -69,6 +76,34 @@ class PortfolioReviewPipelineResponse(StrictModel):
     final_position_ideas: list[PositionIdea] = Field(
         default_factory=list,
         description="Final position ideas after any optional review transition.",
+    )
+    selection_rules: list[SelectionRule] = Field(
+        default_factory=list,
+        description="Deterministic selection rules used during portfolio construction.",
+    )
+    constraint_set: ConstraintSet | None = Field(
+        default=None,
+        description="Applied construction constraint set when available.",
+    )
+    constraint_results: list[ConstraintResult] = Field(
+        default_factory=list,
+        description="Explicit construction constraint results when available.",
+    )
+    position_sizing_rationales: list[PositionSizingRationale] = Field(
+        default_factory=list,
+        description="Sizing rationales explaining included position weights when available.",
+    )
+    construction_decisions: list[ConstructionDecision] = Field(
+        default_factory=list,
+        description="Explicit include or reject decisions for candidate signals.",
+    )
+    selection_conflicts: list[SelectionConflict] = Field(
+        default_factory=list,
+        description="Selection conflicts recorded during portfolio construction.",
+    )
+    portfolio_selection_summary: PortfolioSelectionSummary | None = Field(
+        default=None,
+        description="Parent construction summary when portfolio selection artifacts were recorded.",
     )
     final_portfolio_proposal: PortfolioProposal = Field(
         description="Final portfolio proposal after risk checks and any optional review transition."
@@ -606,6 +641,13 @@ def run_portfolio_review_pipeline(
         return PortfolioReviewPipelineResponse(
             portfolio_workflow=workflow_response,
             final_position_ideas=final_position_ideas,
+            selection_rules=workflow_response.selection_rules,
+            constraint_set=workflow_response.constraint_set,
+            constraint_results=workflow_response.constraint_results,
+            position_sizing_rationales=workflow_response.position_sizing_rationales,
+            construction_decisions=workflow_response.construction_decisions,
+            selection_conflicts=workflow_response.selection_conflicts,
+            portfolio_selection_summary=workflow_response.portfolio_selection_summary,
             final_portfolio_proposal=final_portfolio_proposal,
             portfolio_attribution=workflow_response.portfolio_attribution,
             position_attributions=workflow_response.position_attributions,

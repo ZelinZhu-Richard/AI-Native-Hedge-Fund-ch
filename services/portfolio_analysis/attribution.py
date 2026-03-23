@@ -3,12 +3,17 @@ from __future__ import annotations
 from libraries.core import build_provenance
 from libraries.schemas import (
     Company,
+    ConstraintResult,
+    ConstraintSet,
     ConstraintType,
+    ConstructionDecision,
     ContributionBreakdown,
     PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
+    PortfolioSelectionSummary,
     PositionAttribution,
+    PositionSizingRationale,
     Signal,
 )
 from libraries.time import Clock
@@ -20,6 +25,9 @@ def build_position_attributions(
     portfolio_proposal: PortfolioProposal,
     signals_by_id: dict[str, Signal],
     companies_by_id: dict[str, Company],
+    constraint_results: list[ConstraintResult],
+    position_sizing_rationales: list[PositionSizingRationale],
+    construction_decisions: list[ConstructionDecision],
     clock: Clock,
     workflow_run_id: str,
 ) -> list[PositionAttribution]:
@@ -30,10 +38,30 @@ def build_position_attributions(
         constraints=portfolio_proposal.constraints,
         constraint_type=ConstraintType.SINGLE_NAME,
     )
+    position_sizing_rationales_by_id = {
+        rationale.position_sizing_rationale_id: rationale
+        for rationale in position_sizing_rationales
+    }
+    construction_decisions_by_id = {
+        decision.construction_decision_id: decision for decision in construction_decisions
+    }
+    constraint_results_by_id = {
+        result.constraint_result_id: result for result in constraint_results
+    }
     position_attributions: list[PositionAttribution] = []
     for idea in portfolio_proposal.position_ideas:
         signal = signals_by_id.get(idea.signal_id)
         company = companies_by_id.get(idea.company_id)
+        sizing_rationale = (
+            position_sizing_rationales_by_id.get(idea.position_sizing_rationale_id)
+            if idea.position_sizing_rationale_id is not None
+            else None
+        )
+        construction_decision = (
+            construction_decisions_by_id.get(idea.construction_decision_id)
+            if idea.construction_decision_id is not None
+            else None
+        )
         contribution_breakdowns = [
             ContributionBreakdown(
                 contributor_type="position_idea",
@@ -98,6 +126,55 @@ def build_position_attributions(
                     ),
                 )
             )
+        if construction_decision is not None:
+            contribution_breakdowns.append(
+                ContributionBreakdown(
+                    contributor_type="construction_decision",
+                    contributor_id=construction_decision.construction_decision_id,
+                    metric_name="decision_outcome",
+                    metric_value=1.0,
+                    unit="flag",
+                    summary=construction_decision.summary,
+                )
+            )
+        if sizing_rationale is not None:
+            contribution_breakdowns.extend(
+                [
+                    ContributionBreakdown(
+                        contributor_type="position_sizing_rationale",
+                        contributor_id=sizing_rationale.position_sizing_rationale_id,
+                        metric_name="base_weight_bps",
+                        metric_value=float(sizing_rationale.base_weight_bps),
+                        unit="bps",
+                        summary=(
+                            f"Sizing started from {sizing_rationale.base_weight_bps} bps before explicit caps were applied."
+                        ),
+                    ),
+                    ContributionBreakdown(
+                        contributor_type="position_sizing_rationale",
+                        contributor_id=sizing_rationale.position_sizing_rationale_id,
+                        metric_name="final_weight_bps",
+                        metric_value=float(sizing_rationale.final_weight_bps),
+                        unit="bps",
+                        summary=sizing_rationale.summary,
+                    ),
+                ]
+            )
+        if construction_decision is not None:
+            for constraint_result_id in construction_decision.constraint_result_ids:
+                constraint_result = constraint_results_by_id.get(constraint_result_id)
+                if constraint_result is None or not constraint_result.binding:
+                    continue
+                contribution_breakdowns.append(
+                    ContributionBreakdown(
+                        contributor_type="constraint_result",
+                        contributor_id=constraint_result.constraint_result_id,
+                        metric_name="binding_constraint",
+                        metric_value=1.0,
+                        unit="flag",
+                        summary=constraint_result.message,
+                    )
+                )
         if company is not None and company.sector is not None:
             contribution_breakdowns.append(
                 ContributionBreakdown(
@@ -157,6 +234,10 @@ def build_portfolio_attribution(
     portfolio_proposal: PortfolioProposal,
     position_attributions: list[PositionAttribution],
     companies_by_id: dict[str, Company],
+    constraint_set: ConstraintSet | None,
+    constraint_results: list[ConstraintResult],
+    construction_decisions: list[ConstructionDecision],
+    portfolio_selection_summary: PortfolioSelectionSummary | None,
     clock: Clock,
     workflow_run_id: str,
 ) -> PortfolioAttribution:
@@ -199,6 +280,53 @@ def build_portfolio_attribution(
             summary=f"Cash buffer remains {portfolio_proposal.exposure_summary.cash_buffer_bps} bps.",
         ),
     ]
+    if portfolio_selection_summary is not None:
+        contribution_breakdowns.append(
+            ContributionBreakdown(
+                contributor_type="portfolio_selection_summary",
+                contributor_id=portfolio_selection_summary.portfolio_selection_summary_id,
+                metric_name="candidate_signal_count",
+                metric_value=float(len(portfolio_selection_summary.candidate_signal_ids)),
+                unit="count",
+                summary=portfolio_selection_summary.summary,
+            )
+        )
+        contribution_breakdowns.append(
+            ContributionBreakdown(
+                contributor_type="portfolio_selection_summary",
+                contributor_id=portfolio_selection_summary.portfolio_selection_summary_id,
+                metric_name="rejected_signal_count",
+                metric_value=float(len(portfolio_selection_summary.rejected_signal_ids)),
+                unit="count",
+                summary=(
+                    f"Construction explicitly rejected {len(portfolio_selection_summary.rejected_signal_ids)} candidate signals."
+                ),
+            )
+        )
+    if construction_decisions:
+        contribution_breakdowns.append(
+            ContributionBreakdown(
+                contributor_type="construction_decision",
+                contributor_id=portfolio_proposal.portfolio_proposal_id,
+                metric_name="construction_decision_count",
+                metric_value=float(len(construction_decisions)),
+                unit="count",
+                summary=(
+                    f"Construction recorded {len(construction_decisions)} explicit include or reject decisions for the proposal context."
+                ),
+            )
+        )
+    if constraint_set is not None:
+        contribution_breakdowns.append(
+            ContributionBreakdown(
+                contributor_type="constraint_set",
+                contributor_id=constraint_set.constraint_set_id,
+                metric_name="applied_constraint_count",
+                metric_value=float(len(constraint_set.portfolio_constraint_ids)),
+                unit="count",
+                summary=constraint_set.summary,
+            )
+        )
     if dominant_positions:
         top_position = dominant_positions[0]
         top_share_pct = (
@@ -248,6 +376,23 @@ def build_portfolio_attribution(
                 summary=(
                     f"Constraint `{constraint.portfolio_constraint_id}` has {constraint.hard_limit - observed:.1f} {constraint.unit} of remaining headroom."
                 ),
+            )
+        )
+    for constraint_result in constraint_results:
+        if (
+            constraint_result.subject_type != "portfolio_proposal"
+            or constraint_result.subject_id != portfolio_proposal.portfolio_proposal_id
+            or not constraint_result.binding
+        ):
+            continue
+        contribution_breakdowns.append(
+            ContributionBreakdown(
+                contributor_type="constraint_result",
+                contributor_id=constraint_result.constraint_result_id,
+                metric_name="binding_constraint",
+                metric_value=1.0,
+                unit="flag",
+                summary=constraint_result.message,
             )
         )
 

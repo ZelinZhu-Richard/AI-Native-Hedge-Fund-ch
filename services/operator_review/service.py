@@ -19,6 +19,9 @@ from libraries.schemas import (
     AuditLog,
     AuditOutcome,
     AvailabilityMismatch,
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
     DerivedArtifactValidationStatus,
     EscalationStatus,
     EvidenceGrade,
@@ -29,8 +32,10 @@ from libraries.schemas import (
     PortfolioAttribution,
     PortfolioProposal,
     PortfolioProposalStatus,
+    PortfolioSelectionSummary,
     PositionAttribution,
     PositionIdea,
+    PositionSizingRationale,
     RealismWarning,
     ReconciliationReport,
     ResearchBrief,
@@ -46,6 +51,7 @@ from libraries.schemas import (
     ReviewQueueStatus,
     ReviewTargetType,
     RiskCheck,
+    SelectionConflict,
     Signal,
     SignalStatus,
     StrategyToPaperMapping,
@@ -469,6 +475,12 @@ class OperatorReviewService(BaseService):
         risk_checks: list[RiskCheck] = []
         related_signals: list[Signal] = []
         position_ideas: list[PositionIdea] = []
+        constraint_set: ConstraintSet | None = None
+        constraint_results: list[ConstraintResult] = []
+        position_sizing_rationales: list[PositionSizingRationale] = []
+        construction_decisions: list[ConstructionDecision] = []
+        selection_conflicts: list[SelectionConflict] = []
+        portfolio_selection_summary: PortfolioSelectionSummary | None = None
         portfolio_attribution: PortfolioAttribution | None = None
         position_attributions: list[PositionAttribution] = []
         stress_test_run: StressTestRun | None = None
@@ -510,6 +522,17 @@ class OperatorReviewService(BaseService):
                 workspace=workspace,
             )
             (
+                constraint_set,
+                constraint_results,
+                position_sizing_rationales,
+                construction_decisions,
+                selection_conflicts,
+                portfolio_selection_summary,
+            ) = self._construction_context_for_proposal(
+                portfolio_proposal=portfolio_proposal,
+                workspace=workspace,
+            )
+            (
                 portfolio_attribution,
                 position_attributions,
                 stress_test_run,
@@ -533,6 +556,17 @@ class OperatorReviewService(BaseService):
             portfolio_proposal = workspace.portfolio_proposals_by_id.get(paper_trade.portfolio_proposal_id)
             if portfolio_proposal is not None:
                 risk_checks = list(portfolio_proposal.risk_checks)
+                (
+                    constraint_set,
+                    constraint_results,
+                    position_sizing_rationales,
+                    construction_decisions,
+                    selection_conflicts,
+                    portfolio_selection_summary,
+                ) = self._construction_context_for_proposal(
+                    portfolio_proposal=portfolio_proposal,
+                    workspace=workspace,
+                )
                 (
                     portfolio_attribution,
                     position_attributions,
@@ -573,6 +607,12 @@ class OperatorReviewService(BaseService):
             signal=signal,
             portfolio_proposal=portfolio_proposal,
             paper_trade=paper_trade,
+            constraint_set=constraint_set,
+            constraint_results=constraint_results,
+            position_sizing_rationales=position_sizing_rationales,
+            construction_decisions=construction_decisions,
+            selection_conflicts=selection_conflicts,
+            portfolio_selection_summary=portfolio_selection_summary,
             portfolio_attribution=portfolio_attribution,
             position_attributions=position_attributions,
             stress_test_run=stress_test_run,
@@ -1804,6 +1844,87 @@ class OperatorReviewService(BaseService):
             else []
         )
         return portfolio_attribution, position_attributions, stress_test_run, stress_test_results
+
+    def _construction_context_for_proposal(
+        self,
+        *,
+        portfolio_proposal: PortfolioProposal,
+        workspace: LoadedReviewWorkspace,
+    ) -> tuple[
+        ConstraintSet | None,
+        list[ConstraintResult],
+        list[PositionSizingRationale],
+        list[ConstructionDecision],
+        list[SelectionConflict],
+        PortfolioSelectionSummary | None,
+    ]:
+        """Resolve proposal-linked portfolio-construction artifacts when available."""
+
+        portfolio_selection_summary = (
+            workspace.portfolio_selection_summaries_by_id.get(
+                portfolio_proposal.portfolio_selection_summary_id
+            )
+            if portfolio_proposal.portfolio_selection_summary_id is not None
+            else None
+        )
+        constraint_set = (
+            workspace.constraint_sets_by_id.get(portfolio_selection_summary.constraint_set_id)
+            if portfolio_selection_summary is not None
+            else None
+        )
+        constraint_results = (
+            [
+                result
+                for result in workspace.constraint_results_by_id.values()
+                if constraint_set is not None
+                and result.constraint_set_id == constraint_set.constraint_set_id
+            ]
+            if constraint_set is not None
+            else []
+        )
+        position_sizing_rationales = [
+            rationale
+            for idea in portfolio_proposal.position_ideas
+            if idea.position_sizing_rationale_id is not None
+            if (
+                rationale := workspace.position_sizing_rationales_by_id.get(
+                    idea.position_sizing_rationale_id
+                )
+            )
+            is not None
+        ]
+        construction_decisions = (
+            [
+                decision
+                for decision_id in portfolio_selection_summary.construction_decision_ids
+                if (
+                    decision := workspace.construction_decisions_by_id.get(decision_id)
+                )
+                is not None
+            ]
+            if portfolio_selection_summary is not None
+            else []
+        )
+        selection_conflicts = (
+            [
+                conflict
+                for conflict_id in portfolio_selection_summary.selection_conflict_ids
+                if (
+                    conflict := workspace.selection_conflicts_by_id.get(conflict_id)
+                )
+                is not None
+            ]
+            if portfolio_selection_summary is not None
+            else []
+        )
+        return (
+            constraint_set,
+            constraint_results,
+            position_sizing_rationales,
+            construction_decisions,
+            selection_conflicts,
+            portfolio_selection_summary,
+        )
 
     def _reconciliation_for_proposal(
         self,

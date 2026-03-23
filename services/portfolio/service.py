@@ -11,16 +11,23 @@ from libraries.core import resolve_artifact_workspace_from_stage_root
 from libraries.core.service_framework import BaseService, ServiceCapability
 from libraries.schemas import (
     ArtifactStorageLocation,
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
     PortfolioAttribution,
     PortfolioConstraint,
     PortfolioProposal,
     PortfolioProposalStatus,
+    PortfolioSelectionSummary,
     PositionAttribution,
     PositionIdea,
+    PositionSizingRationale,
     QualityDecision,
     RefusalReason,
     RiskCheck,
     ScenarioDefinition,
+    SelectionConflict,
+    SelectionRule,
     StressTestResult,
     StressTestRun,
     StrictModel,
@@ -32,8 +39,9 @@ from services.data_quality import DataQualityService
 from services.portfolio.construction import (
     build_exposure_summary,
     build_portfolio_proposal,
-    build_position_ideas,
+    build_portfolio_selection,
     default_portfolio_constraints,
+    make_portfolio_proposal_id,
 )
 from services.portfolio.loaders import load_portfolio_inputs
 from services.portfolio.storage import LocalPortfolioArtifactStore
@@ -116,6 +124,34 @@ class RunPortfolioWorkflowResponse(StrictModel):
     position_ideas: list[PositionIdea] = Field(
         default_factory=list,
         description="Position ideas created from eligible signals.",
+    )
+    selection_rules: list[SelectionRule] = Field(
+        default_factory=list,
+        description="Deterministic selection rules used during portfolio construction.",
+    )
+    constraint_set: ConstraintSet | None = Field(
+        default=None,
+        description="Applied construction constraint set when available.",
+    )
+    constraint_results: list[ConstraintResult] = Field(
+        default_factory=list,
+        description="Explicit construction constraint results when available.",
+    )
+    position_sizing_rationales: list[PositionSizingRationale] = Field(
+        default_factory=list,
+        description="Sizing rationales for included positions when available.",
+    )
+    construction_decisions: list[ConstructionDecision] = Field(
+        default_factory=list,
+        description="Explicit include or reject decisions for candidate signals.",
+    )
+    selection_conflicts: list[SelectionConflict] = Field(
+        default_factory=list,
+        description="Selection conflicts recorded during portfolio construction.",
+    )
+    portfolio_selection_summary: PortfolioSelectionSummary | None = Field(
+        default=None,
+        description="Parent construction summary when portfolio selection artifacts were recorded.",
     )
     portfolio_proposal: PortfolioProposal = Field(
         description="Portfolio proposal created by the workflow."
@@ -256,19 +292,26 @@ class PortfolioConstructionService(BaseService):
             if inputs.signals
             else self.clock.now()
         )
-        position_result = build_position_ideas(
-            inputs=inputs,
-            as_of_time=as_of_time,
-            clock=self.clock,
-            workflow_run_id=portfolio_workflow_id,
-        )
-        position_ideas = position_result.position_ideas
-        notes.extend(position_result.notes)
-
         constraints = request.constraints or default_portfolio_constraints(
             clock=self.clock,
             workflow_run_id=portfolio_workflow_id,
         )
+        proposal_name = request.proposal_name or f"{inputs.company_id}_day7_portfolio_proposal"
+        proposal_id = make_portfolio_proposal_id(
+            company_id=inputs.company_id,
+            name=proposal_name,
+            as_of_time=as_of_time,
+        )
+        selection_result = build_portfolio_selection(
+            inputs=inputs,
+            proposal_id=proposal_id,
+            constraints=constraints,
+            as_of_time=as_of_time,
+            clock=self.clock,
+            workflow_run_id=portfolio_workflow_id,
+        )
+        position_ideas = selection_result.position_ideas
+        notes.extend(selection_result.notes)
         exposure_summary = build_exposure_summary(
             position_ideas=position_ideas,
             clock=self.clock,
@@ -277,7 +320,7 @@ class PortfolioConstructionService(BaseService):
         )
         proposal = build_portfolio_proposal(
             company_id=inputs.company_id,
-            name=request.proposal_name or f"{inputs.company_id}_day7_portfolio_proposal",
+            name=proposal_name,
             as_of_time=as_of_time,
             generated_at=self.clock.now(),
             target_nav_usd=request.target_nav_usd,
@@ -294,6 +337,7 @@ class PortfolioConstructionService(BaseService):
             ),
             portfolio_attribution_id=None,
             stress_test_run_id=None,
+            portfolio_selection_summary_id=selection_result.portfolio_selection_summary.portfolio_selection_summary_id,
             clock=self.clock,
             workflow_run_id=portfolio_workflow_id,
         )
@@ -317,7 +361,23 @@ class PortfolioConstructionService(BaseService):
         )
         proposal_upstream_artifact_ids = [
             exposure_summary.portfolio_exposure_summary_id,
+            selection_result.constraint_set.constraint_set_id,
+            selection_result.portfolio_selection_summary.portfolio_selection_summary_id,
             *[idea.position_idea_id for idea in position_ideas],
+            *[
+                rationale.position_sizing_rationale_id
+                for rationale in selection_result.position_sizing_rationales
+            ],
+            *[
+                decision.construction_decision_id
+                for decision in selection_result.construction_decisions
+            ],
+            *[
+                result.constraint_result_id for result in selection_result.constraint_results
+            ],
+            *[
+                conflict.selection_conflict_id for conflict in selection_result.selection_conflicts
+            ],
             *[signal.signal_id for signal in inputs.signals],
             *(
                 [inputs.signal_bundle.signal_bundle_id]
@@ -365,6 +425,11 @@ class PortfolioConstructionService(BaseService):
                 if inputs.company is not None
                 else {}
             ),
+            constraint_set=selection_result.constraint_set,
+            constraint_results=selection_result.constraint_results,
+            position_sizing_rationales=selection_result.position_sizing_rationales,
+            construction_decisions=selection_result.construction_decisions,
+            portfolio_selection_summary=selection_result.portfolio_selection_summary,
             output_root=portfolio_analysis_root,
             requested_by=request.requested_by,
         )
@@ -386,6 +451,12 @@ class PortfolioConstructionService(BaseService):
                 signal_bundle=inputs.signal_bundle,
                 arbitration_decision=inputs.arbitration_decision,
                 signal_conflicts=inputs.signal_conflicts,
+                constraint_set=selection_result.constraint_set,
+                constraint_results=selection_result.constraint_results,
+                position_sizing_rationales=selection_result.position_sizing_rationales,
+                construction_decisions=selection_result.construction_decisions,
+                selection_conflicts=selection_result.selection_conflicts,
+                portfolio_selection_summary=selection_result.portfolio_selection_summary,
                 portfolio_attribution=analysis_response.portfolio_attribution,
                 stress_test_run=analysis_response.stress_test_run,
                 stress_test_results=analysis_response.stress_test_results,
@@ -406,6 +477,60 @@ class PortfolioConstructionService(BaseService):
             *validation_result.storage_locations,
             *analysis_response.storage_locations,
         ]
+        for selection_rule in selection_result.selection_rules:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="selection_rules",
+                    model=selection_rule,
+                )
+            )
+        storage_locations.append(
+            self._persist_model(
+                store=store,
+                category="constraint_sets",
+                model=selection_result.constraint_set,
+            )
+        )
+        for constraint_result in selection_result.constraint_results:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="constraint_results",
+                    model=constraint_result,
+                )
+            )
+        for rationale in selection_result.position_sizing_rationales:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="position_sizing_rationales",
+                    model=rationale,
+                )
+            )
+        for decision in selection_result.construction_decisions:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="construction_decisions",
+                    model=decision,
+                )
+            )
+        for conflict in selection_result.selection_conflicts:
+            storage_locations.append(
+                self._persist_model(
+                    store=store,
+                    category="selection_conflicts",
+                    model=conflict,
+                )
+            )
+        storage_locations.append(
+            self._persist_model(
+                store=store,
+                category="portfolio_selection_summaries",
+                model=selection_result.portfolio_selection_summary,
+            )
+        )
         for constraint in constraints:
             storage_locations.append(
                 self._persist_model(store=store, category="constraints", model=constraint)
@@ -441,6 +566,13 @@ class PortfolioConstructionService(BaseService):
             portfolio_workflow_id=portfolio_workflow_id,
             company_id=inputs.company_id,
             position_ideas=position_ideas,
+            selection_rules=selection_result.selection_rules,
+            constraint_set=selection_result.constraint_set,
+            constraint_results=selection_result.constraint_results,
+            position_sizing_rationales=selection_result.position_sizing_rationales,
+            construction_decisions=selection_result.construction_decisions,
+            selection_conflicts=selection_result.selection_conflicts,
+            portfolio_selection_summary=selection_result.portfolio_selection_summary,
             portfolio_proposal=proposal,
             risk_checks=risk_response.risk_checks,
             portfolio_attribution=analysis_response.portfolio_attribution,

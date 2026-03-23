@@ -10,6 +10,9 @@ from libraries.schemas import (
     AssumptionMismatch,
     AuditLog,
     AvailabilityMismatch,
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
     CostModel,
     CounterHypothesis,
     EvidenceAssessment,
@@ -19,8 +22,10 @@ from libraries.schemas import (
     PaperTrade,
     PortfolioAttribution,
     PortfolioProposal,
+    PortfolioSelectionSummary,
     PositionAttribution,
     PositionIdea,
+    PositionSizingRationale,
     RealismWarning,
     ReconciliationReport,
     ResearchBrief,
@@ -29,6 +34,7 @@ from libraries.schemas import (
     ReviewNote,
     ReviewQueueItem,
     ReviewTargetType,
+    SelectionConflict,
     Signal,
     StrategyToPaperMapping,
     StressTestResult,
@@ -51,6 +57,14 @@ class LoadedReviewWorkspace(StrictModel):
     portfolio_proposals_by_id: dict[str, PortfolioProposal] = Field(default_factory=dict)
     paper_trades_by_id: dict[str, PaperTrade] = Field(default_factory=dict)
     position_ideas_by_id: dict[str, PositionIdea] = Field(default_factory=dict)
+    constraint_sets_by_id: dict[str, ConstraintSet] = Field(default_factory=dict)
+    constraint_results_by_id: dict[str, ConstraintResult] = Field(default_factory=dict)
+    position_sizing_rationales_by_id: dict[str, PositionSizingRationale] = Field(default_factory=dict)
+    construction_decisions_by_id: dict[str, ConstructionDecision] = Field(default_factory=dict)
+    selection_conflicts_by_id: dict[str, SelectionConflict] = Field(default_factory=dict)
+    portfolio_selection_summaries_by_id: dict[str, PortfolioSelectionSummary] = Field(
+        default_factory=dict
+    )
     portfolio_attributions_by_id: dict[str, PortfolioAttribution] = Field(default_factory=dict)
     position_attributions_by_id: dict[str, PositionAttribution] = Field(default_factory=dict)
     stress_test_runs_by_id: dict[str, StressTestRun] = Field(default_factory=dict)
@@ -92,6 +106,18 @@ def load_review_workspace(
     portfolio_proposals = _load_models(portfolio_root / "portfolio_proposals", PortfolioProposal)
     paper_trades = _load_models(portfolio_root / "paper_trades", PaperTrade)
     position_ideas = _load_models(portfolio_root / "position_ideas", PositionIdea)
+    constraint_sets = _load_models(portfolio_root / "constraint_sets", ConstraintSet)
+    constraint_results = _load_models(portfolio_root / "constraint_results", ConstraintResult)
+    position_sizing_rationales = _load_models(
+        portfolio_root / "position_sizing_rationales", PositionSizingRationale
+    )
+    construction_decisions = _load_models(
+        portfolio_root / "construction_decisions", ConstructionDecision
+    )
+    selection_conflicts = _load_models(portfolio_root / "selection_conflicts", SelectionConflict)
+    portfolio_selection_summaries = _load_models(
+        portfolio_root / "portfolio_selection_summaries", PortfolioSelectionSummary
+    )
     portfolio_attributions = (
         _load_models(portfolio_analysis_root / "portfolio_attributions", PortfolioAttribution)
         if portfolio_analysis_root is not None
@@ -174,6 +200,27 @@ def load_review_workspace(
         },
         paper_trades_by_id={paper_trade.paper_trade_id: paper_trade for paper_trade in paper_trades},
         position_ideas_by_id={idea.position_idea_id: idea for idea in position_ideas},
+        constraint_sets_by_id={
+            constraint_set.constraint_set_id: constraint_set for constraint_set in constraint_sets
+        },
+        constraint_results_by_id={
+            constraint_result.constraint_result_id: constraint_result
+            for constraint_result in constraint_results
+        },
+        position_sizing_rationales_by_id={
+            rationale.position_sizing_rationale_id: rationale
+            for rationale in position_sizing_rationales
+        },
+        construction_decisions_by_id={
+            decision.construction_decision_id: decision for decision in construction_decisions
+        },
+        selection_conflicts_by_id={
+            conflict.selection_conflict_id: conflict for conflict in selection_conflicts
+        },
+        portfolio_selection_summaries_by_id={
+            summary.portfolio_selection_summary_id: summary
+            for summary in portfolio_selection_summaries
+        },
         portfolio_attributions_by_id={
             attribution.portfolio_attribution_id: attribution
             for attribution in portfolio_attributions

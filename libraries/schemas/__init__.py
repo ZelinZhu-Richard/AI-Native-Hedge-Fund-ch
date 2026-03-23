@@ -127,6 +127,16 @@ from libraries.schemas.portfolio_analysis import (
     StressTestResult,
     StressTestRun,
 )
+from libraries.schemas.portfolio_construction import (
+    ConstraintResult,
+    ConstraintSet,
+    ConstructionDecision,
+    PortfolioSelectionSummary,
+    PositionSizingRationale,
+    ProposalRejectionReason,
+    SelectionConflict,
+    SelectionRule,
+)
 from libraries.schemas.red_team import (
     AdversarialInput,
     FailureSeverity,
@@ -412,11 +422,14 @@ __all__ = [
     "PortfolioExposureSummary",
     "PortfolioProposal",
     "PortfolioProposalStatus",
+    "PortfolioSelectionSummary",
     "PositionAttribution",
     "PositionIdea",
     "PositionIdeaStatus",
     "PositionSide",
+    "PositionSizingRationale",
     "ProvenanceRecord",
+    "ProposalRejectionReason",
     "PublicationTiming",
     "QuantityBasis",
     "QualityDecision",
@@ -462,6 +475,8 @@ __all__ = [
     "ScheduleMode",
     "ScheduledRunConfig",
     "Severity",
+    "SelectionConflict",
+    "SelectionRule",
     "ServiceStatus",
     "Signal",
     "SignalBundle",
@@ -506,4 +521,7 @@ __all__ = [
     "RunContext",
     "SameDayAvailabilityPolicy",
     "WorkflowStatus",
+    "ConstructionDecision",
+    "ConstraintResult",
+    "ConstraintSet",
 ]

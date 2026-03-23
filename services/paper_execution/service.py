@@ -250,6 +250,21 @@ class PaperExecutionService(BaseService):
                         "Simulated only. No live routing.",
                         "Trade candidate requires separate human review.",
                         f"proposal_status={proposal.status.value}",
+                        *(
+                            [f"portfolio_selection_summary_id={proposal.portfolio_selection_summary_id}"]
+                            if proposal.portfolio_selection_summary_id is not None
+                            else []
+                        ),
+                        *(
+                            [f"construction_decision_id={idea.construction_decision_id}"]
+                            if idea.construction_decision_id is not None
+                            else []
+                        ),
+                        *(
+                            [f"position_sizing_rationale_id={idea.position_sizing_rationale_id}"]
+                            if idea.position_sizing_rationale_id is not None
+                            else []
+                        ),
                     ],
                     slippage_bps_estimate=5.0,
                     provenance=build_provenance(
@@ -260,6 +275,21 @@ class PaperExecutionService(BaseService):
                             proposal.portfolio_proposal_id,
                             idea.position_idea_id,
                             idea.signal_id,
+                            *(
+                                [proposal.portfolio_selection_summary_id]
+                                if proposal.portfolio_selection_summary_id is not None
+                                else []
+                            ),
+                            *(
+                                [idea.construction_decision_id]
+                                if idea.construction_decision_id is not None
+                                else []
+                            ),
+                            *(
+                                [idea.position_sizing_rationale_id]
+                                if idea.position_sizing_rationale_id is not None
+                                else []
+                            ),
                         ],
                         notes=[
                             "execution_mode=paper_only",

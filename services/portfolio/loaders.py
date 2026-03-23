@@ -176,18 +176,23 @@ def load_portfolio_inputs(
                     "Signal arbitration intentionally withheld a primary signal selection, so portfolio construction received no actionable signal input."
                 )
             else:
-                selected_signals = [
-                    signal
-                    for signal in company_signals
-                    if signal.signal_id == arbitration_decision.selected_primary_signal_id
-                ]
-                if not selected_signals:
+                selected_primary_signal = next(
+                    (
+                        signal
+                        for signal in company_signals
+                        if signal.signal_id == arbitration_decision.selected_primary_signal_id
+                    ),
+                    None,
+                )
+                if selected_primary_signal is None:
+                    selected_signals = []
                     notes.append(
                         "Signal arbitration selected a signal that was not available under the current cutoff, so no actionable signal input remained."
                     )
                 else:
+                    selected_signals = list(company_signals)
                     notes.append(
-                        f"Portfolio construction used arbitrated primary signal `{arbitration_decision.selected_primary_signal_id}` as its review-facing input."
+                        f"Portfolio construction retained same-company candidates but treated arbitrated primary signal `{arbitration_decision.selected_primary_signal_id}` as the highest-priority review-facing input."
                     )
     else:
         notes.append(

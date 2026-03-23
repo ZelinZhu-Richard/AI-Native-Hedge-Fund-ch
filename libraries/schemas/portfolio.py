@@ -67,6 +67,14 @@ class PositionIdea(TimestampedModel):
         default=None,
         description="Signal-arbitration decision identifier used for the idea when applicable.",
     )
+    construction_decision_id: str | None = Field(
+        default=None,
+        description="Construction-decision identifier that recorded why this idea survived selection.",
+    )
+    position_sizing_rationale_id: str | None = Field(
+        default=None,
+        description="Position-sizing rationale identifier explaining the final selected weight.",
+    )
     status: PositionIdeaStatus = Field(description="Position idea lifecycle status.")
     confidence: ConfidenceAssessment | None = Field(
         default=None,
@@ -247,6 +255,10 @@ class PortfolioProposal(TimestampedModel):
     stress_test_run_id: str | None = Field(
         default=None,
         description="Stress-test run identifier when proposal analysis has run.",
+    )
+    portfolio_selection_summary_id: str | None = Field(
+        default=None,
+        description="Portfolio-selection summary identifier when construction artifacts have been recorded.",
     )
     strategy_to_paper_mapping_id: str | None = Field(
         default=None,
