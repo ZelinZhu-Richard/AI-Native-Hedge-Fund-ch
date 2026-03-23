@@ -175,6 +175,7 @@ def test_paper_trade_gate_records_structured_refusal_on_unapproved_proposals(
     assert response.validation_gate is not None
     assert response.quality_decision is QualityDecision.REFUSE
     assert response.refusal_reason is RefusalReason.INVALID_REVIEW_STATE
+    assert "paper_trade_stop_kind=review_bound" in response.notes
     assert response.storage_locations
 
 

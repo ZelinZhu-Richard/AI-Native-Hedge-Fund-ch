@@ -103,7 +103,7 @@ These names are taken directly from `anhf capabilities --json` and anchor the in
 
 - Area or capability: high-signal documentation for architecture, research discipline, risk flow, and interfaces
 - Strongest proof artifacts: explicit docs on timing, validation, construction, paper ledger, reporting, and interfaces
-- Key files/docs/tests: `AGENTS.md`, `PLAN.md`, `docs/reviews/week3_review.md`, `docs/plans/week4_plan.md`, `docs/research/temporal_correctness.md`, `docs/risk/portfolio_construction_v2.md`, `docs/product/api_and_interface_contracts.md`
+- Key files/docs/tests: `AGENTS.md`, `PLAN.md`, `docs/reviews/week3_review.md`, `docs/reviews/final_30_day_review.md`, `docs/reviews/final_external_readiness_review.md`, `docs/research/temporal_correctness.md`, `docs/risk/portfolio_construction_v2.md`, `docs/product/api_and_interface_contracts.md`
 - Status: real
 - Main caveat: the docs are strong on internal structure, but still describe a local platform rather than a production deployment
 

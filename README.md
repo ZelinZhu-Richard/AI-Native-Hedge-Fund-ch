@@ -73,6 +73,7 @@ See:
 - `docs/product/demo_usability.md`
 - `docs/product/release_candidate_status.md`
 - `docs/product/known_limitations.md`
+- `docs/reviews/final_external_readiness_review.md`
 
 ### Final 30-day proof
 
@@ -95,6 +96,7 @@ The resulting manifest is the strongest single proof artifact for the first 30-d
 See:
 
 - `docs/reviews/final_30_day_review.md`
+- `docs/reviews/final_external_readiness_review.md`
 - `docs/plans/phase2_roadmap.md`
 - `docs/product/end_to_end_demo.md`
 
@@ -207,6 +209,7 @@ Use these docs when you need to explain the repo to skeptical external readers w
 - [Known Limitations](docs/product/known_limitations.md)
 - [Demo Script](docs/product/demo_script.md)
 - [Final 30-Day Review](docs/reviews/final_30_day_review.md)
+- [Final External Readiness Review](docs/reviews/final_external_readiness_review.md)
 - [Phase 2 Roadmap](docs/plans/phase2_roadmap.md)
 
 ## Practical Repo Map
@@ -287,6 +290,7 @@ The most important release-candidate questions now are:
 See:
 
 - `docs/reviews/week4_review.md`
+- `docs/reviews/final_external_readiness_review.md`
 - `docs/plans/final_30_day_push.md`
 - `docs/product/release_candidate_status.md`
 - `docs/product/known_limitations.md`

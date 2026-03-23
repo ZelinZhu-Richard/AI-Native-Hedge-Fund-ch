@@ -171,6 +171,7 @@ class PaperExecutionService(BaseService):
             notes.append(
                 "This is a review-bound stop, not a silent success or autonomous execution path."
             )
+            notes.append("paper_trade_stop_kind=review_bound")
             notes.append(f"proposal_status={proposal.status.value}")
             notes.extend(realism_notes)
             return PaperTradeProposalResponse(
@@ -201,6 +202,7 @@ class PaperExecutionService(BaseService):
             notes.append(
                 "This is a blocked stop, not the normal review-bound zero-trade outcome."
             )
+            notes.append("paper_trade_stop_kind=blocked")
             notes.extend(realism_notes)
             return PaperTradeProposalResponse(
                 trade_batch_id=trade_batch_id,

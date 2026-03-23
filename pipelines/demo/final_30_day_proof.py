@@ -325,7 +325,11 @@ def _build_review_bound_branch(*, demo_response: EndToEndDemoResponse) -> Review
             demo_response.review_note.audit_log.audit_log_id,
             demo_response.review_action.audit_log.audit_log_id,
         ],
-        notes=list(demo_response.notes),
+        notes=[
+            *demo_response.notes,
+            "paper_trade_stop_kind=review_bound",
+            "The baseline branch proves the truthful default stop: review-bound proposal, zero paper-trade candidates, and explicit operator review artifacts.",
+        ],
     )
 
 

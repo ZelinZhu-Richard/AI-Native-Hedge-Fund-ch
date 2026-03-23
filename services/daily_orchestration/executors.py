@@ -467,6 +467,7 @@ def execute_paper_trade_candidate_generation(state: DailyWorkflowState) -> StepE
             status=WorkflowStatus.ATTENTION_REQUIRED,
             notes=[
                 *base_notes,
+                "paper_trade_stop_kind=review_bound",
                 "Paper-trade candidate generation stopped intentionally at the review-bound approval gate.",
             ],
             produced_artifact_ids=gate_artifact_ids,
@@ -498,6 +499,7 @@ def execute_paper_trade_candidate_generation(state: DailyWorkflowState) -> StepE
         status=WorkflowStatus.ATTENTION_REQUIRED,
         notes=[
             *base_notes,
+            "paper_trade_stop_kind=blocked",
             "Paper-trade candidate generation stopped in a blocked state, not the normal review-bound stop.",
         ],
         produced_artifact_ids=gate_artifact_ids,

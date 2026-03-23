@@ -77,6 +77,8 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     assert response.paper_trade_candidate_generation.validation_gate.validation_gate_id in (
         response.workflow_execution.produced_artifact_ids
     )
+    assert "paper_trade_stop_kind=review_bound" in response.paper_trade_candidate_generation.notes
+    assert any("paper_trade_stop_kind=review_bound" == note for note in paper_trade_step.notes)
     assert any("review-bound approval gate" in note for note in paper_trade_step.notes)
     assert any(step.child_run_summary_ids for step in response.run_steps)
     assert any((artifact_root / "reporting" / "risk_summaries").glob("*.json"))

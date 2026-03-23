@@ -38,6 +38,7 @@ def test_final_30_day_proof_runs_review_bound_demo_and_approved_appendix(
     assert response.review_bound_branch.review_decision_ids
     assert response.review_bound_branch.run_summary_ids
     assert response.review_bound_branch.audit_log_ids
+    assert "paper_trade_stop_kind=review_bound" in response.review_bound_branch.notes
 
     assert response.approved_appendix.approved_proposal_id
     assert response.approved_appendix.proposal_review_decision_id is not None
