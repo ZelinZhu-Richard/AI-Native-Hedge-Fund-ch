@@ -25,7 +25,7 @@ It does **not** prove alpha, production readiness, or autonomous execution.
 make demo
 ```
 
-Direct module entrypoint:
+Direct CLI entrypoint:
 
 ```bash
 anhf demo run \
@@ -40,6 +40,8 @@ python -m pipelines.demo.end_to_end_demo \
   --frozen-time 2026-04-01T12:00:00Z \
   --base-root artifacts/demo_runs/week3_demo
 ```
+
+If you want to inspect the demo over HTTP, start `make api` in a separate terminal. The demo run and the API server are separate local processes.
 
 ## Inputs Used
 

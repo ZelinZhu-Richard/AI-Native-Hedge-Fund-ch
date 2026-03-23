@@ -162,7 +162,10 @@ class ResearchOrchestrationService(BaseService):
                 "Memo",
                 "AgentRun",
             ],
-            api_routes=[],
+            api_routes=[
+                "GET /research/hypotheses",
+                "GET /research/briefs",
+            ],
         )
 
     def start_cycle(self, request: ResearchCycleRequest) -> ResearchCycleResponse:

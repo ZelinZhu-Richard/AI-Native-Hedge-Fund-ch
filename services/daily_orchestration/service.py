@@ -14,6 +14,8 @@ from libraries.schemas import (
     DataRefreshMode,
     ManualInterventionRequirement,
     PipelineEventType,
+    ProposalScorecard,
+    RiskSummary,
     RunbookEntry,
     RunFailureAction,
     RunStep,
@@ -133,6 +135,14 @@ class RunDailyWorkflowResponse(StrictModel):
     portfolio_workflow: RunPortfolioWorkflowResponse | None = Field(
         default=None,
         description="Portfolio workflow response when the step ran.",
+    )
+    risk_summary: RiskSummary | None = Field(
+        default=None,
+        description="Grounded risk summary generated from the daily proposal when available.",
+    )
+    proposal_scorecard: ProposalScorecard | None = Field(
+        default=None,
+        description="Grounded proposal scorecard generated from the daily proposal when available.",
     )
     review_queue_sync: SyncReviewQueueResponse | None = Field(
         default=None,
@@ -512,6 +522,8 @@ class DailyOrchestrationService(BaseService):
             research_workflow=state.outputs.research_workflow,
             feature_signal_pipeline=state.outputs.feature_signal_pipeline,
             portfolio_workflow=state.outputs.portfolio_workflow,
+            risk_summary=state.outputs.risk_summary,
+            proposal_scorecard=state.outputs.proposal_scorecard,
             review_queue_sync=state.outputs.review_queue_sync,
             paper_trade_candidate_generation=state.outputs.paper_trade_candidate_generation,
             operations_health_checks=state.outputs.operations_health_checks,

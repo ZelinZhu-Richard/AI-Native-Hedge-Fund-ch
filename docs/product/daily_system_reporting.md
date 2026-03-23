@@ -19,6 +19,8 @@ The daily report currently draws from:
 - recent `ProposalScorecard` artifacts
 - recent `ExperimentScorecard` artifacts
 
+During the daily workflow, the portfolio step now generates and persists the current run's `RiskSummary` and `ProposalScorecard` before the operations-summary step builds the daily report.
+
 ## Output Shape
 
 The report records:
@@ -58,6 +60,8 @@ It does:
 
 The daily orchestration workflow now persists:
 
+- `RiskSummary`
+- `ProposalScorecard`
 - `ReviewQueueSummary`
 - `DailySystemReport`
 
@@ -69,7 +73,7 @@ The default daily path will often still end in `attention_required` because pape
 
 - report generation is deterministic and local only
 - no UI dashboard exists yet
-- report selection is latest-artifact oriented within the current workspace
+- experiment-scorecard selection is still latest-artifact oriented within the current workspace
 - service capability summaries are still lightweight and descriptive
 - paper-ledger sections stay sparse when no approved paper trades have been admitted
 

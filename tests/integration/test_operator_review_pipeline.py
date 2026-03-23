@@ -26,6 +26,7 @@ from libraries.schemas.base import ProvenanceRecord
 from libraries.time import FrozenClock
 from libraries.utils import make_canonical_id
 from pipelines.backtesting import run_backtest_pipeline
+from pipelines.daily_operations import run_daily_workflow
 from pipelines.daily_research import run_hypothesis_workflow_pipeline
 from pipelines.document_processing import (
     run_evidence_extraction_pipeline,
@@ -238,6 +239,50 @@ def test_operator_review_pipeline_handles_paper_trade_after_explicit_approval(
     assert trade_action.queue_item.queue_status is ReviewQueueStatus.ESCALATED
     assert isinstance(trade_action.updated_target, PaperTrade)
     assert trade_action.updated_target.status.value == "proposed"
+
+
+def test_operator_review_context_loads_daily_workflow_scorecard_for_proposal(
+    tmp_path: Path,
+) -> None:
+    artifact_root = tmp_path / "daily_run"
+    run_daily_workflow(
+        artifact_root=artifact_root,
+        fixtures_root=FIXTURE_ROOT,
+        as_of_time=FIXED_NOW,
+        requested_by="integration_test",
+        clock=FrozenClock(FIXED_NOW),
+    )
+
+    service = OperatorReviewService(clock=FrozenClock(FIXED_NOW))
+    service.sync_review_queue(
+        SyncReviewQueueRequest(
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+        )
+    )
+    proposal = _load_single_model(
+        artifact_root / "portfolio" / "portfolio_proposals",
+        PortfolioProposal,
+    )
+    proposal_context = service.get_review_context(
+        GetReviewContextRequest(
+            target_type=ReviewTargetType.PORTFOLIO_PROPOSAL,
+            target_id=proposal.portfolio_proposal_id,
+            review_root=artifact_root / "review",
+            audit_root=artifact_root / "audit",
+            research_root=artifact_root / "research",
+            signal_root=artifact_root / "signal_generation",
+            portfolio_root=artifact_root / "portfolio",
+        )
+    )
+
+    assert proposal.proposal_scorecard_id is not None
+    assert proposal_context.risk_summary is not None
+    assert proposal_context.proposal_scorecard is not None
+    assert proposal_context.proposal_scorecard.proposal_scorecard_id == proposal.proposal_scorecard_id
 
 
 def _build_full_stack(*, artifact_root: Path) -> None:

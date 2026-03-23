@@ -25,6 +25,8 @@ anhf demo run \
 Equivalent API invocation:
 
 ```bash
+make api
+# run the HTTP call from a separate terminal while the API is serving locally
 curl -X POST http://127.0.0.1:8000/workflows/demo/run \
   -H "content-type: application/json" \
   -d '{
@@ -65,6 +67,8 @@ Useful API surfaces after the demo:
 - `GET /monitoring/run-summaries/recent`
 - `GET /portfolio/proposals`
 - `GET /reports/proposals/{portfolio_proposal_id}/scorecard`
+
+When you want to inspect those HTTP endpoints, keep `make api` running in a separate terminal. The demo run itself does not start the API server.
 
 ## What Improved In Day 28
 

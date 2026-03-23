@@ -101,7 +101,7 @@ class PaperExecutionService(BaseService):
             description=self.capability_description,
             consumes=["PortfolioProposal"],
             produces=["PaperTrade"],
-            api_routes=["GET /paper-trades/proposals"],
+            api_routes=["GET /portfolio/paper-trades"],
         )
 
     def propose_trades(

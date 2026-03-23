@@ -216,7 +216,7 @@ class PortfolioConstructionService(BaseService):
             description=self.capability_description,
             consumes=["Signal", "ResearchBrief", "EvidenceAssessment", "PortfolioConstraint"],
             produces=["PositionIdea", "PortfolioProposal", "RiskCheck"],
-            api_routes=["GET /portfolio-proposals"],
+            api_routes=["GET /portfolio/proposals"],
         )
 
     def construct(self, request: PortfolioConstructionRequest) -> PortfolioConstructionResponse:

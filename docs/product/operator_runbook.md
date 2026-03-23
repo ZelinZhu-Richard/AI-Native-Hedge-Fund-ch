@@ -13,7 +13,8 @@ The doc is the human-readable reference. The artifacts are the code-owned per-st
 Current local entrypoints:
 
 - `make daily-run`
-- `python -m pipelines.daily_operations.daily_workflow --artifact-root <path>`
+- `anhf daily run --artifact-root <path> --requested-by manual_local_run`
+- legacy module entrypoint: `python -m pipelines.daily_operations.daily_workflow --artifact-root <path>`
 
 Important defaults:
 
@@ -102,6 +103,7 @@ Human review:
 Check:
 
 - a portfolio proposal exists
+- a risk summary and proposal scorecard were persisted under `artifacts/reporting/`
 - attribution and stress artifacts are linked
 - risk checks and blocking issues are visible
 

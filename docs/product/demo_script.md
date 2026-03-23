@@ -4,6 +4,8 @@ This script is for truthful external demos. It is designed to show the system as
 
 Canonical inspection routes used below include `GET /system/manifest`, `GET /portfolio/proposals`, `GET /reports/proposals/{portfolio_proposal_id}/scorecard`, and `GET /reviews/queue`.
 
+When the script uses `make api`, keep that server running in a separate terminal while you issue the HTTP inspection commands.
+
 ## Founder / YC Track
 
 **Target duration:** 8-10 minutes

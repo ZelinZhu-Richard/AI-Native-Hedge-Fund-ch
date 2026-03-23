@@ -13,8 +13,10 @@ from libraries.schemas import (
     DailySystemReport,
     DataRefreshMode,
     ManualInterventionRequirement,
+    ProposalScorecard,
     ReviewFollowup,
     ReviewFollowupStatus,
+    RiskSummary,
     WorkflowStatus,
 )
 from libraries.time import Clock
@@ -53,9 +55,12 @@ from services.portfolio import (
     RunPortfolioWorkflowRequest,
     RunPortfolioWorkflowResponse,
 )
+from services.portfolio.storage import LocalPortfolioArtifactStore
 from services.reporting import (
     GenerateDailySystemReportRequest,
+    GenerateProposalScorecardRequest,
     GenerateReviewQueueSummaryRequest,
+    GenerateRiskSummaryRequest,
     ReportingService,
 )
 from services.reporting.loaders import load_reporting_workspace
@@ -110,6 +115,8 @@ class DailyWorkflowOutputs:
     research_workflow: RunResearchWorkflowResponse | None = None
     feature_signal_pipeline: FeatureSignalPipelineResponse | None = None
     portfolio_workflow: RunPortfolioWorkflowResponse | None = None
+    risk_summary: RiskSummary | None = None
+    proposal_scorecard: ProposalScorecard | None = None
     review_queue_sync: SyncReviewQueueResponse | None = None
     paper_trade_candidate_generation: PaperTradeProposalResponse | None = None
     operations_health_checks: RunHealthChecksResponse | None = None
@@ -295,14 +302,89 @@ def execute_portfolio_workflow(state: DailyWorkflowState) -> StepExecutionOutcom
             requested_by=context.requested_by,
         )
     )
+    reporting_service = ReportingService(clock=context.clock)
+    validation_gates = (
+        [response.validation_gate]
+        if response.validation_gate is not None
+        else []
+    )
+    risk_summary_response = reporting_service.generate_risk_summary(
+        GenerateRiskSummaryRequest(
+            portfolio_proposal=response.portfolio_proposal,
+            risk_checks=response.risk_checks,
+            stress_test_results=response.stress_test_results,
+            validation_gates=validation_gates,
+            requested_by=context.requested_by,
+        ),
+        output_root=context.roots.reporting_root,
+    )
+    proposal_scorecard_response = reporting_service.generate_proposal_scorecard(
+        GenerateProposalScorecardRequest(
+            portfolio_proposal=response.portfolio_proposal,
+            portfolio_selection_summary=response.portfolio_selection_summary,
+            construction_decisions=response.construction_decisions,
+            position_sizing_rationales=response.position_sizing_rationales,
+            portfolio_attribution=response.portfolio_attribution,
+            stress_test_run=response.stress_test_run,
+            stress_test_results=response.stress_test_results,
+            risk_checks=response.risk_checks,
+            validation_gates=validation_gates,
+            paper_trades=[],
+            requested_by=context.requested_by,
+        ),
+        output_root=context.roots.reporting_root,
+    )
+    updated_proposal = response.portfolio_proposal.model_copy(
+        update={
+            "proposal_scorecard_id": proposal_scorecard_response.proposal_scorecard.proposal_scorecard_id,
+            "updated_at": context.clock.now(),
+        }
+    )
+    portfolio_store = LocalPortfolioArtifactStore(
+        root=context.roots.portfolio_root,
+        clock=context.clock,
+    )
+    updated_proposal_storage = portfolio_store.persist_model(
+        artifact_id=updated_proposal.portfolio_proposal_id,
+        category="portfolio_proposals",
+        model=updated_proposal,
+        source_reference_ids=updated_proposal.provenance.source_reference_ids,
+    )
+    response = response.model_copy(
+        update={
+            "portfolio_proposal": updated_proposal,
+            "storage_locations": [
+                *response.storage_locations,
+                *risk_summary_response.storage_locations,
+                *proposal_scorecard_response.storage_locations,
+                updated_proposal_storage,
+            ],
+            "notes": [
+                *response.notes,
+                *risk_summary_response.notes,
+                *proposal_scorecard_response.notes,
+                f"risk_summary_id={risk_summary_response.risk_summary.risk_summary_id}",
+                (
+                    "proposal_scorecard_id="
+                    f"{proposal_scorecard_response.proposal_scorecard.proposal_scorecard_id}"
+                ),
+            ],
+        }
+    )
     state.outputs.portfolio_workflow = response
+    state.outputs.risk_summary = risk_summary_response.risk_summary
+    state.outputs.proposal_scorecard = proposal_scorecard_response.proposal_scorecard
     state.resolved_company_id = response.company_id
     return StepExecutionOutcome(
         status=WorkflowStatus.SUCCEEDED,
         notes=list(response.notes),
         child_workflow_ids=[response.portfolio_workflow_id],
         child_run_summary_ids=[],
-        produced_artifact_ids=_collect_portfolio_artifact_ids(response),
+        produced_artifact_ids=[
+            *_collect_portfolio_artifact_ids(response),
+            risk_summary_response.risk_summary.risk_summary_id,
+            proposal_scorecard_response.proposal_scorecard.proposal_scorecard_id,
+        ],
     )
 
 
@@ -438,11 +520,15 @@ def execute_operations_summary(state: DailyWorkflowState) -> StepExecutionOutcom
             review_queue_summary=review_queue_summary,
             daily_paper_summaries=daily_paper_summaries,
             review_followups=review_followups,
-            proposal_scorecards=[
-                scorecard
-                for scorecards in reporting_workspace.proposal_scorecards_by_proposal_id.values()
-                for scorecard in scorecards[:1]
-            ],
+            proposal_scorecards=(
+                [state.outputs.proposal_scorecard]
+                if state.outputs.proposal_scorecard is not None
+                else [
+                    scorecard
+                    for scorecards in reporting_workspace.proposal_scorecards_by_proposal_id.values()
+                    for scorecard in scorecards[:1]
+                ]
+            ),
             experiment_scorecards=[
                 scorecard
                 for scorecards in reporting_workspace.experiment_scorecards_by_experiment_id.values()
@@ -470,6 +556,11 @@ def execute_operations_summary(state: DailyWorkflowState) -> StepExecutionOutcom
             *(
                 [review_queue_summary.review_queue_summary_id]
                 if review_queue_summary is not None
+                else []
+            ),
+            *(
+                [state.outputs.proposal_scorecard.proposal_scorecard_id]
+                if state.outputs.proposal_scorecard is not None
                 else []
             ),
             *( [daily_system_report.daily_system_report_id] if daily_system_report is not None else [] ),

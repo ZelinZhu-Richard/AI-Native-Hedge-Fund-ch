@@ -265,7 +265,11 @@ class ReportingService(BaseService):
                 "DailySystemReport",
                 "SystemCapabilitySummary",
             ],
-            api_routes=[],
+            api_routes=[
+                "GET /reports/daily-system/latest",
+                "GET /reports/proposals/{portfolio_proposal_id}/scorecard",
+                "GET /reports/review-queue/latest",
+            ],
         )
 
     def generate_research_summary(

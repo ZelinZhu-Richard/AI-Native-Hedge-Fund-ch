@@ -186,7 +186,7 @@ class MonitoringService(BaseService):
                 "ServiceStatus",
             ],
             api_routes=[
-                "GET /health/details",
+                "GET /system/health/details",
                 "GET /monitoring/run-summaries/recent",
                 "GET /monitoring/failures/recent",
                 "GET /monitoring/services",

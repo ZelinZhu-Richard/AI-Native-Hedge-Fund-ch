@@ -32,9 +32,18 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     assert response.paper_trade_candidate_generation is not None
     assert response.operations_health_checks is not None
     assert response.recent_run_summaries is not None
+    assert response.risk_summary is not None
+    assert response.proposal_scorecard is not None
     assert response.daily_system_report is not None
     assert response.paper_trade_candidate_generation.proposed_trades == []
     assert response.workflow_execution.linked_run_summary_ids
+    assert response.portfolio_workflow is not None
+    assert response.portfolio_workflow.portfolio_proposal.proposal_scorecard_id == (
+        response.proposal_scorecard.proposal_scorecard_id
+    )
+    assert response.daily_system_report.proposal_scorecard_ids == [
+        response.proposal_scorecard.proposal_scorecard_id
+    ]
 
     queue_target_types = {item.target_type for item in response.review_queue_sync.queue_items}
     assert {
@@ -59,6 +68,8 @@ def test_daily_workflow_runs_local_stack_and_stops_at_review_gate(tmp_path: Path
     assert paper_trade_step.status is WorkflowStatus.ATTENTION_REQUIRED
     assert paper_trade_step.manual_intervention_requirement is not None
     assert any(step.child_run_summary_ids for step in response.run_steps)
+    assert any((artifact_root / "reporting" / "risk_summaries").glob("*.json"))
+    assert any((artifact_root / "reporting" / "proposal_scorecards").glob("*.json"))
     assert any((artifact_root / "reporting" / "review_queue_summaries").glob("*.json"))
     assert any((artifact_root / "reporting" / "daily_system_reports").glob("*.json"))
 

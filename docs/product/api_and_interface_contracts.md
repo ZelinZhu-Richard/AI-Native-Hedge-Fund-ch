@@ -94,6 +94,8 @@ Preferred canonical routes:
 
 Compatibility aliases still exist for older unscoped paths such as `/health`, `/version`, `/hypotheses`, `/portfolio-proposals`, and `/paper-trades/proposals`, but the canonical namespaced routes are preferred.
 
+`/system/manifest` and `anhf capabilities --json` should advertise the canonical namespaced routes only. Compatibility aliases remain in the route layer and are not the primary documented interface.
+
 ## Capability And Manifest Surfaces
 
 `GET /system/capabilities` returns normalized `CapabilityDescriptor` rows across:

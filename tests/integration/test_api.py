@@ -73,15 +73,41 @@ def test_system_manifest_and_capabilities_are_structured() -> None:
 
     assert capabilities_response.status_code == 200
     descriptors = capabilities_response.json()["data"]["items"]
+    descriptors_by_name = {item["name"]: item for item in descriptors}
     assert any(item["kind"] == "service" and item["name"] == "monitoring" for item in descriptors)
     assert any(item["kind"] == "agent" for item in descriptors)
     assert any(item["kind"] == "workflow" and item["name"] == "demo_end_to_end" for item in descriptors)
+    assert descriptors_by_name["monitoring"]["api_routes"] == [
+        "/system/health/details",
+        "/monitoring/run-summaries/recent",
+        "/monitoring/failures/recent",
+        "/monitoring/services",
+    ]
+    assert descriptors_by_name["portfolio"]["api_routes"] == ["/portfolio/proposals"]
+    assert descriptors_by_name["paper_execution"]["api_routes"] == ["/portfolio/paper-trades"]
+    assert descriptors_by_name["reporting"]["api_routes"] == [
+        "/reports/daily-system/latest",
+        "/reports/proposals/{portfolio_proposal_id}/scorecard",
+        "/reports/review-queue/latest",
+    ]
+    assert descriptors_by_name["research_orchestrator"]["api_routes"] == [
+        "/research/hypotheses",
+        "/research/briefs",
+    ]
 
     assert manifest_response.status_code == 200
     manifest = manifest_response.json()["data"]
     assert manifest["project_name"] == "ANHF Research OS"
     assert "ARTIFACT_ROOT" in manifest["config_surface"]
     assert any(item["warning_code"] == "local_only" for item in manifest["warnings"])
+    manifest_capabilities_by_name = {
+        item["name"]: item for item in manifest["capabilities"] if item["kind"] == "service"
+    }
+    assert manifest_capabilities_by_name["portfolio"]["api_routes"] == ["/portfolio/proposals"]
+    assert manifest_capabilities_by_name["paper_execution"]["api_routes"] == [
+        "/portfolio/paper-trades"
+    ]
+    assert manifest_capabilities_by_name["monitoring"]["api_routes"][0] == "/system/health/details"
 
     assert ingest_response.status_code == 200
     assert ingest_response.json()["data"]["status"] == "queued"
