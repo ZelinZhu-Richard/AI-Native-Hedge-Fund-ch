@@ -13,7 +13,8 @@ The doc is the human-readable reference. The artifacts are the code-owned per-st
 Current local entrypoints:
 
 - `make daily-run`
-- `anhf daily run --artifact-root <path> --requested-by manual_local_run`
+- `nta daily run --artifact-root <path> --requested-by manual_local_run`
+- compatibility alias: `anhf daily run --artifact-root <path> --requested-by manual_local_run`
 - legacy module entrypoint: `python -m pipelines.daily_operations.daily_workflow --artifact-root <path>`
 
 Important defaults:

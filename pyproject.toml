@@ -3,14 +3,14 @@ requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "anhf-research-os"
+name = "nexus-tensor-alpha"
 version = "0.1.0"
 description = "Deterministic local research operating system for AI-assisted equity research and approval-gated paper-trading workflows."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [
-  { name = "ANHF Founding Engineering" },
+  { name = "Nexus Tensor Alpha Founding Engineering" },
 ]
 dependencies = [
   "fastapi>=0.115,<1.0",
@@ -20,6 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
+nta = "apps.cli.main:main"
 anhf = "apps.cli.main:main"
 
 [project.optional-dependencies]

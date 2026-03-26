@@ -4,7 +4,7 @@ This inventory is a grounded map of what the repo can already prove through code
 
 ## Capability Anchors
 
-These names are taken directly from `anhf capabilities --json` and anchor the inventory to the live interface surface:
+These names are taken directly from `nta capabilities --json` and anchor the inventory to the live interface surface:
 
 - `ingestion`
 - `parsing`

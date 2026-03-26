@@ -1,1 +1,1 @@
-"""Shared libraries for the ANHF research platform."""
+"""Shared libraries for the Nexus Tensor Alpha research platform."""

@@ -28,7 +28,7 @@ make demo
 Direct CLI entrypoint:
 
 ```bash
-anhf demo run \
+nta demo run \
   --frozen-time 2026-04-01T12:00:00Z \
   --base-root artifacts/demo_runs/release_candidate
 ```
@@ -41,7 +41,7 @@ python -m pipelines.demo.end_to_end_demo \
   --base-root artifacts/demo_runs/release_candidate
 ```
 
-If you want to inspect the demo over HTTP, start `make api` in a separate terminal. The demo run and the API server are separate local processes.
+If you want to inspect the demo over HTTP, start `make api` in a separate terminal. The demo run and the API server are separate local processes. The legacy `anhf demo run` alias remains available temporarily during the CLI rename.
 
 ## Full Build-Cycle Proof
 

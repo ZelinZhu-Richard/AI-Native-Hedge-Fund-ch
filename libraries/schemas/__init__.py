@@ -1,4 +1,4 @@
-"""Typed domain contracts for the ANHF research platform."""
+"""Typed domain contracts for the Nexus Tensor Alpha research platform."""
 
 from libraries.schemas.backtest_reconciliation import (
     AssumptionMismatch,

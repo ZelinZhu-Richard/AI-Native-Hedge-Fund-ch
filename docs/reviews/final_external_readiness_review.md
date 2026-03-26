@@ -6,7 +6,7 @@
 - Provenance and timing discipline are real implementation concerns, not just doc language. The strongest evidence is in `libraries/schemas/`, `services/data_quality/service.py`, `services/timing/service.py`, `services/portfolio/construction.py`, and `docs/research/temporal_correctness.md`.
 - Human review boundaries are genuine. The default demo stops at a review-bound proposal, the daily workflow exposes manual stops, and the stronger final proof path requires explicit portfolio and paper-trade approvals before the paper-ledger appendix exists.
 - Portfolio construction is inspectable enough to survive scrutiny. Candidate inclusion, exclusion, conflict resolution, constraint pressure, and sizing rationale are explicit artifacts instead of hidden scoring.
-- The repo now has honest proof surfaces for external scrutiny: `make demo`, `make final-proof`, `anhf manifest`, `anhf capabilities`, the local API, persisted scorecards, and the final proof manifest.
+- The repo now has honest proof surfaces for external scrutiny: `make demo`, `make final-proof`, `nta manifest`, `nta capabilities`, the local API, persisted scorecards, and the final proof manifest. The legacy `anhf` alias remains available temporarily for compatibility.
 
 ## What Is Honest But Incomplete
 

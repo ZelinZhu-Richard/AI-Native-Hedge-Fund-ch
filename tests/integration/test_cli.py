@@ -27,7 +27,7 @@ def test_manifest_cli_json_outputs_local_manifest(capsys: pytest.CaptureFixture[
     payload = json.loads(captured.out)
 
     assert exit_code == 0
-    assert payload["project_name"] == "ANHF Research OS"
+    assert payload["project_name"] == "Nexus Tensor Alpha"
     assert "ARTIFACT_ROOT" in payload["config_surface"]
     assert any(item["warning_code"] == "local_only" for item in payload["warnings"])
 

@@ -2,7 +2,7 @@
 
 ## What The System Is Today
 
-ANHF Research OS is a local, deterministic research operating system for turning raw fixtures into typed research artifacts, review-bound portfolio proposals, and approval-gated paper-trade candidates.
+Nexus Tensor Alpha is a local, deterministic research operating system for turning raw fixtures into typed research artifacts, review-bound portfolio proposals, and approval-gated paper-trade candidates.
 
 It is not a live trading system. It is not a brokerage integration. It does not claim alpha. The current product value is workflow discipline: the system forces research, risk, review, and paper execution into explicit artifacts instead of loose notes and hidden spreadsheets.
 
@@ -18,7 +18,7 @@ It is not a live trading system. It is not a brokerage integration. It does not 
 - The artifact chain is real and inspectable: ingestion, parsing, research, features, signals, portfolio construction, risk review, paper-trade candidates, paper ledger, and reporting all persist typed objects.
 - Review boundaries are explicit. Signals do not become paper trades without a human decision path.
 - Provenance and timing are first-class. The repo is structurally stronger than a thin AI wrapper because it treats timestamps, source linkage, and review state as core product surfaces.
-- The interface layer is now coherent enough to demo honestly through `anhf`, `make demo`, `make daily-run`, and the local API.
+- The interface layer is now coherent enough to demo honestly through `nta`, `make demo`, `make daily-run`, and the local API. The legacy `anhf` alias remains available temporarily for compatibility.
 
 ## What Is Still Limited
 

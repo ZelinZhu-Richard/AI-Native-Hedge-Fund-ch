@@ -334,7 +334,7 @@ def run_end_to_end_demo(
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the demo as a small CLI entrypoint."""
 
-    parser = argparse.ArgumentParser(description="Run the ANHF end-to-end local demo.")
+    parser = argparse.ArgumentParser(description="Run the Nexus Tensor Alpha end-to-end local demo.")
     parser.add_argument("--fixtures-root", type=Path, default=DEFAULT_FIXTURES_ROOT)
     parser.add_argument("--price-fixture-path", type=Path, default=DEFAULT_PRICE_FIXTURE_PATH)
     parser.add_argument("--base-root", type=Path, default=None)

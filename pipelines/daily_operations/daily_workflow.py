@@ -53,7 +53,7 @@ def run_daily_workflow(
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the daily workflow as a small local CLI."""
 
-    parser = argparse.ArgumentParser(description="Run the ANHF local daily workflow.")
+    parser = argparse.ArgumentParser(description="Run the Nexus Tensor Alpha local daily workflow.")
     parser.add_argument("--artifact-root", type=Path, default=DEFAULT_DAILY_ARTIFACT_ROOT)
     parser.add_argument("--fixtures-root", type=Path, default=None)
     parser.add_argument(

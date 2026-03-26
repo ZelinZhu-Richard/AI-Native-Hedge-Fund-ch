@@ -47,8 +47,8 @@ REQUIRED_CAPABILITY_ANCHORS = {
     "demo_end_to_end",
 }
 REQUIRED_DEMO_REFERENCES = [
-    "anhf manifest",
-    "anhf capabilities",
+    "nta manifest",
+    "nta capabilities",
     "make demo",
     "make api",
     "make daily-run",
@@ -101,6 +101,7 @@ def test_proof_inventory_references_real_paths_and_live_capabilities(
 
 def test_demo_script_matches_supported_entrypoints() -> None:
     demo_script = (PRODUCT_DOCS / "demo_script.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     cli_source = (ROOT / "apps" / "cli" / "main.py").read_text(encoding="utf-8")
     api_test = (ROOT / "tests" / "integration" / "test_api.py").read_text(encoding="utf-8")
@@ -108,11 +109,13 @@ def test_demo_script_matches_supported_entrypoints() -> None:
     for reference in REQUIRED_DEMO_REFERENCES:
         assert reference in demo_script
 
+    assert 'prog="nta"' in cli_source
     assert "manifest" in cli_source
     assert "capabilities" in cli_source
     assert 'add_parser("demo"' in cli_source
     assert 'add_parser("daily"' in cli_source
     assert 'add_parser("review"' in cli_source
+    assert "legacy `anhf` alias" in readme.lower()
     assert "\napi:" in makefile
     assert "\ndemo:" in makefile
     assert "\ndaily-run:" in makefile

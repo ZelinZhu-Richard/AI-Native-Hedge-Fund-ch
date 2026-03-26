@@ -1,10 +1,45 @@
-# ANHF Research OS
+# Nexus Tensor Alpha
 
-Deterministic local research operating system for AI-assisted equity research, review-bound portfolio proposals, and approval-gated paper-trade candidates.
+AI-native research operating system for evidence-backed equity research, review-bound portfolio proposals, and approval-gated paper trading.
 
-This repository is not a live trading system, not a brokerage integration, and not a performance-marketing demo. It is a serious local stack for building and reviewing research workflows with explicit provenance, timing, risk controls, and human oversight.
+The primary local CLI command is `nta`. The legacy `anhf` alias remains installed temporarily for compatibility while the CLI rename settles across local scripts and docs.
 
-Treat the current repo as a release candidate for a 30-day local build, not as a production trading platform. It proves that the current workflow layers connect coherently and can be inspected honestly. It does not prove validated edge, live-market readiness, or complete downstream policy enforcement.
+This repository is an attempt to answer a simple question:
+
+**What would an AI-native hedge fund research stack look like if you built it from first principles, with explicit provenance, timing discipline, risk controls, and human review from day one?**
+
+It is **not** a live trading system.  
+It is **not** a brokerage integration.  
+It is **not** a fake “agent hedge fund” demo.
+
+It is a serious local research and paper-trading stack built to make the workflow inspectable:
+
+**ingestion -> normalization -> evidence extraction -> hypothesis + critique -> feature + signal generation -> arbitration -> portfolio proposal -> risk review -> paper-trade candidate -> monitoring -> audit trail**
+
+## Why This Repo Exists
+
+Most “AI hedge fund” projects are shallow.
+
+They usually do one of two things:
+
+- wrap an LLM around market commentary and call it research
+- simulate trading ideas without proving where the inputs came from, when they were available, or why they survived review
+
+This repo takes the opposite approach.
+
+The goal is not to pretend we already have edge.  
+The goal is to build the **research operating system** that a real AI-native fund would need before edge claims deserve to be taken seriously.
+
+That means prioritizing:
+
+- explicit data contracts
+- point-in-time correctness
+- provenance and auditability
+- evidence-backed research artifacts
+- deterministic local workflows
+- approval-gated paper trading
+- operator and reviewer usability
+- honest reporting of what is real and what is still skeletal
 
 Execution sequencing and phase intent are anchored in `PLAN.md`. Repository guardrails are anchored in `AGENTS.md`. Rolling implementation history lives in `docs/plans/work_log.md`.
 
@@ -28,16 +63,22 @@ Execution sequencing and phase intent are anchored in `PLAN.md`. Repository guar
 - approval-gated paper-trade candidate generation
 - monitoring, audit logging, experiment artifacts, and local daily orchestration
 
-## What Is Still Skeletal Or Deliberately Limited
+## What This Does Not Prove Yet
 
-- no live trading or brokerage connectivity
-- no production market-data connectors beyond local fixtures
-- no full reviewed-and-evaluated signal eligibility gate yet
-- no snapshot-native selection across the full research-to-portfolio chain
-- no first-class instrument or security master
-- no realistic execution simulator, liquidity model, or optimizer
-- no persistent infra beyond local filesystem artifacts
-- no semantic retrieval or vector indexing
+This repo is strong on structure, traceability, and workflow discipline.
+
+It does **not** yet prove:
+
+- validated alpha
+- live-market readiness
+- production-grade execution realism
+- complete policy enforcement
+- full snapshot-native selection across the entire chain
+- a true security master
+- semantic retrieval at scale
+- production infrastructure beyond local artifacts
+
+Treat the current repo as a release candidate for a 30-day local build, not as a production trading platform. It proves that the current workflow layers connect coherently and can be inspected honestly. It does not prove validated edge, live-market readiness, or complete downstream policy enforcement.
 
 ## Current Operating Paths
 
@@ -52,7 +93,7 @@ make demo
 Primary direct CLI:
 
 ```bash
-anhf demo run \
+nta demo run \
   --frozen-time 2026-04-01T12:00:00Z \
   --base-root artifacts/demo_runs/release_candidate
 ```
@@ -111,7 +152,7 @@ make daily-run
 Primary direct CLI:
 
 ```bash
-anhf daily run \
+nta daily run \
   --artifact-root artifacts/daily_runs/latest \
   --requested-by manual_local_run
 ```
@@ -190,9 +231,9 @@ See:
 ### 7. Inspect the interface surface
 
 ```bash
-anhf capabilities
-anhf manifest
-anhf review queue --json
+nta capabilities
+nta manifest
+nta review queue --json
 ```
 
 ## External Proof Materials

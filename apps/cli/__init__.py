@@ -1,4 +1,4 @@
-"""Unified local CLI for the ANHF research OS."""
+"""Unified local CLI for Nexus Tensor Alpha."""
 
 from apps.cli.main import main
 

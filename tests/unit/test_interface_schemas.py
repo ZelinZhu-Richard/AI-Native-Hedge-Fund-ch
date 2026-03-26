@@ -123,7 +123,7 @@ def test_workflow_and_demo_results_validate() -> None:
 
 def test_service_manifest_validates() -> None:
     manifest = ServiceManifest(
-        project_name="ANHF Research OS",
+        project_name="Nexus Tensor Alpha",
         environment="local",
         artifact_root=Path("/tmp/artifacts"),
         generated_at=NOW,
@@ -135,13 +135,13 @@ def test_service_manifest_validates() -> None:
                 inputs=["fixtures root"],
                 outputs=["demo manifest"],
                 api_routes=["POST /workflows/demo/run"],
-                cli_commands=["anhf demo run"],
+                cli_commands=["nta demo run"],
                 config_keys=["ARTIFACT_ROOT"],
                 notes=["review-bound"],
             )
         ],
         config_surface={
-            "PROJECT_NAME": "ANHF Research OS",
+            "PROJECT_NAME": "Nexus Tensor Alpha",
             "ARTIFACT_ROOT": "artifacts",
         },
         warnings=[
@@ -153,5 +153,5 @@ def test_service_manifest_validates() -> None:
         ],
     )
 
-    assert manifest.project_name == "ANHF Research OS"
+    assert manifest.project_name == "Nexus Tensor Alpha"
     assert manifest.capabilities[0].kind == "workflow"

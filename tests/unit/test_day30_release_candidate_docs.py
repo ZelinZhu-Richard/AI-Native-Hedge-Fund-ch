@@ -47,6 +47,23 @@ def test_readme_quickstart_prioritizes_verification_before_formatting() -> None:
     assert lint_index < typecheck_index < test_index < format_index
 
 
+def test_readme_intro_keeps_thesis_framing_and_nonproof_limits_visible() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+
+    assert "attempt to answer a simple question" in readme
+    assert "what would an ai-native hedge fund research stack look like" in readme
+    assert "projects are shallow" in readme
+    assert "research operating system" in readme
+    assert "approval-gated paper trading" in readme
+    assert "it does **not** yet prove" in readme
+    assert "validated alpha" in readme
+    assert "live-market readiness" in readme
+    assert (
+        "ingestion -> normalization -> evidence extraction -> hypothesis + critique"
+        in readme
+    )
+
+
 def test_release_candidate_docs_keep_required_limitations_visible() -> None:
     release_candidate_status = (PRODUCT_DOCS / "release_candidate_status.md").read_text(
         encoding="utf-8"
@@ -76,3 +93,26 @@ def test_release_candidate_docs_keep_required_limitations_visible() -> None:
 
     for group in limitation_groups:
         assert group in known_limitations
+
+
+def test_cli_transition_uses_nta_as_primary_and_keeps_anhf_alias() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    api_contracts = (PRODUCT_DOCS / "api_and_interface_contracts.md").read_text(
+        encoding="utf-8"
+    )
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    cli_source = (ROOT / "apps" / "cli" / "main.py").read_text(encoding="utf-8")
+
+    for command in [
+        "nta demo run",
+        "nta daily run",
+        "nta capabilities",
+        "nta manifest",
+    ]:
+        assert command in readme
+
+    assert 'nta = "apps.cli.main:main"' in pyproject
+    assert 'anhf = "apps.cli.main:main"' in pyproject
+    assert 'prog="nta"' in cli_source
+    assert "legacy `anhf` alias" in readme.lower()
+    assert "legacy `anhf` alias" in api_contracts.lower()

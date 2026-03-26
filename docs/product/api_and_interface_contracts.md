@@ -18,14 +18,14 @@ They do **not** provide live trading, multi-user control-plane behavior, or hidd
 Primary local entrypoints:
 
 - `make api`
-- `anhf manifest`
-- `anhf capabilities`
-- `anhf demo run`
-- `anhf daily run`
-- `anhf review queue --json`
-- `anhf monitoring recent-runs --json`
+- `nta manifest`
+- `nta capabilities`
+- `nta demo run`
+- `nta daily run`
+- `nta review queue --json`
+- `nta monitoring recent-runs --json`
 
-FastAPI remains the local inspection and coordination surface. The unified CLI is the primary command-line surface.
+FastAPI remains the local inspection and coordination surface. The unified CLI is the primary command-line surface. The legacy `anhf` alias remains available temporarily during the rename transition.
 
 ## Success Response Shape
 
@@ -96,7 +96,7 @@ Preferred canonical routes:
 
 Compatibility aliases still exist for older unscoped paths such as `/health`, `/version`, `/hypotheses`, `/portfolio-proposals`, and `/paper-trades/proposals`, but the canonical namespaced routes are preferred.
 
-`/system/manifest` and `anhf capabilities --json` should advertise the canonical namespaced routes only. Compatibility aliases remain in the route layer and are not the primary documented interface.
+`/system/manifest` and `nta capabilities --json` should advertise the canonical namespaced routes only. Compatibility aliases remain in the route layer and are not the primary documented interface.
 
 ## Capability And Manifest Surfaces
 

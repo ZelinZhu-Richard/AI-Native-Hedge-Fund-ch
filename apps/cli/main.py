@@ -24,7 +24,7 @@ from services.operator_review import ListReviewQueueRequest, OperatorReviewServi
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the unified local CLI."""
 
-    parser = argparse.ArgumentParser(prog="anhf", description="ANHF local interface CLI.")
+    parser = argparse.ArgumentParser(prog="nta", description="Nexus Tensor Alpha local interface CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     manifest_parser = subparsers.add_parser("manifest", help="Show the local interface manifest.")

@@ -94,20 +94,45 @@ def test_system_manifest_and_capabilities_are_structured() -> None:
         "/research/hypotheses",
         "/research/briefs",
     ]
+    assert descriptors_by_name["daily_workflow"]["cli_commands"] == [
+        "nta daily run",
+        "make daily-run",
+    ]
+    assert descriptors_by_name["demo_end_to_end"]["cli_commands"] == [
+        "nta demo run",
+        "make demo",
+    ]
+    assert any(
+        "anhf daily run" in note for note in descriptors_by_name["daily_workflow"]["notes"]
+    )
+    assert any(
+        "anhf demo run" in note for note in descriptors_by_name["demo_end_to_end"]["notes"]
+    )
 
     assert manifest_response.status_code == 200
     manifest = manifest_response.json()["data"]
-    assert manifest["project_name"] == "ANHF Research OS"
+    assert manifest["project_name"] == "Nexus Tensor Alpha"
     assert "ARTIFACT_ROOT" in manifest["config_surface"]
     assert any(item["warning_code"] == "local_only" for item in manifest["warnings"])
     manifest_capabilities_by_name = {
         item["name"]: item for item in manifest["capabilities"] if item["kind"] == "service"
+    }
+    manifest_workflows_by_name = {
+        item["name"]: item for item in manifest["capabilities"] if item["kind"] == "workflow"
     }
     assert manifest_capabilities_by_name["portfolio"]["api_routes"] == ["/portfolio/proposals"]
     assert manifest_capabilities_by_name["paper_execution"]["api_routes"] == [
         "/portfolio/paper-trades"
     ]
     assert manifest_capabilities_by_name["monitoring"]["api_routes"][0] == "/system/health/details"
+    assert manifest_workflows_by_name["daily_workflow"]["cli_commands"] == [
+        "nta daily run",
+        "make daily-run",
+    ]
+    assert manifest_workflows_by_name["demo_end_to_end"]["cli_commands"] == [
+        "nta demo run",
+        "make demo",
+    ]
 
     assert ingest_response.status_code == 200
     assert ingest_response.json()["data"]["status"] == "queued"

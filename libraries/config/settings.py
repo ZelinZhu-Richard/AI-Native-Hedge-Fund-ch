@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     )
 
     project_name: str = Field(
-        default="ANHF Research OS",
+        default="Nexus Tensor Alpha",
         validation_alias="PROJECT_NAME",
         description="Human-readable project name.",
     )

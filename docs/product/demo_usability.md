@@ -17,7 +17,7 @@ make demo
 Equivalent direct CLI:
 
 ```bash
-anhf demo run \
+nta demo run \
   --frozen-time 2026-04-01T12:00:00Z \
   --base-root artifacts/demo_runs/release_candidate
 ```
@@ -76,9 +76,9 @@ For the final proof path, the strongest convenience artifact is the final proof 
 ## Useful Follow-On Commands
 
 ```bash
-anhf capabilities
-anhf review queue --json
-anhf monitoring recent-runs --json
+nta capabilities
+nta review queue --json
+nta monitoring recent-runs --json
 ```
 
 Useful API surfaces after the demo:

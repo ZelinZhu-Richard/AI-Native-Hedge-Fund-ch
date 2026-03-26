@@ -245,10 +245,11 @@ def _workflow_descriptors() -> list[CapabilityDescriptor]:
             inputs=["artifact root", "fixtures root", "as_of_time", "ablation view"],
             outputs=["WorkflowExecution", "RunStep", "DailySystemReport"],
             api_routes=["POST /workflows/daily/run"],
-            cli_commands=["anhf daily run", "make daily-run"],
+            cli_commands=["nta daily run", "make daily-run"],
             config_keys=["ARTIFACT_ROOT", "DEFAULT_TIMEZONE"],
             notes=[
-                "The default healthy local outcome is often attention_required, which indicates a visible review-bound stop rather than a workflow failure, because paper-trade candidates remain review-gated."
+                "The default healthy local outcome is often attention_required, which indicates a visible review-bound stop rather than a workflow failure, because paper-trade candidates remain review-gated.",
+                "Legacy compatibility alias: `anhf daily run` remains available during the CLI migration."
             ],
         ),
         CapabilityDescriptor(
@@ -258,10 +259,11 @@ def _workflow_descriptors() -> list[CapabilityDescriptor]:
             inputs=["fixtures root", "price fixture path", "base root", "frozen time"],
             outputs=["demo manifest", "portfolio proposal", "monitoring run summaries"],
             api_routes=["POST /workflows/demo/run"],
-            cli_commands=["anhf demo run", "make demo"],
+            cli_commands=["nta demo run", "make demo"],
             config_keys=["ARTIFACT_ROOT", "DEFAULT_TIMEZONE"],
             notes=[
-                "The default demo remains review-bound and does not imply autonomous paper-trade generation."
+                "The default demo remains review-bound and does not imply autonomous paper-trade generation.",
+                "Legacy compatibility alias: `anhf demo run` remains available during the CLI migration."
             ],
         ),
     ]

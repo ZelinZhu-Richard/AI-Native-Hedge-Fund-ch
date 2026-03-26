@@ -15,8 +15,8 @@ Use `make demo` for the lighter baseline walkthrough. Use `make final-proof` whe
 **Exact commands**
 
 ```bash
-anhf manifest
-anhf capabilities
+nta manifest
+nta capabilities
 make final-proof
 make api
 curl -s http://127.0.0.1:8000/system/manifest
@@ -28,7 +28,7 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 
 **What to show**
 
-1. Show `anhf manifest` and `anhf capabilities` first to anchor the discussion in real services and workflows rather than slides.
+1. Show `nta manifest` and `nta capabilities` first to anchor the discussion in real services and workflows rather than slides.
 2. Run `make final-proof` to prove the current local end-to-end path exists and that the repo can extend it into an explicit approval-only paper-ledger appendix.
 3. Start the API and show `GET /system/manifest` to demonstrate that the platform exposes an honest inspection surface.
 4. Show `GET /reviews/queue` and `GET /portfolio/proposals` to make the review-bound stopping point explicit.
@@ -57,8 +57,8 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 **Exact commands**
 
 ```bash
-anhf capabilities
-anhf manifest
+nta capabilities
+nta manifest
 make final-proof
 make api
 curl -s http://127.0.0.1:8000/system/manifest
@@ -71,9 +71,9 @@ curl -s http://127.0.0.1:8000/reports/proposals/${PORTFOLIO_PROPOSAL_ID}/scoreca
 
 **What to show**
 
-1. Start with `anhf capabilities` and call out the service boundaries: data quality, evaluation, operator review, reporting, paper ledger, and daily workflow.
+1. Start with `nta capabilities` and call out the service boundaries: data quality, evaluation, operator review, reporting, paper ledger, and daily workflow.
 2. Run `make final-proof` and point out that the default branch stays review-bound while the appendix only proceeds through explicit approvals.
-3. Show `anhf manifest` and `GET /system/manifest` to demonstrate that the interface surface is generated from the real service registry.
+3. Show `nta manifest` and `GET /system/manifest` to demonstrate that the interface surface is generated from the real service registry.
 4. Show the review queue and proposal listing endpoints to prove the API is not just health checks.
 5. Show a proposal scorecard and explain that it links back to construction, risk, validation, and reporting artifacts.
 
